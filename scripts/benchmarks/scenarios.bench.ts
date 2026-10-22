@@ -17,6 +17,7 @@ import {
 	task,
 } from "benchkit";
 import { sleep } from "bun";
+import { assertColdCacheStats } from "./lib/cache-integrity.utils";
 import { authHeaders } from "./lib/identity.utils";
 import { suiteServerFixture } from "./lib/server.fixture";
 import type { ManagedServer } from "./lib/server.launcher";
@@ -285,6 +286,10 @@ async function runScenario(name: ScenarioName, server: ManagedServer, vusers: nu
 		rss = summary;
 	});
 	const cacheStatsBefore = await fetchAdminJson(server, "/v1/admin/cache-stats");
+	if (args.noCache) {
+		const namedCaches = assertColdCacheStats(cacheStatsBefore, `${name} before measurement`);
+		console.log(`  cold-cache integrity: 0 hits, 0 entries across ${namedCaches} named caches`);
+	}
 
 	const startedAt = performance.now();
 	await Promise.all(startActors(name, server, vusers, Date.now() + args.durationMs, recorder));
@@ -318,6 +323,12 @@ async function runScenario(name: ScenarioName, server: ManagedServer, vusers: nu
 		`  ${(totalOps / (wallMs / 1000)).toFixed(1)} ops/s, ${totalErrors} errors, RSS ${fmtMb(rss.startBytes ?? 0)} → peak ${fmtMb(rss.peakBytes ?? 0)} → end ${fmtMb(rss.endBytes ?? 0)}`,
 	);
 
+	const cacheStatsAfter = await fetchAdminJson(server, "/v1/admin/cache-stats");
+	if (args.noCache) {
+		const namedCaches = assertColdCacheStats(cacheStatsAfter, `${name} after measurement`);
+		console.log(`  cold-cache integrity after measurement: 0 hits, 0 entries across ${namedCaches} named caches`);
+	}
+
 	return {
 		vusers,
 		wallMs,
@@ -326,7 +337,7 @@ async function runScenario(name: ScenarioName, server: ManagedServer, vusers: nu
 		operations: recorder.serialize(),
 		rss,
 		cacheStatsBefore,
-		cacheStatsAfter: await fetchAdminJson(server, "/v1/admin/cache-stats"),
+		cacheStatsAfter,
 	};
 }
 

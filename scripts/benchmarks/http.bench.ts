@@ -9,7 +9,9 @@ import {
 	toScenarioEntries,
 	weightedMix,
 } from "benchkit";
+import { assertColdCacheStats, fetchCacheStats } from "./lib/cache-integrity.utils";
 import { suiteServerFixture } from "./lib/server.fixture";
+import type { ManagedServer } from "./lib/server.launcher";
 
 interface ScenarioContext {
 	baseUrl: string;
@@ -384,11 +386,13 @@ task("http: scenarios", async () => {
 	let personId = "person-0";
 	let seededRows = args.rows;
 	let watchedHistoryCursor = "";
+	let managedServer: ManagedServer | undefined;
 
 	if (baseUrl) {
 		console.log(`[http] targeting external server at ${baseUrl}`);
 	} else {
 		const managed = await serverFixture();
+		managedServer = managed;
 		baseUrl = managed.baseUrl;
 		cookies = managed.workerCookies;
 		profileIdFor = (idx) => managed.profileIdFor(idx);
@@ -417,6 +421,11 @@ task("http: scenarios", async () => {
 			await cursorResponse.arrayBuffer();
 		}
 		console.log(`[http] watched-history cursor: ${watchedHistoryCursor ? "resolved" : "unavailable (first-page mode)"}`);
+
+		if (args.noCache) {
+			const namedCaches = assertColdCacheStats(await fetchCacheStats(managed, adminCookie), "before HTTP matrix");
+			console.log(`[http] cold-cache integrity: 0 hits, 0 entries across ${namedCaches} named caches`);
+		}
 	}
 
 	const context: ScenarioContext = {
@@ -462,6 +471,11 @@ task("http: scenarios", async () => {
 	});
 
 	printHttpResults(results);
+
+	if (args.noCache && managedServer) {
+		const namedCaches = assertColdCacheStats(await fetchCacheStats(managedServer, adminCookie), "after HTTP matrix");
+		console.log(`[http] cold-cache integrity after measurement: 0 hits, 0 entries across ${namedCaches} named caches`);
+	}
 
 	return { ok: true, data: { metrics: httpScenarioMetrics(results) } };
 });

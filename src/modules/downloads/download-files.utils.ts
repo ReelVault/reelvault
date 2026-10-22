@@ -14,7 +14,8 @@ export function downloadDirectory(downloadId: string): string {
 
 /** The file name of a download's MP4: the source name without its extension or illegal characters, plus the quality. */
 export function downloadFileName(sourceFileName: string, quality: string): string {
-	const baseName = sourceFileName.replace(FILE_EXTENSION_REGEX, "").replace(ILLEGAL_FILENAME_CHARS_REGEX, "_").slice(0, 120) || "download";
+	const baseName =
+		sourceFileName.replace(FILE_EXTENSION_REGEX, "").replaceAll(ILLEGAL_FILENAME_CHARS_REGEX, "_").slice(0, 120) || "download";
 
 	return `${baseName}.${quality === "original" ? "mp4" : `${quality}.mp4`}`;
 }

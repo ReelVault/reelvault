@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { mediaRepository } from "@/repositories/media-files.repository";
+import { metadataRepository } from "@/repositories/metadata.repository";
 import { useTestDatabase } from "../../tests/helpers/test-database.helper";
 
 const db = useTestDatabase();
@@ -111,5 +112,39 @@ describe("mediaRepository.setDefault", () => {
 		await mediaRepository.setDefault("mf-missing", true, db.client());
 
 		expect(await defaultFlags()).toEqual({ "mf-a": true });
+	});
+});
+
+describe("media file presence stamp", () => {
+	test("adds and removes the title from the recently-added list as its only file appears and disappears", async () => {
+		await seedTargets();
+
+		const created = await mediaRepository.createWithStreams({
+			libraryId: "lib-1",
+			metadataId: "meta-movie-1",
+			movieId: "movie-1",
+			episodeId: null,
+			filePath: "/media/heat.mkv",
+			fileName: "heat.mkv",
+			formatName: "matroska",
+			duration: 3_600,
+			size: 1_000,
+			bitRate: null,
+			source: null,
+			edition: null,
+			qualityTag: null,
+			sourceMtimeMs: null,
+			isEnabled: true,
+			videoStreams: [],
+			audioStreams: [],
+		});
+
+		const afterCreate = await metadataRepository.findRecentlyAddedByTypes(["movie"], 10);
+		expect(afterCreate.get("movie")?.map((row) => row.id)).toEqual(["meta-movie-1"]);
+
+		await mediaRepository.deleteByIds([created.mediaFile.id]);
+
+		const afterDelete = await metadataRepository.findRecentlyAddedByTypes(["movie"], 10);
+		expect(afterDelete.get("movie")?.map((row) => row.id)).toEqual([]);
 	});
 });

@@ -118,7 +118,10 @@
 				"noCommaOperator": "error",
 				"noStaticOnlyClass": "error",
 				"noThisInStatic": "error",
-				"noUselessCatchBinding": "error"
+				"noUselessCatchBinding": "error",
+				"noUnnecessaryTemplateExpression": "error",
+				"useArraySome": "error",
+				"noExcessiveNestedCallbacks": "warn"
 			},
 			"correctness": {
 				"noConstantMathMinMaxClamp": "error",
@@ -283,7 +286,12 @@
 				"noEqualsToNull": "error",
 				"noForIn": "error",
 				"noUnusedExpressions": "error",
-				"noNestedPromises": "error"
+				"noNestedPromises": "error",
+				"noLoopFunc": "error",
+				"noDrizzleDeleteWithoutWhere": "error",
+				"noDrizzleUpdateWithoutWhere": "error",
+				"noEmptyObjectKeys": "error",
+				"noIdenticalTestTitle": "error"
 			},
 			"nursery": {
 				"noFloatingPromises": "off",
@@ -291,25 +299,17 @@
 				"useAwaitThenable": "off",
 				"noUnsafeTypeAssertion": "off",
 				"noUselessTypeConversion": "error",
-				"noUnnecessaryTemplateExpression": "error",
 				"noUnsafePlusOperands": "off",
 				"noBaseToString": "off",
 				"noMisleadingReturnType": "error",
 				"noImpliedEval": "error",
 				"noExtendNative": "error",
-				"noLoopFunc": "error",
 				"noUnmodifiedLoopCondition": "error",
 				"useExhaustiveSwitchCases": "error",
-				"useArraySome": "error",
 				"useIncludes": "error",
-				"noDrizzleDeleteWithoutWhere": "error",
-				"noDrizzleUpdateWithoutWhere": "error",
 				"noThisOutsideOfClass": "error",
 				"noNegationInEqualityCheck": "error",
-				"noEmptyObjectKeys": "error",
-				"noExcessiveNestedCallbacks": "warn",
 				"noReturnInFinally": "error",
-				"noIdenticalTestTitle": "error",
 				"useStringStartsEndsWith": "error"
 			}
 		}

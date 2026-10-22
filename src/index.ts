@@ -16,6 +16,7 @@ import { streamingManager } from "./modules/streaming/runtime/streaming.manager"
 import { registerStreamingLifecycle } from "./modules/streaming/runtime/streaming.runtime";
 import { pluginManager } from "./plugins/lifecycle/plugin.manager";
 import { onNotificationChannelFailure } from "./plugins/runtime/notification-channel.registry";
+import { backfillLatestMediaCreatedAt } from "./repositories/metadata/media-presence.writer";
 import { adminFailureNotificationService } from "./services/admin/admin-failure-notification.service";
 import { systemSettingsService } from "./services/admin/system-settings.service";
 import { registerAuthListeners } from "./services/auth/auth.service";
@@ -53,6 +54,10 @@ async function setupServer(): Promise<void> {
 		logger.info("Applying database migrations...");
 		const { applied } = databaseFactory.migrate();
 		logger.info("Database migrations applied", { appliedMigrations: applied });
+
+		// Fill the media-presence stamp for databases that predate the column, so
+		// catalog lists and the recently-added rank never miss a title.
+		await backfillLatestMediaCreatedAt();
 
 		// Better Auth's own user writes create the first profile; registered before any user can be created.
 		registerAuthListeners();

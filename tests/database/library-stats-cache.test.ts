@@ -55,7 +55,7 @@ describe("library stats caching", () => {
 			.values([
 				{ id: "lp-root", libraryId: "lib-multi", stableKey: "sk-1", path: "/media/a", isActive: true },
 				{ id: "lp-nested", libraryId: "lib-multi", stableKey: "sk-2", path: "/media/a/sub", isActive: true },
-				{ id: "lp-win", libraryId: "lib-multi", stableKey: "sk-3", path: "C:\\media\\win", isActive: true },
+				{ id: "lp-win", libraryId: "lib-multi", stableKey: "sk-3", path: String.raw`C:\media\win`, isActive: true },
 			]);
 		await db()
 			.insert(schema.mediaFiles)
@@ -63,7 +63,7 @@ describe("library stats caching", () => {
 				{ ...mediaFileRow("mf-1", "lib-multi", 10), filePath: "/media/a/root.mkv" },
 				{ ...mediaFileRow("mf-2", "lib-multi", 20), filePath: "/media/a/sub/nested.mkv" },
 				{ ...mediaFileRow("mf-3", "lib-multi", 40), filePath: "/media/outside.mkv" },
-				{ ...mediaFileRow("mf-4", "lib-multi", 50), filePath: "C:\\media\\win\\clip.mkv" },
+				{ ...mediaFileRow("mf-4", "lib-multi", 50), filePath: String.raw`C:\media\win\clip.mkv` },
 			]);
 
 		const result = await librariesRepository.findById({ primaryId: "lib-multi", fields });

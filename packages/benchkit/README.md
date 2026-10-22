@@ -69,7 +69,6 @@ trust them. With `--strict` a "slower" verdict, a failed task or a failed equali
 ## For AI agents
 
 Everything an agent needs is machine-readable or grep-friendly:
-
 - `bun run benchmark` lists the suites with one-line descriptions; `--help` lists every flag.
 - `--only <regex>` narrows a run to the units that matter; a pattern matching nothing exits 1.
 - `--json=<path>` writes every result (`schema: "benchkit/v1"`): per bench `stats` (count, mean,
@@ -129,24 +128,24 @@ Task names follow `"<suite>: <phase>"`, so `--only` targets them unambiguously.
 
 ## Modules
 
-| File | Role |
-|---|---|
-| `cli.runner.ts` | `runBenchmarkCli` (the command line: suite discovery, `--profile` re-run, result paths, `prepare`), `profilerFlags` for spawned Bun processes |
-| `args.parser.ts` | the flags and `suiteArgs()` (one parse per process) |
-| `bench.registry.ts` | `group`/`bench`/`compare`/`task`/`fixture` and unit collection |
-| `bench.runner.ts` | suite listing and selection, execution, `--json`, baselines, `--strict` |
-| `micro.utils.ts` | `measure`/`measureAsync`, `benchmark`/`benchmarkAsync` (with row counts), `printMicroResults` |
-| `compare.utils.ts` | `compareVariants` (interleaved A/B with the equality check), `printAbResult` |
+| File                | Role                                                                                                                                                                             |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli.runner.ts`     | `runBenchmarkCli` (the command line: suite discovery, `--profile` re-run, result paths, `prepare`), `profilerFlags` for spawned Bun processes                                    |
+| `args.parser.ts`    | the flags and `suiteArgs()` (one parse per process)                                                                                                                              |
+| `bench.registry.ts` | `group`/`bench`/`compare`/`task`/`fixture` and unit collection                                                                                                                   |
+| `bench.runner.ts`   | suite listing and selection, execution, `--json`, baselines, `--strict`                                                                                                          |
+| `micro.utils.ts`    | `measure`/`measureAsync`, `benchmark`/`benchmarkAsync` (with row counts), `printMicroResults`                                                                                    |
+| `compare.utils.ts`  | `compareVariants` (interleaved A/B with the equality check), `printAbResult`                                                                                                     |
 | `scenario.utils.ts` | HTTP load scenarios: `runScenarioMatrix`, `runRequestScenario`, `toScenarioEntries`, `toScenarioResult`, `printHttpResults`, `httpScenarioMetrics`, `jsonRequest`, `stringField` |
-| `load.utils.ts` | `runLoadWindow` (the closed-loop window with warmup), `weightedMix`, `identityIndexFor`, `subnetIp`, `parseSegments` |
-| `task.recorder.ts` | `Recorder`: per-operation latencies and errors for mixed-load tasks, `recorder.time()` |
-| `rss.utils.ts` | RSS and CPU time from `/proc`: `startProcessSampler`, `startRssSampler`, `startCpuSampler` |
-| `trend.utils.ts` | `growthVerdict`, `linearSlope`, `levelsOff` — the leak test for a process whose GC cannot be forced |
-| `latency.utils.ts` | `percentile`, `summarizeLatencies` |
-| `baseline.utils.ts` | baseline storage and comparison, Mann-Whitney U |
-| `metrics.utils.ts` | `metric()` and `TaskMetrics` for task results |
-| `process.utils.ts` | `spawnManagedProcess`, `waitForHealth` |
-| `report.utils.ts` | ASCII tables and formatters |
+| `load.utils.ts`     | `runLoadWindow` (the closed-loop window with warmup), `weightedMix`, `identityIndexFor`, `subnetIp`, `parseSegments`                                                             |
+| `task.recorder.ts`  | `Recorder`: per-operation latencies and errors for mixed-load tasks, `recorder.time()`                                                                                           |
+| `rss.utils.ts`      | RSS and CPU time from `/proc`: `startProcessSampler`, `startRssSampler`, `startCpuSampler`                                                                                       |
+| `trend.utils.ts`    | `growthVerdict`, `linearSlope`, `levelsOff` — the leak test for a process whose GC cannot be forced                                                                              |
+| `latency.utils.ts`  | `percentile`, `summarizeLatencies`                                                                                                                                               |
+| `baseline.utils.ts` | baseline storage and comparison, Mann-Whitney U                                                                                                                                  |
+| `metrics.utils.ts`  | `metric()` and `TaskMetrics` for task results                                                                                                                                    |
+| `process.utils.ts`  | `spawnManagedProcess`, `waitForHealth`                                                                                                                                           |
+| `report.utils.ts`   | ASCII tables and formatters                                                                                                                                                      |
 
 ## Measurement semantics
 

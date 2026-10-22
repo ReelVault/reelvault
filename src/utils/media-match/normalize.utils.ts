@@ -5,7 +5,7 @@ const DIACRITICS_PATTERN = /\p{M}/gu;
 
 /** Strips Unicode combining marks (diacritics) from a string after NFD decomposition. */
 export function stripDiacritics(value: string): string {
-	return value.normalize("NFD").replace(DIACRITICS_PATTERN, "");
+	return value.normalize("NFD").replaceAll(DIACRITICS_PATTERN, "");
 }
 
 export const WHITESPACE_COLLAPSE = /\s+/g;
@@ -31,7 +31,7 @@ const NON_DECOMPOSING_LETTER_MAP: Record<string, string> = {
 };
 
 function foldNonDecomposingLetters(value: string): string {
-	return value.replace(NON_DECOMPOSING_LETTER_REGEX, (character) => {
+	return value.replaceAll(NON_DECOMPOSING_LETTER_REGEX, (character) => {
 		const lower = character.toLowerCase();
 
 		return NON_DECOMPOSING_LETTER_MAP[lower] ?? character;
@@ -82,7 +82,7 @@ export function normalizeTitle(value: string): string {
 
 	const withoutDiacritics = normalizeForFuzzy(value);
 	const withoutEdition = withoutDiacritics.replace(EDITION_NOISE, " ");
-	const withoutPunctuation = withoutEdition.replace(TITLE_PUNCTUATION, " ").replace(WHITESPACE_COLLAPSE, " ").trim();
+	const withoutPunctuation = withoutEdition.replaceAll(TITLE_PUNCTUATION, " ").replaceAll(WHITESPACE_COLLAPSE, " ").trim();
 	const withoutLeadingThe = withoutPunctuation.replace(LEADING_THE, "");
 	const normalized = withoutLeadingThe
 		.split(" ")

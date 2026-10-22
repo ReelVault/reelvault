@@ -1,7 +1,9 @@
 ---
+
 paths:
-  - "**/*.test.ts"
-  - "tests/**"
+- "**/*.test.ts"
+- "tests/**"
+
 ---
 
 # Testing
@@ -17,7 +19,6 @@ Every test case passes all six. A case that fails one of them is rewritten or de
 ### 1. Provenance — the expected value is a fact
 
 The expected side of an assertion is a **fact about the behavior**:
-
 - a literal,
 - a row read back from the database,
 - bytes read from the real system,
@@ -68,19 +69,18 @@ Before you finish a test, break the code path it covers: flip one condition or c
 
 Assert the outcome: the returned value, the stored row, the response body, the emitted payload, the written file.
 
-| Never | Instead |
-|---|---|
-| `expect(repo.findById).toHaveBeenCalledWith(id)` | the row the repository returns |
-| `expect(mock.save).toHaveBeenCalledTimes(1)` | the stored row |
-| `expect(result).toBe(stubReturn)` | the value the service produced from it |
-| `expect(spy).toHaveBeenCalledWith(url, opts)` | the response the caller received |
+| Never                                            | Instead                                |
+| ------------------------------------------------ | -------------------------------------- |
+| `expect(repo.findById).toHaveBeenCalledWith(id)` | the row the repository returns         |
+| `expect(mock.save).toHaveBeenCalledTimes(1)`     | the stored row                         |
+| `expect(result).toBe(stubReturn)`                | the value the service produced from it |
+| `expect(spy).toHaveBeenCalledWith(url, opts)`    | the response the caller received       |
 
 A call assertion is allowed only when the call itself is the invariant — the cache is invalidated before the write becomes visible, the lock is held across the section — and the title says so.
 
 ### 4. Ownership — the file owns the code
 
 A test file under `src/` exercises a module from its own folder. A test that covers another area's code belongs to that area:
-
 - the coverage map lies about what is protected,
 - the test reads as noise in the folder it sits in,
 - the next agent moves the code and the test stays behind.
@@ -108,9 +108,9 @@ mockModuleWithRealExports("@/integrations/ffmpeg/ffmpeg.capabilities", {
 
 A test may not call a probe that reads the detected capabilities — `getEffectiveHwaccel`, `getFfmpegCapabilities`, `resolveEffectiveHwaccel`, `getDetectedDriDevice`. The one exception is the test that owns the module declaring them.
 
-**The subject reads the host too.** A test that exercises a *detection* inherits every host read inside the subject, even the ones the test never touches. The auto-detection of a DRM-backed accelerator needs a `/dev/dri` node; the software encoder's preset, resolution cap and x264 lookahead scale with the measured CPU speed. Pin those inputs — mock the probe the subject calls, or stub the speed factor — or the test passes on a desktop and fails on a CI runner.
+**The subject reads the host too.** A test that exercises a _detection_ inherits every host read inside the subject, even the ones the test never touches. The auto-detection of a DRM-backed accelerator needs a `/dev/dri` node; the software encoder's preset, resolution cap and x264 lookahead scale with the measured CPU speed. Pin those inputs — mock the probe the subject calls, or stub the speed factor — or the test passes on a desktop and fails on a CI runner.
 
-**The build.** The suite runs against whatever ffmpeg the machine has: upstream ffmpeg, jellyfin-ffmpeg, or a minimal build. They differ in the filters and encoders they advertise, so a test that asserts on the *detected* set is asserting on the build. The decisions that depend on the build are tested with literal sets instead:
+**The build.** The suite runs against whatever ffmpeg the machine has: upstream ffmpeg, jellyfin-ffmpeg, or a minimal build. They differ in the filters and encoders they advertise, so a test that asserts on the _detected_ set is asserting on the build. The decisions that depend on the build are tested with literal sets instead:
 
 ```ts
 // jellyfin-ffmpeg ships tonemapx, upstream ffmpeg ships zscale+tonemap.
@@ -138,7 +138,6 @@ The input is a case the product really handles: a real file, a real row, a real 
 A fixture shaped to what the implementation does today passes by accident, and it hides the bug the test exists to catch. Replace it with a real case.
 
 When a test fails, read the production code first:
-
 - Fix the function when it is wrong, and keep the assertion.
 - Change an expected value only when the old one contradicts a written fact: a specification, a documented behavior, a reported bug. Name the fact in the commit or the CHANGELOG.
 - Never move an expected value to what the new code prints because the code now does something else. That ships the defect with a green test attached.
@@ -155,7 +154,6 @@ When a test fails, read the production code first:
 ## Don't write
 
 Each item says what to write instead.
-
 - **Pass-through**: a stub echoed back, or a call asserted with the arguments it was given. Assert the returned value or the stored row.
 - **Tautology**: an expected value recomputed with the logic under test, or with a helper the logic under test also calls. Use a literal.
 - **Call count or call order on collaborators**: assert the outcome. Keep a call assertion only when the order is the invariant, and say so in the title.
@@ -210,7 +208,6 @@ In the report of the change, name the mutation you used and the test it failed. 
 ## The gate
 
 `bun run lint tests` fails on:
-
 - an expected value recomputed with the code under test or with a helper it also uses,
 - an expected value that is a constant the code under test defines,
 - a case whose only assertion proves something exists,
@@ -222,7 +219,7 @@ In the report of the change, name the mutation you used and the test it failed. 
 
 `bun run lint` runs it. Fix the assertion, not the rule.
 
-The gate matches the static forms above only. It cannot see a variable that holds an earlier output of the subject, a shaped fixture, or a fact that is wrong. Reviewers and the mutation check in *Self-check* cover those.
+The gate matches the static forms above only. It cannot see a variable that holds an earlier output of the subject, a shaped fixture, or a fact that is wrong. Reviewers and the mutation check in _Self-check_ cover those.
 
 ## Removing tests
 

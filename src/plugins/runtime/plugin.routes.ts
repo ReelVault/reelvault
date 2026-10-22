@@ -171,7 +171,7 @@ function parseRoutePath(path: string): RouteSegment[] {
 }
 
 function normalizeRequestPath(path: string): string[] {
-	return path.replace(TRIM_SLASHES, "").split("/").filter(Boolean);
+	return path.replaceAll(TRIM_SLASHES, "").split("/").filter(Boolean);
 }
 
 function matchRoute(segments: readonly RouteSegment[], path: readonly string[]): Record<string, string> | undefined {

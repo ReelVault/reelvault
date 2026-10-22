@@ -24,7 +24,7 @@ const DOT_UNDERSCORE_PATTERN = /[._]/g;
 const TITLE_TAIL_PATTERN = /[\s._([-]+$/;
 
 function cleanTitle(str: string): string {
-	return str.replace(DOT_UNDERSCORE_PATTERN, " ").replaceAll(/\s+/g, " ").trim();
+	return str.replaceAll(DOT_UNDERSCORE_PATTERN, " ").replaceAll(/\s+/g, " ").trim();
 }
 
 /**

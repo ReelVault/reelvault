@@ -131,7 +131,7 @@ export async function buildSessionLogArchive(sessionId: string, files: readonly 
 
 /** Archive file name for a session's logs; the session id keeps only the characters a log name keeps. */
 export function sessionLogArchiveName(sessionId: string, now: Date): string {
-	return `reelvault-session-${operationLogSegment(sessionId)}-${now.toISOString().replace(TIMESTAMP_SEPARATORS_REGEX, "-")}.zip`;
+	return `reelvault-session-${operationLogSegment(sessionId)}-${now.toISOString().replaceAll(TIMESTAMP_SEPARATORS_REGEX, "-")}.zip`;
 }
 
 /** The name segments a session's logs can carry: its own id, and its operation id once one is attached. */

@@ -3,6 +3,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { findMediaCleanupData, type MediaCleanupData } from "@/integrations/drizzle-orm/utils/media-cleanup.reader";
+import { refreshLatestMediaCreatedAt } from "@/repositories/metadata/media-presence.writer";
 import { clearStatsCaches, type LibraryStatsCaches } from "./shared.types";
 
 /**
@@ -33,6 +34,7 @@ export async function deleteWithDependents(caches: LibraryStatsCaches, libraryId
 		await client.delete(schema.mediaFiles).where(eq(schema.mediaFiles.libraryId, libraryId));
 
 		const candidateMetadataIds = candidateMetadata.map((row) => row.metadataId);
+		await refreshLatestMediaCreatedAt(candidateMetadataIds, tx);
 		await forEachChunked(candidateMetadataIds, (metadataIds) =>
 			client
 				.delete(schema.metadata)

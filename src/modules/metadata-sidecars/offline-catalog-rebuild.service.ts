@@ -78,6 +78,12 @@ export class SqliteOfflineCatalogRebuildService implements OfflineCatalogRebuild
 				}
 			}
 
+			// The importers write media rows directly, so seed the maintained
+			// presence stamp before the rebuilt catalog can be served.
+			database.run(
+				"UPDATE metadata SET latest_media_created_at = (SELECT MAX(created_at) FROM media_files WHERE media_files.metadata_id = metadata.id)",
+			);
+
 			const foreignKeyErrors = database.query("PRAGMA foreign_key_check").all();
 			database.close();
 			if (foreignKeyErrors.length > 0)

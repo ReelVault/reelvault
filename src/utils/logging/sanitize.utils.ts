@@ -155,5 +155,5 @@ function redactSensitiveText(value: string): string {
 		return value;
 	}
 
-	return value.replace(BEARER_REDACT, "$1[REDACTED]").replace(SECRET_REDACT, "$1[REDACTED]");
+	return value.replaceAll(BEARER_REDACT, "$1[REDACTED]").replaceAll(SECRET_REDACT, "$1[REDACTED]");
 }

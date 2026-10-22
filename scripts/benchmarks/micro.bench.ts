@@ -477,7 +477,7 @@ compare("parseColonSeparatedSeconds: split+parseFloat vs charCode parser (H:MM:S
 
 compare(String.raw`stripDiacritics: NFD + /\p{M}/gu vs single-pass accent map (search path)`, {
 	variants: [
-		{ name: "NFD + \\p{M}", fn: () => titleSamples.map((title) => stripDiacritics(title)).join("|") },
+		{ name: String.raw`NFD + \p{M}`, fn: () => titleSamples.map((title) => stripDiacritics(title)).join("|") },
 		{ name: "single-pass map", fn: () => titleSamples.map((title) => stripDiacriticsMap(title)).join("|") },
 	],
 	batch: 32,
@@ -602,7 +602,7 @@ const matchPairs = Array.from({ length: 32 }, (_, i) => ({
 }));
 const whitespaceAll = /\s+/g;
 const bigramsString = (value: string): string[] => {
-	const collapsed = value.replace(whitespaceAll, "");
+	const collapsed = value.replaceAll(whitespaceAll, "");
 	if (collapsed.length < 2) return collapsed ? [collapsed] : [];
 
 	const out: string[] = [];

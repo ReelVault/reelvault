@@ -15,10 +15,10 @@ const TRAILING_YEAR_TAIL = /\s*\((?:19|20)\d{2}\)?\s*[-–—]?\s*$/;
 export function generateQueryVariants(title: string): string[] {
 	const trimmed = title.trim();
 	const withoutEdition = trimmed.replace(EDITION_NOISE, "").replace(WHITESPACE_COLLAPSE, " ").trim();
-	const withoutPunctuation = trimmed.replace(PUNCTUATION_COLLAPSE, " ").trim();
+	const withoutPunctuation = trimmed.replaceAll(PUNCTUATION_COLLAPSE, " ").trim();
 	const withoutTrailingYearTail = trimmed.replace(TRAILING_YEAR_TAIL, "").trim();
 	const withoutLeadingThe = withoutPunctuation.replace(LEADING_THE, "");
-	const swappedAmpersand = trimmed.includes("&") ? trimmed.replaceAll("&", "and") : trimmed.replace(AND_WORD_GLOBAL, "&");
+	const swappedAmpersand = trimmed.includes("&") ? trimmed.replaceAll("&", "and") : trimmed.replaceAll(AND_WORD_GLOBAL, "&");
 
 	return unique(
 		[trimmed, withoutTrailingYearTail, withoutEdition, withoutPunctuation, withoutLeadingThe, swappedAmpersand].filter(Boolean),

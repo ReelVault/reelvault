@@ -24,7 +24,7 @@ export function isVideoFile(path: string): boolean {
 }
 
 export function normalizePath(path: string): string {
-	return path.replace(BACKSLASH_REGEX, "/").replace(MULTI_SLASH_REGEX, "/");
+	return path.replaceAll(BACKSLASH_REGEX, "/").replaceAll(MULTI_SLASH_REGEX, "/");
 }
 
 export function isSubpath(candidatePath: string, parentDir: string): boolean {

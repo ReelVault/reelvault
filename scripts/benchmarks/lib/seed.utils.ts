@@ -289,6 +289,13 @@ export function seedServerCatalog(database: Database, rows: number, posterPath: 
 		seedCatalogTitle(inserts, index, now);
 	}
 
+	// Seed the maintained presence stamp here, before the server boots: leaving
+	// it to the boot backfill would rewrite every title row during the run and
+	// distort unrelated endpoints with the resulting WAL/checkpoint work.
+	database.run(
+		"UPDATE metadata SET latest_media_created_at = (SELECT MAX(created_at) FROM media_files WHERE media_files.metadata_id = metadata.id)",
+	);
+
 	database.run("COMMIT");
 	database.run("PRAGMA foreign_keys = ON");
 }

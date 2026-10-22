@@ -42,6 +42,13 @@ export const metadata = sqliteTable(
 		popularity: real("popularity").notNull().default(0),
 		matchScore: real("match_score"),
 		hasMissingTranslation: integer("has_missing_translation", { mode: "boolean" }).notNull().default(false),
+		/**
+		 * Latest `media_files.created_at` for this title, maintained by the media-file
+		 * writers. NULL means the title has no files. Lists filter on this instead of
+		 * running an EXISTS probe per metadata row, and recently-added ranks on the
+		 * partial index below instead of scanning every title with a correlated MAX.
+		 */
+		latestMediaCreatedAt: integer("latest_media_created_at", { mode: "timestamp" }),
 
 		...timestampColumns,
 	},
@@ -78,6 +85,12 @@ export const metadata = sqliteTable(
 		index("metadata_type_title_id_idx").on(t.type, t.title, t.id),
 		// The same for the typed browse sorted by created_at.
 		index("metadata_type_created_id_idx").on(t.type, t.createdAt, t.id),
+		// Recently-added ranks by the latest media-file timestamp. Deliberately a
+		// full index: a partial `WHERE latest_media_created_at IS NOT NULL` index
+		// made SQLite choose it for unfiltered pages and then sort in a temp
+		// B-tree (deep offset 6 ms → 29 ms); the full index leaves those pages on
+		// the sort-title index while still serving the rank as a covering seek.
+		index("metadata_type_latest_media_idx").on(t.type, t.latestMediaCreatedAt, t.id),
 		check("metadata_type_check", sql`${t.type} IN ('movie', 'tv_show')`),
 		check(
 			"metadata_numeric_values_check",

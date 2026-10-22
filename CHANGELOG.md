@@ -232,36 +232,35 @@ The performance work focuses on reducing unnecessary database work, request wate
 
 Representative end-to-end and database measurements. Timed values are p50 unless stated otherwise; HTTP results are medians from three alternating runs.
 
-| Area | Benchmark | Before | After | Change |
-| --- | --- | ---: | ---: | ---: |
-| HTTP | Health, c=50 — throughput | 24,896 req/s | 30,440 req/s | **+22%** |
-| HTTP | Health, c=100 — throughput | 24,898 req/s | 32,341 req/s | **+30%** |
-| HTTP | Health, c=100 — p50 latency | 3.74 ms | 2.92 ms | **-22%** |
-| HTTP | Smart-play, 50 IDs — statements | 151 | 4 | **-97%** |
-| HTTP | Smart-play, c=10 — throughput | 750 req/s | 2,250 req/s | **+200%** |
-| HTTP | Smart-play, c=10 — p95 latency | 18.9 ms | 6.4 ms | **-66%** |
-| DB | Metadata page of 24 — prepared statement | 0.08 ms | 0.05 ms | **-37%** |
-| DB | `findTypeById` — prepared | 0.05 ms | 0.01 ms | **-80%** |
-| DB | `findProgressUpdateData` — prepared | 0.05 ms | 0.01 ms | **-80%** |
-| DB | Recently-added ranking, 20k titles | 19.2 ms | 8.6 ms | **-55%** |
-| DB | Collections page — grouped count | 2.94 ms | 0.82 ms | **-72%** |
-| DB | Catalog refresh — changed seasons + episodes | 48 stmts | 2 stmts | **-96%** |
-| DB | Redundant prefix indexes | 10 B-trees/write | 0 | **-100%** |
-| Workers | Trigger-less deadline rewrite | 1 UPDATE/min | 0 | **-100%** |
-| Sidecars | Saving 20 episode files — lookups | ~44 stmts | 2 | **-95%** |
-| Sidecars | Artwork export — unchanged source + target | 18.95 ms | 0.02 ms | **≈-100%** |
-| Scanner | `isVideoFile`, 1,000 lookups | 0.65 ms | 0.10 ms | **-85%** |
-| Scanner | `matchesIgnorePattern`, 500 paths × 3 patterns | 0.86 ms | 0.21 ms | **-76%** |
-| Plugins | Catalog cold load, 3 repositories | 300.8 ms | 100.3 ms | **-67%** |
-| Plugins | Runtime mirroring, 2,000 files / 50 dirs | 28.05 ms | 6.2 ms | **-78%** |
-| Plugins | Artifact quota totals, 1,000 files | 10.10 ms | 1.13 ms | **-89%** |
-| Plugins | Trickplay generate-all enqueue | 183 µs/file | 17 µs/file | **-91%** |
-| Admin | Log-tail poll after 3 s idle | 7.94 ms | 0.31 ms | **-96%** |
+| Area     | Benchmark                                      |           Before |        After |     Change |
+| -------- | ---------------------------------------------- | ---------------: | -----------: | ---------: |
+| HTTP     | Health, c=50 — throughput                      |     24,896 req/s | 30,440 req/s |   **+22%** |
+| HTTP     | Health, c=100 — throughput                     |     24,898 req/s | 32,341 req/s |   **+30%** |
+| HTTP     | Health, c=100 — p50 latency                    |          3.74 ms |      2.92 ms |   **-22%** |
+| HTTP     | Smart-play, 50 IDs — statements                |              151 |            4 |   **-97%** |
+| HTTP     | Smart-play, c=10 — throughput                  |        750 req/s |  2,250 req/s |  **+200%** |
+| HTTP     | Smart-play, c=10 — p95 latency                 |          18.9 ms |       6.4 ms |   **-66%** |
+| DB       | Metadata page of 24 — prepared statement       |          0.08 ms |      0.05 ms |   **-37%** |
+| DB       | `findTypeById` — prepared                      |          0.05 ms |      0.01 ms |   **-80%** |
+| DB       | `findProgressUpdateData` — prepared            |          0.05 ms |      0.01 ms |   **-80%** |
+| DB       | Recently-added ranking, 20k titles             |          19.2 ms |       8.6 ms |   **-55%** |
+| DB       | Collections page — grouped count               |          2.94 ms |      0.82 ms |   **-72%** |
+| DB       | Catalog refresh — changed seasons + episodes   |         48 stmts |      2 stmts |   **-96%** |
+| DB       | Redundant prefix indexes                       | 10 B-trees/write |            0 |  **-100%** |
+| Workers  | Trigger-less deadline rewrite                  |     1 UPDATE/min |            0 |  **-100%** |
+| Sidecars | Saving 20 episode files — lookups              |        ~44 stmts |            2 |   **-95%** |
+| Sidecars | Artwork export — unchanged source + target     |         18.95 ms |      0.02 ms | **≈-100%** |
+| Scanner  | `isVideoFile`, 1,000 lookups                   |          0.65 ms |      0.10 ms |   **-85%** |
+| Scanner  | `matchesIgnorePattern`, 500 paths × 3 patterns |          0.86 ms |      0.21 ms |   **-76%** |
+| Plugins  | Catalog cold load, 3 repositories              |         300.8 ms |     100.3 ms |   **-67%** |
+| Plugins  | Runtime mirroring, 2,000 files / 50 dirs       |         28.05 ms |       6.2 ms |   **-78%** |
+| Plugins  | Artifact quota totals, 1,000 files             |         10.10 ms |      1.13 ms |   **-89%** |
+| Plugins  | Trickplay generate-all enqueue                 |      183 µs/file |   17 µs/file |   **-91%** |
+| Admin    | Log-tail poll after 3 s idle                   |          7.94 ms |      0.31 ms |   **-96%** |
 
 ## Additional measurements
 
 Smaller benchmarks are kept separately so the main table stays focused:
-
 - `findRootsById`: **-50%**
 - `upsertProgress`: **-50%**
 - `findNumberingModeById`: **-83%**
@@ -480,7 +479,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 ### Library scanning & metadata
 
-- **Filename year parsing** — years inside titles no longer override the actual release year; for example, `Blade Runner 2049 (2017).mkv` resolves to *Blade Runner 2049* (2017). Year-first formats such as `(1993) Jurassic Park` and `1993 - Jurassic Park` are also recognized correctly.
+- **Filename year parsing** — years inside titles no longer override the actual release year; for example, `Blade Runner 2049 (2017).mkv` resolves to _Blade Runner 2049_ (2017). Year-first formats such as `(1993) Jurassic Park` and `1993 - Jurassic Park` are also recognized correctly.
 - **Provider ID tags and edition matching** — `[tmdbid-…]`, `{imdb-…}` and `[tvdbid-…]` tags are removed from parsed titles, and `Uncut` is ignored when matching edition names.
 - **Rematch preserves locked metadata** — re-identifying a title no longer overwrites administrator-locked fields, including artwork, cast and genres, unless `overwriteLocked` is set.
 - **Library metadata language respected** — title refresh, artwork refresh and provider reassignment now use the metadata language configured for the library.
@@ -568,6 +567,7 @@ Smaller benchmarks are kept separately so the main table stays focused:
 - **Watch-state and recommendations remain consistent** — repeated watched actions no longer inflate history, completed episodes advance Continue Watching, and titles marked "not interested" are excluded from recommendations and Trending.
 
 ### Compatibility notes
+
 - **List response fields changed** — clients must migrate from `items`, `jobs` and `sessions` to `data` for the affected endpoints. Admin search parameters on users, logs and worker jobs now use `q`.
 - **Existing profile databases** — new profile preferences such as `hdrMode`, `hideRatingOverlay`, `resumeRewindSeconds`, `watchlistAutoRemoveWatched`, `mutedNotificationTypes` and `hiddenPages` use the existing preference storage unless a specific migration is noted above.
 
@@ -599,27 +599,27 @@ Smaller benchmarks are kept separately so the main table stays focused:
 
 Seeded catalog of 5,000 rows on one machine, managed server. Each value is the median of three rounds run in alternating order (the code before this release, then this release); the machine was quiet (1-minute load below 2) before each run. Rows marked "cache off" use `--no-cache`. Within-side spread is within ±5% except collections at c=100 (base 1,556–1,810 req/s, this release 3,867–5,622 req/s).
 
-| Area | Benchmark | Before | After | Change |
-| --- | --- | ---: | ---: | ---: |
-| HTTP | `GET /v1/metadata?limit=24` catalog browse, cache on, c=50 — req/s | 1,707 | 30,078 | **+1,662%** |
-| HTTP | Same, cache on, c=50 — p95 | 44.1 ms | 2.7 ms | **−93.9%** |
-| HTTP | Same, cache off, c=50 — req/s | 1,711 | 2,422 | **+41.6%** |
-| HTTP | Same, cache off, c=50 — p95 | 43.5 ms | 30.9 ms | **−28.9%** |
-| HTTP | `GET /v1/metadata?limit=24` catalog browse, cache off, c=50, `encodeSchema` alone — req/s | 1,974 | 2,457 | **+24.4%** |
-| HTTP | Same, c=50, `encodeSchema` alone — p95 | 37.3 ms | 30.0 ms | **−19.4%** |
-| HTTP | `GET /v1/media-files?limit=24`, cache off, c=50 — req/s | 1,888 | 3,778 | **+100.1%** |
-| HTTP | `GET /v1/collections?limit=24`, cache off, c=50 — req/s | 951 | 1,916 | **+101.4%** |
-| HTTP | Same, c=100 — req/s | 1,645 | 4,981 | **+202.8%** |
-| HTTP | `GET /v1/collections?limit=24`, cache off, c=1, poster-preview change alone — req/s | 480 | 2,757 | **+474%** |
-| HTTP | Same, c=1 — p95 | 2.80 ms | 0.60 ms | **−78.6%** |
-| HTTP | `GET /v1/metadata/:id` movie detail, cache off, c=10 — req/s | 11,758 | 18,564 | **+57.9%** |
-| HTTP | `GET /v1/metadata/search/global?q=zzzq` (no-match fallback), cache off, c=50 — req/s | 1,125 | 5,167 | **+359.2%** |
-| HTTP | Same, c=50 — p95 | 49.0 ms | 11.1 ms | **−77.3%** |
-| Static | `GET /` SPA entry, c=50 — req/s | 36,217 | 55,020 | **+51.9%** |
-| Static | `/assets/app.js` (64 KiB), c=50 — req/s | 16,158 | 25,820 | **+59.8%** |
-| Static | `/assets/app.js` range `bytes=0-4095`, c=50 — req/s | 17,142 | 30,170 | **+76.0%** |
-| In-process | Cache hit through `app.handle`, browser `Accept-Encoding`, c=1 — req/s | 225,939 | 248,490 | **+10.0%** |
-| In-process | Same, c=50 — req/s | 197,085 | 224,645 | **+14.0%** |
+| Area       | Benchmark                                                                                 |  Before |   After |      Change |
+| ---------- | ----------------------------------------------------------------------------------------- | ------: | ------: | ----------: |
+| HTTP       | `GET /v1/metadata?limit=24` catalog browse, cache on, c=50 — req/s                        |   1,707 |  30,078 | **+1,662%** |
+| HTTP       | Same, cache on, c=50 — p95                                                                | 44.1 ms |  2.7 ms |  **−93.9%** |
+| HTTP       | Same, cache off, c=50 — req/s                                                             |   1,711 |   2,422 |  **+41.6%** |
+| HTTP       | Same, cache off, c=50 — p95                                                               | 43.5 ms | 30.9 ms |  **−28.9%** |
+| HTTP       | `GET /v1/metadata?limit=24` catalog browse, cache off, c=50, `encodeSchema` alone — req/s |   1,974 |   2,457 |  **+24.4%** |
+| HTTP       | Same, c=50, `encodeSchema` alone — p95                                                    | 37.3 ms | 30.0 ms |  **−19.4%** |
+| HTTP       | `GET /v1/media-files?limit=24`, cache off, c=50 — req/s                                   |   1,888 |   3,778 | **+100.1%** |
+| HTTP       | `GET /v1/collections?limit=24`, cache off, c=50 — req/s                                   |     951 |   1,916 | **+101.4%** |
+| HTTP       | Same, c=100 — req/s                                                                       |   1,645 |   4,981 | **+202.8%** |
+| HTTP       | `GET /v1/collections?limit=24`, cache off, c=1, poster-preview change alone — req/s       |     480 |   2,757 |   **+474%** |
+| HTTP       | Same, c=1 — p95                                                                           | 2.80 ms | 0.60 ms |  **−78.6%** |
+| HTTP       | `GET /v1/metadata/:id` movie detail, cache off, c=10 — req/s                              |  11,758 |  18,564 |  **+57.9%** |
+| HTTP       | `GET /v1/metadata/search/global?q=zzzq` (no-match fallback), cache off, c=50 — req/s      |   1,125 |   5,167 | **+359.2%** |
+| HTTP       | Same, c=50 — p95                                                                          | 49.0 ms | 11.1 ms |  **−77.3%** |
+| Static     | `GET /` SPA entry, c=50 — req/s                                                           |  36,217 |  55,020 |  **+51.9%** |
+| Static     | `/assets/app.js` (64 KiB), c=50 — req/s                                                   |  16,158 |  25,820 |  **+59.8%** |
+| Static     | `/assets/app.js` range `bytes=0-4095`, c=50 — req/s                                       |  17,142 |  30,170 |  **+76.0%** |
+| In-process | Cache hit through `app.handle`, browser `Accept-Encoding`, c=1 — req/s                    | 225,939 | 248,490 |  **+10.0%** |
+| In-process | Same, c=50 — req/s                                                                        | 197,085 | 224,645 |  **+14.0%** |
 
 The browse and collections rows are the combined result of every change above; they do not isolate one change. The `encodeSchema` rows isolate that one change: the same build with only the option flipped, three alternating rounds per side. The poster-preview rows isolate that change: the tree before it, then with it, three alternating rounds per side. They ran at a 1-minute load of 8–9 from other processes, so their absolute numbers sit below the rows above.
 
@@ -748,6 +748,10 @@ The browse and collections rows are the combined result of every change above; t
 - **Administration commands work in a release install** — `doctor`, `admin:reset-password`, `admin:two-factor-enforcement` and the `db:*` commands were documented for every install, but the release archive shipped neither their scripts nor a `bun` on the PATH, so they only ran from a source checkout. The archive now includes them and the launchers pass a command through: `./start.sh doctor`, `./start.sh admin:reset-password <email>` (`start.bat` on Windows). `db:migrate` applies migrations the way the server does at boot.
 - **Release archives bundle the Bun the server is tested with** — the archives shipped Bun 1.4.2 while the server requires 1.4.3, and `doctor` checked for 1.4.2. The bundled runtime now follows `packageManager` and `doctor` reads the minimum from `engines`. The archives also stop shipping the server's 400 test files.
 
+#### Runtime
+
+- **Bun 1.4.4** — the runtime bundled in release archives is now 1.4.4, bringing security fixes for TLS, WebSocket, `Bun.password`, `Bun.serve`, `bun:sqlite` and the package manager.
+
 #### Development tooling
 
 - **`bun run benchmark` runs every suite it is given** — `bun run benchmark matching database` silently ran only `matching`, so documented before/after comparisons over several suites measured one.
@@ -756,11 +760,13 @@ The browse and collections rows are the combined result of every change above; t
 - **The route check compares against the published SDK** — it looked for SDK sources in a folder that does not exist in this repository, so the comparison never ran. It is now a test that every endpoint the `@reelvault/sdk` client calls has a route, and that no route shadows another.
 - **The memory leak check notices a steady leak** — a series counted as levelled off when its last third stayed within 5% of its first, so a steady leak of 1 MB per round on a 200 MB server passed. The check now asks whether the climb has stopped: the slope of the last third must fall under the threshold. It runs as `bun run benchmark memory --only leak --strict`.
 - **The `write` suite's add/remove pairs stay on seeded titles** — the titles were picked from a fixed range of 5,000, so a run with `--rows` below that toggled titles that did not exist and reported about half the pairs as errors.
+- **Linux release archives keep musl support** — Bun 1.4.4 filters optional native packages by libc, so an archive built on Ubuntu would have shipped only the glibc `sharp`/libvips build and failed on Alpine. The release install now requests every libc variant (`--libc '*'`), as before.
 
 ### Performance
 
 #### Database & query efficiency
 
+- **Stored the media-presence timestamp on the title** — `metadata.latest_media_created_at` is maintained by the media-file writers (insert, delete, reassign, library delete, merge) and backfilled once at boot. Catalog lists now test one column instead of running an `EXISTS` probe over `media_files` for every title, and “recently added” ranks through `metadata_type_latest_media_idx` instead of a correlated `MAX` over the catalog. On a cold 50,000-title catalog (in-process): catalog page **10.61 → 1.36 ms**, projected page **10.24 → 1.12 ms**, filtered page **9.51 → 6.31 ms**, deep offset page **16.48 → 3.54 ms**, recently-added ranking **30.6 → 0.73 ms**, and a cold Discover build **32.44 → 1.87 ms**. Cold HTTP c=10: catalog browse **103 → 610 req/s** (p95 103 → 18 ms), projected browse **103 → 707 req/s** (p95 104 → 16 ms), deep offset **67 → 263 req/s** (p95 161 → 41 ms), filtered browse **115 → 147 req/s** (p95 93 → 72 ms), Discover **25 → 52 req/s** (p95 522 → 222 ms), and mixed traffic **107 → 291 req/s** (p95 356 → 109 ms). The response schema keeps the column internal, so the API payload is unchanged; unrelated endpoints stayed within the benchmark’s run-to-run spread.
 - **Served the watched-history listing from an index** — the default (keyset) page no longer sorts the whole profile history in a temporary B-tree: the profile/watched-at index now carries the id tie-breaker, so the query is a covering index search. The plan changed from `SCAN watched_history` + `USE TEMP B-TREE FOR ORDER BY` to `SEARCH watched_history USING COVERING INDEX`; the wall clock is unchanged at the benchmark's scale (0.43–0.45 ms p50 before, 0.43–0.48 ms p50 after on a 50,000-row catalog).
 - **Grouped smart-play relations once** — the per-title season and episode scans became a group-by, so a batch no longer re-scans the whole relation set per title. A 50-title batch went from 1.15 to 1.08 ms p50 (a series batch from 0.36 to 0.35 ms).
 - **Unified bulk id existence checks** — every bulk precheck now deduplicates and chunks its id list, so a large batch cannot exceed SQLite's bound-variable limit.
@@ -820,20 +826,20 @@ The browse and collections rows are the combined result of every change above; t
 
 All figures below are from the recorded benchmarks for this release; results depend on the test environment and workload.
 
-| Area | Before | After | Result |
-| --- | ---: | ---: | --- |
-| Typed title browsing | 0.14 ms | 0.03 ms | 4.7× faster |
-| Unfiltered newest browsing | 0.14 ms | 0.02 ms | 7× faster |
-| Descending browsing | 0.13 ms | 0.02 ms | 6.5× faster |
-| Watched-history listing, 50,000-row catalog | 0.44 ms | 0.44 ms | same time, full scan → covering index |
-| Smart-play batch, 50 titles | 1.15 ms | 1.08 ms | 6% faster |
-| 5,000-title relation loading | 9 statements | 3 statements | 67% fewer |
-| Marking 40 files as watched | 121 statements | 4 statements | 97% fewer |
-| Importing markers for 50 files | 300 statements | 5 statements | 98% fewer |
-| Trickplay artifact lookup for 200 files | 15.2 ms | 0.5 ms | 27.8× faster |
-| Trickplay generation | 17,390 ms | 6,524 ms | 2.67× faster |
-| Large library scan peak memory (100k files) | 165–166 MB | 148–150 MB | ~10% less |
-| Database maintenance, 20,000 rows | 30.6 ms | 9.6 ms | 69% less time |
-| Longest maintenance event-loop stall | 25.6 ms | 0.1 ms | 99.6% shorter |
-| 64 KB response-body copy | 0.88 ms | 0.015 ms | 58.7× faster |
-| Plugin manifest read on cache miss | 0.405 ms | 0.022 ms | 18× faster |
+| Area                                        |         Before |        After | Result                                |
+| ------------------------------------------- | -------------: | -----------: | ------------------------------------- |
+| Typed title browsing                        |        0.14 ms |      0.03 ms | 4.7× faster                           |
+| Unfiltered newest browsing                  |        0.14 ms |      0.02 ms | 7× faster                             |
+| Descending browsing                         |        0.13 ms |      0.02 ms | 6.5× faster                           |
+| Watched-history listing, 50,000-row catalog |        0.44 ms |      0.44 ms | same time, full scan → covering index |
+| Smart-play batch, 50 titles                 |        1.15 ms |      1.08 ms | 6% faster                             |
+| 5,000-title relation loading                |   9 statements | 3 statements | 67% fewer                             |
+| Marking 40 files as watched                 | 121 statements | 4 statements | 97% fewer                             |
+| Importing markers for 50 files              | 300 statements | 5 statements | 98% fewer                             |
+| Trickplay artifact lookup for 200 files     |        15.2 ms |       0.5 ms | 27.8× faster                          |
+| Trickplay generation                        |      17,390 ms |     6,524 ms | 2.67× faster                          |
+| Large library scan peak memory (100k files) |     165–166 MB |   148–150 MB | ~10% less                             |
+| Database maintenance, 20,000 rows           |        30.6 ms |       9.6 ms | 69% less time                         |
+| Longest maintenance event-loop stall        |        25.6 ms |       0.1 ms | 99.6% shorter                         |
+| 64 KB response-body copy                    |        0.88 ms |     0.015 ms | 58.7× faster                          |
+| Plugin manifest read on cache miss          |       0.405 ms |     0.022 ms | 18× faster                            |

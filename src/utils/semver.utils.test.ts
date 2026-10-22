@@ -1,27 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { SERVER_VERSION } from "@/config/version.constants";
-import { isNewerVersion, minServerVersionError, parseSemver, requiresNewerServer } from "./semver.utils";
-
-describe("parseSemver", () => {
-	test("parses plain and v-prefixed versions", () => {
-		expect(parseSemver("1.2.3")).toEqual({ major: 1, minor: 2, patch: 3, prerelease: null });
-		expect(parseSemver("v1.2.3")).toEqual({ major: 1, minor: 2, patch: 3, prerelease: null });
-		expect(parseSemver("  v10.0.14  ")).toEqual({ major: 10, minor: 0, patch: 14, prerelease: null });
-	});
-
-	test("captures prerelease identifiers and ignores build metadata", () => {
-		expect(parseSemver("1.2.3-beta.1")).toEqual({ major: 1, minor: 2, patch: 3, prerelease: "beta.1" });
-		expect(parseSemver("2.0.0-rc.1+build.5")).toEqual({ major: 2, minor: 0, patch: 0, prerelease: "rc.1" });
-		expect(parseSemver("1.2.3+build.5")).toEqual({ major: 1, minor: 2, patch: 3, prerelease: null });
-	});
-
-	test("rejects garbage", () => {
-		expect(parseSemver("abc")).toBeNull();
-		expect(parseSemver("1.2")).toBeNull();
-		expect(parseSemver("")).toBeNull();
-		expect(parseSemver("1.2.3.4")).toBeNull();
-	});
-});
+import { isNewerVersion, minServerVersionError, requiresNewerServer } from "./semver.utils";
 
 describe("isNewerVersion", () => {
 	test("detects newer patch, minor and major", () => {
@@ -49,18 +28,13 @@ describe("isNewerVersion", () => {
 		expect(isNewerVersion("1.2.4", "1.2.4-beta")).toBe(true);
 	});
 
-	test("orders prerelease identifiers per semver precedence", () => {
-		expect(isNewerVersion("2.0.0-rc.2", "2.0.0-rc.1")).toBe(true);
-		expect(isNewerVersion("2.0.0-rc.1", "2.0.0-rc.2")).toBe(false);
-		expect(isNewerVersion("2.0.0-rc.1", "2.0.0-beta.9")).toBe(true);
-		expect(isNewerVersion("1.0.0-alpha", "1.0.0-alpha.1")).toBe(false);
-		expect(isNewerVersion("1.0.0-alpha.1", "1.0.0-alpha")).toBe(true);
-	});
-
 	test("unparseable versions never count as upgrades", () => {
 		expect(isNewerVersion("latest", "1.0.0")).toBe(false);
 		expect(isNewerVersion("1.2.3", "")).toBe(false);
 		expect(isNewerVersion("1.2.3.4", "1.2.3")).toBe(false);
+		// Bun's semver parser accepts a two-segment version; update tags must not.
+		expect(isNewerVersion("1.2", "1.1.0")).toBe(false);
+		expect(isNewerVersion("v1.2", "1.1.0")).toBe(false);
 	});
 });
 

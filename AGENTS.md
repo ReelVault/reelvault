@@ -8,7 +8,6 @@ Load the `karpathy-guidelines` skill before starting any task.
 ## Commands
 
 Run from the repo root:
-
 - `bun run format`: Biome formatting and import ordering (`bunx biome check --write <files>` for some files).
 - `bun run lint [check...]`: every static check, side by side, reporting all failures in one run (`scripts/lint/lint.script.ts`). The checks: `biome`, `oxlint` (type-aware), `types` (`tsc --noEmit`, the TypeScript 7 native checker), `deadcode` (knip, import cycles included), `duplicates` and `duplicates-strict` (jscpd; the budget is 1% duplicated lines), `tests` (the test-quality gate, see **Tests**), `guard` (rules no linter ships) and `migrations` (schema changes without a migration). Name checks to run only those: `bun run lint types tests`.
 - `bun run test`: the full suite, parallel, each file isolated. `bun test` runs from the root only; `bunfig.toml` preloads don't apply in subdirectories.
@@ -35,7 +34,6 @@ When a test fails, the production code is the suspect first. A test is never ben
 ### The six gates
 
 Every test case passes all six. A case that fails one is rewritten or deleted, never merged.
-
 1. **Provenance** — the expected value is a fact, not a recomputation of the subject.
 2. **Sensitivity** — breaking the implementation makes the test fail.
 3. **Outcome** — the test asserts what the system produced, not how it was called.
@@ -48,20 +46,19 @@ Every test case passes all six. A case that fails one is rewritten or deleted, n
 The expected side of an assertion is a **fact about the behavior**: a literal, a stored row read back, bytes read from the real system, a value an external specification fixes (RFC 9110, RFC 4122, a real ffmpeg banner, an HTTP status).
 
 It is never a **recomputation of the subject**. Three forms of the same trap:
-
 - **The same function.** The expected side calls the function under test.
 - **The same helper.** The expected side calls a helper the code under test also calls. The helper's correctness is then never verified — the test only proves it was called with the right arguments. A helper that produces the expected value needs its own test, with literals.
 - **The same subject, twice.** The expected side is another output of the function under test: `expect(f(a)).toBe(f(b))` proves the two agree, not that either is right. Pin both sides to literals. The gate flags a call written in the expected expression; it does not see a variable that holds an earlier output.
 
-| Never | Instead |
-|---|---|
-| `expect(parseEntry(x)).toEqual(parseEntry(x))` | a literal for the expected shape |
-| `expect(result.key).toBe(createStableKey(x))` | the literal key, so the format is pinned |
-| `expect(fingerprint).toBe(profilePinFingerprint(pin))` | the literal fingerprint |
-| `expect(dedupeKey).toBe(createDedupeKey(paths))` | the literal dedupe key |
-| `expect(total).toBe(items.reduce(sum, 0))` | the literal total |
-| `expect(second).toBe(encryptSecret(first))` | two literals, so the ciphertext is not pinned to the implementation |
-| `expect(kebab.allocated).toBe(camel.allocated)` | the literal allocation both worker ids must produce |
+| Never                                                  | Instead                                                             |
+| ------------------------------------------------------ | ------------------------------------------------------------------- |
+| `expect(parseEntry(x)).toEqual(parseEntry(x))`         | a literal for the expected shape                                    |
+| `expect(result.key).toBe(createStableKey(x))`          | the literal key, so the format is pinned                            |
+| `expect(fingerprint).toBe(profilePinFingerprint(pin))` | the literal fingerprint                                             |
+| `expect(dedupeKey).toBe(createDedupeKey(paths))`       | the literal dedupe key                                              |
+| `expect(total).toBe(items.reduce(sum, 0))`             | the literal total                                                   |
+| `expect(second).toBe(encryptSecret(first))`            | two literals, so the ciphertext is not pinned to the implementation |
+| `expect(kebab.allocated).toBe(camel.allocated)`        | the literal allocation both worker ids must produce                 |
 
 The same rule applies to a constant: a constant used as the expected value is built from literals, not from a call into the subject.
 
@@ -77,11 +74,11 @@ Before you finish a test, break the code path it covers: flip one condition or c
 
 Assert the returned value, the stored row, the response body, the emitted payload. Not which collaborator was called, and not with which arguments.
 
-| Never | Instead |
-|---|---|
-| `expect(repo.findById).toHaveBeenCalledWith(id)` | the row the repository returns |
-| `expect(mock.save).toHaveBeenCalledTimes(1)` | the stored row |
-| `expect(result).toBe(stubReturn)` | the value the service produced from it |
+| Never                                            | Instead                                |
+| ------------------------------------------------ | -------------------------------------- |
+| `expect(repo.findById).toHaveBeenCalledWith(id)` | the row the repository returns         |
+| `expect(mock.save).toHaveBeenCalledTimes(1)`     | the stored row                         |
+| `expect(result).toBe(stubReturn)`                | the value the service produced from it |
 
 A call assertion is allowed only when the call itself is the invariant, and the title says so.
 
@@ -101,9 +98,9 @@ const args = buildTranscodeVideoArgs(decision, config, hw("nvenc"), toneMap("non
 
 When the production code reads the host itself, the test replaces the module (`mockModuleWithRealExports`). A test may not call a probe of the detected capabilities — `getEffectiveHwaccel`, `getFfmpegCapabilities`, `resolveEffectiveHwaccel`, `getDetectedDriDevice` — except in the test that owns the module declaring them.
 
-**The subject reads the host too.** A test that exercises a *detection* inherits every host read inside the subject, even the ones it never touches: a DRM-backed accelerator needs a `/dev/dri` node, the software encoder's preset and x264 lookahead scale with the measured CPU speed. Pin those inputs — mock the probe the subject calls, or stub the speed factor. The worker concurrency that the allocator derives from the host CPU count is stubbed to a literal before any allocated value is asserted.
+**The subject reads the host too.** A test that exercises a _detection_ inherits every host read inside the subject, even the ones it never touches: a DRM-backed accelerator needs a `/dev/dri` node, the software encoder's preset and x264 lookahead scale with the measured CPU speed. Pin those inputs — mock the probe the subject calls, or stub the speed factor. The worker concurrency that the allocator derives from the host CPU count is stubbed to a literal before any allocated value is asserted.
 
-**The build.** The suite runs against whatever ffmpeg the machine has: upstream ffmpeg, jellyfin-ffmpeg, or a minimal build. They advertise different filters and encoders, so a test that asserts on the *detected* set asserts on the build. Test those decisions with literal sets instead — a fixture, never the probe's output.
+**The build.** The suite runs against whatever ffmpeg the machine has: upstream ffmpeg, jellyfin-ffmpeg, or a minimal build. They advertise different filters and encoders, so a test that asserts on the _detected_ set asserts on the build. Test those decisions with literal sets instead — a fixture, never the probe's output.
 
 **The clock.** A test that measures elapsed time may only compare it against a bound the test itself pins. A bound taken from the host's speed factor or a hard-coded millisecond count is a race against the runner.
 
@@ -116,12 +113,11 @@ The input is a case the product really handles: a real file, a real row, a real 
 A fixture shaped to what the implementation does today passes by accident, and it hides the bug the test exists to catch. Replace it with a real case.
 
 When a test fails, the production code is the suspect first:
-
 - Fix the function when it is wrong, and keep the assertion.
 - Change an expected value only when the old one contradicts a written fact: a specification, a documented behavior, a reported bug. Name the fact in the commit or the CHANGELOG.
 - Never move an expected value to what the new code prints because the code now does something else. That ships a defect with a green test attached.
 
-`bun run lint tests` checks the static forms listed under *The gate*. Reality, outcome and sensitivity need a reviewer and the mutation check under gate 2.
+`bun run lint tests` checks the static forms listed under _The gate_. Reality, outcome and sensitivity need a reviewer and the mutation check under gate 2.
 
 ### What a test may never contain
 
@@ -166,7 +162,6 @@ The gate matches the static forms above. Reality, outcome and sensitivity need a
 ## Rules enforced by tools
 
 Don't work around these. If one seems wrong, stop and ask the user.
-
 - No suppression comments (`biome-ignore`, `oxlint-disable`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`). When a type error appears, fix the model (TypeBox `t.Optional` or `t.Nullable`, return types, hydration), not the cast.
 - No weakening of `biome.json`, `.oxlintrc.json` or `tsconfig.json`, and no new `ignores` or `ignorePatterns` entries.
 - No knip `ignore` entries and no `@public` tags. Delete unused code.
@@ -181,7 +176,6 @@ Don't work around these. If one seems wrong, stop and ask the user.
 ## Readability rules
 
 `biome.json` and `.oxlintrc.json` carry the house style; `scripts/lint/*.grit` holds the rules no linter ships.
-
 - A ternary only picks between two short values. A branch that carries a call and runs past 80 characters, or any `await` inside a branch, is an `if`/`else` (or an early return) — `scripts/lint/long-ternary.grit` fails the build on it.
 - One value, one dispatch: an `if`/`else if` chain that compares the same subject three or more times is a `switch` — `scripts/lint/else-if-chain.grit` fails the build on it.
 - A module is the namespace: stateless helpers are named exports (`export function`). Never group them in an `export const *Utils = { ... }` object — `scripts/lint/no-namespace-object.grit` fails the build. Inside a utility module, functions call each other by name, never through the object.
@@ -221,7 +215,6 @@ Don't work around these. If one seems wrong, stop and ask the user.
 ### Plugin extension points
 
 Everything core lets a plugin observe or change goes through `system/extensions/`:
-
 - `plugin.events.ts` — `pluginEventBus.publish(name, payload)` / `emit` after something happened. Fire-and-forget, time-boxed per handler.
 - `plugin.hooks.ts` — `pluginHookBus.run(name, candidate)` before core acts. Each hook gets a frozen candidate and returns a replacement; `rejectPluginHook()` stops the action. To open a hook point, add its candidate type to `PluginHookCandidates` and call `run` where core is about to act; the call site validates what came back, because only it knows which fields a plugin may change.
 - `plugin.access.ts` — `pluginAccessBus.check(context)` for allow/deny decisions (stream access today).
@@ -276,17 +269,17 @@ src/
 
 Know when a piece of code runs before you put it somewhere.
 
-| Folder | When it runs | Rule |
-|---|---|---|
-| `config/` | read at boot; system settings read through a cache; the resource monitor runs from boot to shutdown | a write invalidates the cache; the monitor timer is `.unref()` and cleared at shutdown |
-| `integrations/drizzle-orm/` | opened and migrated at boot | closed late in shutdown, after everything that writes to it |
-| `system/` | the resource allocator and server rescue timers start at boot | `.unref()` and cleared at shutdown |
-| `plugins/` | loaded at boot; installed or updated while running | unloaded before the database closes |
-| `workers/` | scheduler and pools start after the database | stopped before the database closes |
-| `modules/` | started by `services/` and `workers/` | ffmpeg processes killed at shutdown |
-| `services/` | per request only (use cases) | no global mutable state |
-| `repositories/` | per request only (data access) | no global mutable state beyond bounded caches |
-| `api/` | per request only (HTTP transport) | no global mutable state |
+| Folder                      | When it runs                                                                                        | Rule                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `config/`                   | read at boot; system settings read through a cache; the resource monitor runs from boot to shutdown | a write invalidates the cache; the monitor timer is `.unref()` and cleared at shutdown |
+| `integrations/drizzle-orm/` | opened and migrated at boot                                                                         | closed late in shutdown, after everything that writes to it                            |
+| `system/`                   | the resource allocator and server rescue timers start at boot                                       | `.unref()` and cleared at shutdown                                                     |
+| `plugins/`                  | loaded at boot; installed or updated while running                                                  | unloaded before the database closes                                                    |
+| `workers/`                  | scheduler and pools start after the database                                                        | stopped before the database closes                                                     |
+| `modules/`                  | started by `services/` and `workers/`                                                               | ffmpeg processes killed at shutdown                                                    |
+| `services/`                 | per request only (use cases)                                                                        | no global mutable state                                                                |
+| `repositories/`             | per request only (data access)                                                                      | no global mutable state beyond bounded caches                                          |
+| `api/`                      | per request only (HTTP transport)                                                                   | no global mutable state                                                                |
 
 Shutdown order (the `shutdownSteps` list in `src/index.ts`): realtime, http, library-watchers, resource-allocator, server-rescue, workers, download-sweeps, streaming, ffmpeg, plugins, database. Intake stops first, and the database closes last.
 
@@ -311,6 +304,5 @@ Before you add or move a file, check this section. If no folder fits, ask the us
 ## Detailed rules
 
 These load when you work on matching files:
-
 - `.claude/rules/testing.md`: tests (`**/*.test.ts`, `tests/**`).
 - `.claude/rules/benchmarks.md`: benchmark suites (`scripts/benchmarks/**`, `packages/benchkit/**`).

@@ -155,7 +155,9 @@ for TARGET in "${TARGETS[@]}"; do
 	cp -r "$ROOT/scripts/admin" "$APP/server/scripts/"
 	(
 		cd "$APP/server"
-		bun install --production --frozen-lockfile --no-progress --os="$OS" --cpu="$CPU"
+		# Bun 1.4.4 filters optional native packages by libc. The archive is built on
+		# Ubuntu but must run on Alpine too, so install both variants like before.
+		bun install --production --frozen-lockfile --no-progress --os="$OS" --cpu="$CPU" --libc='*'
 	)
 
 	chmod +x "$APP/$LAUNCHER" "$APP/bun/$BUN_BIN"

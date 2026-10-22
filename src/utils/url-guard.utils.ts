@@ -133,7 +133,7 @@ interface ResolvedTarget {
 const BRACKET_WRAP = /^\[|\]$/g;
 
 function normalizeHostname(hostname: string): string {
-	return hostname.toLowerCase().replace(BRACKET_WRAP, "");
+	return hostname.toLowerCase().replaceAll(BRACKET_WRAP, "");
 }
 
 export interface GuardedFetchOptions extends RequestInit {

@@ -1,5 +1,23 @@
 import type { MetadataFilters, MetadataSorting } from "@reelvault/sdk/common";
-import { and, asc, desc, eq, exists, gt, gte, inArray, isNull, lt, lte, notExists, or, type SQL, type SQLWrapper, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	exists,
+	gt,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	lt,
+	lte,
+	notExists,
+	or,
+	type SQL,
+	type SQLWrapper,
+	sql,
+} from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -119,13 +137,10 @@ function buildPersonFilter(ids: string[] | undefined): SQL | undefined {
 
 function buildHasMediaFilesFilter(hasMediaFiles: boolean | string): SQL | undefined {
 	const enabled = coerceBoolean(hasMediaFiles);
-	const client = databaseFactory.getClient();
-	const mediaFilesSubquery = client
-		.select({ one: sql`1` })
-		.from(schema.mediaFiles)
-		.where(eq(schema.mediaFiles.metadataId, schema.metadata.id));
 
-	return enabled ? exists(mediaFilesSubquery) : notExists(mediaFilesSubquery);
+	// The maintained `latest_media_created_at` is non-NULL exactly when the title
+	// has at least one media file, so the list never probes `media_files` per row.
+	return enabled ? isNotNull(schema.metadata.latestMediaCreatedAt) : isNull(schema.metadata.latestMediaCreatedAt);
 }
 
 /** Any linked file at least `minutes` long (`min`) or at most `minutes` long (`max`). */

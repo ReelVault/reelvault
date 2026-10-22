@@ -4,6 +4,7 @@ import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { episodesRepository } from "@/repositories/episodes.repository";
+import { refreshLatestMediaCreatedAt } from "@/repositories/metadata/media-presence.writer";
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { moviesRepository } from "@/repositories/movies.repository";
 import { seasonsRepository } from "@/repositories/seasons.repository";
@@ -93,6 +94,8 @@ class MetadataMergeRepository {
 				if (type === "movie") await this.mergeMovieMediaFiles(targetId, sourceId, tx);
 				else await this.mergeTvShowData(targetId, sourceId, tx);
 
+				// The moved files now belong to the target; the source is deleted below.
+				await refreshLatestMediaCreatedAt([targetId], tx);
 				await this.mergeJunctionTable(schema.watchlist, targetId, sourceId, tx);
 				await this.mergeJunctionTable(schema.userRatings, targetId, sourceId, tx);
 				await this.mergeCollectionMemberships(targetId, sourceId, tx);

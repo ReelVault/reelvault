@@ -87,5 +87,5 @@ const NON_ALPHANUMERIC = /[^a-z0-9]+/g;
 
 /** Lowercases and collapses every non-alphanumeric run into single spaces. */
 export function normalizeForMatching(value: string): string {
-	return value.toLowerCase().replace(NON_ALPHANUMERIC, " ").trim();
+	return value.toLowerCase().replaceAll(NON_ALPHANUMERIC, " ").trim();
 }
