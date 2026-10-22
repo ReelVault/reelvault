@@ -818,29 +818,29 @@ The browse and collections rows are the combined result of every change above; t
 
 The table prioritizes measurements most relevant to a Jellyfin/Plex-style streaming host: catalog and Discover responsiveness under concurrent HTTP load, library operations, background media processing, memory use, and maintenance stalls. The figures are from this release's recorded benchmarks; results depend on the test environment and workload. HTTP results marked **c=10** were measured with 10 concurrent clients.
 
-| Area | Before | After | Result |
-| --- | ---: | ---: | --- |
-| **HTTP: catalog browse, 50,000 titles (c=10)** | 103 req/s, p95 103 ms | 610 req/s, p95 18 ms | 5.9× throughput; 82% lower p95 |
-| **HTTP: projected catalog browse (c=10)** | 103 req/s, p95 104 ms | 707 req/s, p95 16 ms | 6.9× throughput; 85% lower p95 |
-| **HTTP: deep-offset catalog browse (c=10)** | 67 req/s, p95 161 ms | 263 req/s, p95 41 ms | 3.9× throughput; 75% lower p95 |
-| **HTTP: filtered catalog browse (c=10)** | 115 req/s, p95 93 ms | 147 req/s, p95 72 ms | 28% higher throughput |
-| **HTTP: Discover (c=10)** | 25 req/s, p95 522 ms | 52 req/s, p95 222 ms | 2.1× throughput; 57% lower p95 |
-| **HTTP: mixed traffic (c=10)** | 107 req/s, p95 356 ms | 291 req/s, p95 109 ms | 2.7× throughput; 69% lower p95 |
-| **Similar-title ranking, 50,000 titles** | 29.75 ms | 13.39 ms | 2.2× faster |
-| **Library list, 50,000 files** | 10.78 ms | 7.36 ms | 32% faster |
-| **Library detail, HTTP (c=10)** | 407 req/s, p95 26 ms | 1,018 req/s, p95 17 ms | 2.5× throughput; 35% lower p95 |
-| Typed title browsing | 0.14 ms | 0.03 ms | 4.7× faster |
-| Unfiltered newest browsing | 0.14 ms | 0.02 ms | 7× faster |
-| Descending browsing | 0.13 ms | 0.02 ms | 6.5× faster |
-| Watched-history listing, 50,000-row catalog | 0.44 ms | 0.44 ms | Same time; full scan → covering index |
-| Smart-play batch, 50 titles | 1.15 ms | 1.08 ms | 6% faster |
-| 5,000-title relation loading | 9 statements | 3 statements | 67% fewer |
-| Marking 40 files as watched | 121 statements | 4 statements | 97% fewer |
-| Importing markers for 50 files | 300 statements | 5 statements | 98% fewer |
-| Trickplay artifact lookup for 200 files | 15.2 ms | 0.5 ms | 27.8× faster |
-| Trickplay generation | 17,390 ms | 6,524 ms | 2.67× faster |
-| Large library scan peak memory (100k files) | 165–166 MB | 148–150 MB | ~10% less |
-| Database maintenance, 20,000 rows | 30.6 ms | 9.6 ms | 69% less time |
-| Longest maintenance event-loop stall | 25.6 ms | 0.1 ms | 99.6% shorter |
-| 64 KB response-body copy | 0.88 ms | 0.015 ms | 58.7× faster |
-| Plugin manifest read on cache miss | 0.405 ms | 0.022 ms | 18× faster |
+| Area                                           |                Before |                  After | Result                                |
+| ---------------------------------------------- | --------------------: | ---------------------: | ------------------------------------- |
+| **HTTP: catalog browse, 50,000 titles (c=10)** | 103 req/s, p95 103 ms |   610 req/s, p95 18 ms | 5.9× throughput; 82% lower p95        |
+| **HTTP: projected catalog browse (c=10)**      | 103 req/s, p95 104 ms |   707 req/s, p95 16 ms | 6.9× throughput; 85% lower p95        |
+| **HTTP: deep-offset catalog browse (c=10)**    |  67 req/s, p95 161 ms |   263 req/s, p95 41 ms | 3.9× throughput; 75% lower p95        |
+| **HTTP: filtered catalog browse (c=10)**       |  115 req/s, p95 93 ms |   147 req/s, p95 72 ms | 28% higher throughput                 |
+| **HTTP: Discover (c=10)**                      |  25 req/s, p95 522 ms |   52 req/s, p95 222 ms | 2.1× throughput; 57% lower p95        |
+| **HTTP: mixed traffic (c=10)**                 | 107 req/s, p95 356 ms |  291 req/s, p95 109 ms | 2.7× throughput; 69% lower p95        |
+| **Similar-title ranking, 50,000 titles**       |              29.75 ms |               13.39 ms | 2.2× faster                           |
+| **Library list, 50,000 files**                 |              10.78 ms |                7.36 ms | 32% faster                            |
+| **Library detail, HTTP (c=10)**                |  407 req/s, p95 26 ms | 1,018 req/s, p95 17 ms | 2.5× throughput; 35% lower p95        |
+| Typed title browsing                           |               0.14 ms |                0.03 ms | 4.7× faster                           |
+| Unfiltered newest browsing                     |               0.14 ms |                0.02 ms | 7× faster                             |
+| Descending browsing                            |               0.13 ms |                0.02 ms | 6.5× faster                           |
+| Watched-history listing, 50,000-row catalog    |               0.44 ms |                0.44 ms | Same time; full scan → covering index |
+| Smart-play batch, 50 titles                    |               1.15 ms |                1.08 ms | 6% faster                             |
+| 5,000-title relation loading                   |          9 statements |           3 statements | 67% fewer                             |
+| Marking 40 files as watched                    |        121 statements |           4 statements | 97% fewer                             |
+| Importing markers for 50 files                 |        300 statements |           5 statements | 98% fewer                             |
+| Trickplay artifact lookup for 200 files        |               15.2 ms |                 0.5 ms | 27.8× faster                          |
+| Trickplay generation                           |             17,390 ms |               6,524 ms | 2.67× faster                          |
+| Large library scan peak memory (100k files)    |            165–166 MB |             148–150 MB | ~10% less                             |
+| Database maintenance, 20,000 rows              |               30.6 ms |                 9.6 ms | 69% less time                         |
+| Longest maintenance event-loop stall           |               25.6 ms |                 0.1 ms | 99.6% shorter                         |
+| 64 KB response-body copy                       |               0.88 ms |               0.015 ms | 58.7× faster                          |
+| Plugin manifest read on cache miss             |              0.405 ms |               0.022 ms | 18× faster                            |
