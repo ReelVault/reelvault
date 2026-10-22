@@ -15,6 +15,7 @@ import { detach } from "@/utils/promise.utils";
 import { downloadsProcessWorker } from "@/workers/definitions/downloads/downloads-process.worker";
 import { workerService } from "@/workers/worker.service";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { type DownloadRunContext, runClaimedDownload } from "./download.runner";
 import { downloadsService } from "./downloads.service";
 
 type DownloadInsert = typeof schema.downloads.$inferInsert;
@@ -387,6 +388,37 @@ describe("DownloadsService.process", () => {
 		await downloadsService.process("dl-1");
 
 		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "completed", sizeBytes: 11 });
+	});
+});
+
+describe("DownloadsService cancellation during output preparation", () => {
+	test("stops before ffmpeg starts when a cancellation arrives while the output is prepared", async () => {
+		await insertDownload({ id: "dl-1", status: "processing" });
+		const row = await downloadsRepository.findById("dl-1");
+		if (!row) throw new Error("Expected the download row");
+
+		const context: DownloadRunContext = { logger: downloadsService.logger, abortHandles: new Map() };
+		let starts = 0;
+		spies.push(
+			spyOn(ffMpegService, "create").mockImplementation(() => {
+				starts++;
+
+				throw new Error("ffmpeg must not start");
+			}),
+		);
+
+		const run = runClaimedDownload(
+			context,
+			{ row, filePath: "/media/movie.mkv", durationSeconds: 3_600, sourceFileName: "My.Movie.mkv" },
+			{},
+		);
+		expect(context.abortHandles.has("dl-1")).toBe(true);
+		context.abortHandles.get("dl-1")?.();
+		await downloadsRepository.update("dl-1", { status: "cancelled" });
+		await run;
+
+		expect(starts).toBe(0);
+		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "cancelled" });
 	});
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { PluginHookRejection, rejectPluginHook } from "@reelvault/sdk/plugin";
+import { DomainError } from "@/utils/domain.errors";
 import { PluginHookBus } from "./plugin.hooks";
 
 const candidate = {
@@ -22,7 +23,7 @@ describe("plugin hook bus", () => {
 		expect(await bus.run("beforeMetadataSave", candidate)).toEqual({ ...candidate, overview: "Original title overview" });
 	});
 
-	test("propagates an explicit hook rejection but isolates ordinary hook failures", async () => {
+	test("reports an explicit hook rejection as forbidden and isolates ordinary hook failures", async () => {
 		const bus = new PluginHookBus();
 		const ran: string[] = [];
 		bus.register("broken", "beforeMetadataSave", () => {
@@ -40,10 +41,16 @@ describe("plugin hook bus", () => {
 			return undefined;
 		});
 
-		const rejection = bus.run("beforeMetadataSave", candidate);
+		const failure: unknown = await bus.run("beforeMetadataSave", candidate).catch((error: unknown) => error);
 
-		await expect(rejection).rejects.toBeInstanceOf(PluginHookRejection);
-		await expect(rejection).rejects.toMatchObject({ name: "PluginHookRejection", message: "blocked by policy" });
+		expect(failure).toBeInstanceOf(DomainError);
+		if (!(failure instanceof DomainError)) throw new Error("Expected a DomainError");
+		expect(failure).toMatchObject({
+			category: "forbidden",
+			code: "plugin.hook_rejected",
+			params: { hook: "beforeMetadataSave", plugin: "rejecting" },
+		});
+		expect(failure.cause).toBeInstanceOf(PluginHookRejection);
 		// The ordinary failure is skipped, so the next hook runs; the explicit rejection stops the chain.
 		expect(ran).toEqual(["after-broken"]);
 	});

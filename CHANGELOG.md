@@ -658,6 +658,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Playback decisions now see the source bitrate and container** — the query a session starts from never selected them, so the per-stream bandwidth limit was not enforced without a client cap, a source below the client's bitrate cap was transcoded instead of remuxed, and every start and seek used the slowest (100 MB) probe budget instead of the container's own.
 - **Sidecar subtitles play again** — `.srt`/`.ass` files the scanner imported from a video's folder returned 404 from the content endpoint, which only served files under the subtitles directory. A stored file is now served from the subtitles directory or the folder of its own video.
 - **Offline downloads no longer get stuck in `processing`** — a run that failed after taking its running slot (ffmpeg not starting, the output folder not created) kept the slot forever, so the worker's retry found nothing to do and the profile's other downloads never started until a restart. The slot is now handed back, so the retry runs it and the last attempt marks it failed.
+- **Download cancellation is now atomic** — a cancellation racing completion or failure can no longer overwrite the final status or delete a completed file, and a cancellation that arrives while the output is being prepared stops the run before ffmpeg starts.
 
 #### Libraries, scanning & metadata
 
@@ -668,6 +669,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed duplicate title matching** — titles differing only by capitalization or Unicode representation are resolved consistently. Conflicting provider updates merge duplicate entries instead of aborting the transaction.
 - **Fixed Windows library cleanup** — removed files no longer leave stale media entries or scan findings behind.
 - **Fixed subtitle extraction and caching** — MKV cover art, font attachments and data tracks are no longer imported as subtitles. Editing subtitles also invalidates cached cues correctly.
+- **Deleting a subtitle clears its content info after the row is gone** — a concurrent content read could otherwise cache the deleted subtitle for 30 minutes.
 - **Fixed duplicate external subtitles** — uploading another subtitle in the same language no longer incorrectly reports it as missing or deletes the uploaded file.
 - **Fixed WebVTT uploads with a UTF-8 BOM** — valid files whose header starts with a BOM are accepted instead of being rejected as unreadable.
 - **Fixed bulk watched status** — files without a known duration can now be marked as watched, as intended.
@@ -698,6 +700,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed duplicate entities in one plugin registration** — a plugin that registers the same entity id twice in one batch is refused with `plugin.entity_duplicate` before anything is registered; before, the second copy silently replaced the first.
 - **Plugin configuration for an uninstalled plugin answers 404** — the configuration endpoint returns `404 plugin.not_found` for an id with no installed package, instead of reporting a broken package.
 - **A `beforeArtifactCreate` hook can no longer store an unserved content type** — the type a hook returned was only checked for being non-empty, so a hook could store an artifact as `text/html` and have it served from the server's own origin. The returned type now passes the same allow-list as the write.
+- **A rejected plugin hook returns 403 instead of 500** — `plugin.hook_rejected` now identifies the hook and the rejecting plugin, so failures such as a blocked metadata save are reported as forbidden actions.
 
 #### Workers & background operations
 

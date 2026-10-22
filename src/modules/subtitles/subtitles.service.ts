@@ -148,7 +148,7 @@ export class SubtitlesService {
 			assertFound(updatedEntity, "Subtitle", id);
 			// Invalidate after the write: a concurrent read between an earlier
 			// invalidate and the commit would re-cache the old row for the full TTL.
-			subtitleInfoCache.invalidate(id);
+			await subtitleInfoCache.invalidateAndWait(id);
 
 			// The extracted VTT is keyed only by the subtitle id, but its content
 			// depends on the stream/source/media file — drop it so the next content
@@ -186,13 +186,16 @@ export class SubtitlesService {
 
 	async delete(id: string): Promise<{ success: true }> {
 		return await runSafely(this, "delete", async () => {
-			subtitleInfoCache.invalidate(id);
+			await subtitleInfoCache.invalidateAndWait(id);
 			// Wait for a concurrent extraction so it cannot rename the VTT back
 			// after this delete removes it.
 			await subtitleExtractorService.waitForInFlight(id);
 			const subtitle = await subtitlesRepository.deleteAndReturn(id);
 			assertFound(subtitle, "Subtitle", id);
 			await subtitleFileCleaner.deleteArtifacts(id, subtitle);
+			// A content read can load the row between the first invalidation and
+			// the delete; drop what that read cached after the row is gone.
+			await subtitleInfoCache.invalidateAndWait(id);
 			invalidateResponseBodies();
 
 			return { success: true };

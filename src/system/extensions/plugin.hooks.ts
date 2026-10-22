@@ -2,6 +2,7 @@ import type { MetadataCandidate } from "@reelvault/sdk/common";
 import { type ArtifactCreationCandidate, type MediaRecognitionCandidate, PluginHookRejection } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import { deepFreeze } from "@/system/extensions/plugin.object.utils";
+import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { withTimeout } from "@/utils/promise.utils";
 import { PluginHandlerTable } from "./plugin-handler.registry";
@@ -55,26 +56,33 @@ export class PluginHookBus {
 	 * Runs every hook of `name` in registration order. The candidate is cloned and
 	 * frozen once, so no hook can mutate the caller's object; a returned value is
 	 * frozen in place and becomes the next hook's input. A hook that throws
-	 * `PluginHookRejection` aborts the chain; any other failure (a timeout
-	 * included) is logged and skipped.
+	 * `PluginHookRejection` aborts the chain as a forbidden `plugin.hook_rejected`
+	 * error naming the hook and plugin; any other failure (a timeout included) is
+	 * logged and skipped.
 	 */
 	async run<N extends PluginHookName>(name: N, candidate: PluginHookCandidates[N]): Promise<PluginHookCandidates[N]> {
 		const table: PluginHandlerTable<PluginCandidateHook<N>> = this.tables[name];
-		const hooks = table.all();
+		const hooks = table.entries();
 		if (hooks.length === 0) return candidate;
 
 		let transformed = candidate;
 		let frozenInput: Readonly<PluginHookCandidates[N]> = deepFreeze(structuredClone(candidate));
 
-		for (const hook of hooks) {
+		for (const { pluginId, handler } of hooks) {
 			try {
-				const result = await withTimeout(Promise.resolve(hook({ candidate: frozenInput })), this.timeoutMs, `Plugin ${name} hook`);
+				const result = await withTimeout(Promise.resolve(handler({ candidate: frozenInput })), this.timeoutMs, `Plugin ${name} hook`);
 				if (result) {
 					transformed = result;
 					frozenInput = deepFreeze(result);
 				}
 			} catch (error) {
-				if (error instanceof PluginHookRejection) throw error;
+				if (error instanceof PluginHookRejection) {
+					throw new DomainError("forbidden", error.message, {
+						code: "plugin.hook_rejected",
+						params: { hook: name, plugin: pluginId },
+						cause: error,
+					});
+				}
 
 				this.logger.error(`Plugin ${name} hook failed`, error);
 			}

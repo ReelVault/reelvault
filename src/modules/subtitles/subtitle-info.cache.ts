@@ -52,6 +52,13 @@ export class SubtitleInfoCache {
 		this.cache.delete(id);
 	}
 
+	/** Drops the value and any load that started before the drop, so a stale row cannot be cached again. */
+	async invalidateAndWait(id: string): Promise<void> {
+		this.cache.delete(id);
+		await this.cache.peekPending(id)?.catch(() => null);
+		this.cache.delete(id);
+	}
+
 	private async load(id: string): Promise<SubtitleContentInfo> {
 		const subtitle = await this.dependencies.findSubtitle(id);
 		assertFound(subtitle, "Subtitle", id);

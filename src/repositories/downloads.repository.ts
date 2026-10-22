@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import type { DownloadStatus } from "@/integrations/drizzle-orm/constants/downloads.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -170,6 +170,51 @@ const overrides = {
 
 	async update(id: string, values: DownloadUpdate): Promise<void> {
 		await downloads.update({ primaryId: id, values });
+	},
+
+	/** Finishes a processing download; false means a cancel, delete or other terminal write won the race. */
+	async completeProcessing(id: string, sizeBytes: number): Promise<boolean> {
+		const result = await databaseFactory
+			.getClient()
+			.update(downloads.table)
+			.set({ status: "completed", progressPercent: 100, sizeBytes })
+			.where(and(eq(downloads.table.id, id), eq(downloads.table.status, "processing")));
+
+		return result.changes > 0;
+	},
+
+	/** Fails a pending or processing download; a terminal row is left untouched. */
+	async failIfActive(id: string, errorText: string): Promise<boolean> {
+		const result = await databaseFactory
+			.getClient()
+			.update(downloads.table)
+			.set({ status: "failed", errorText })
+			.where(and(eq(downloads.table.id, id), inArray(downloads.table.status, ["pending", "processing"])));
+
+		return result.changes > 0;
+	},
+
+	/** Cancels any row that has not completed, returning it so its current file name can be removed. */
+	async cancelIfNotCompleted(id: string): Promise<DownloadRow | null> {
+		const [row] = await databaseFactory
+			.getClient()
+			.update(downloads.table)
+			.set({ status: "cancelled" })
+			.where(and(eq(downloads.table.id, id), ne(downloads.table.status, "completed")))
+			.returning();
+
+		return row ?? null;
+	},
+
+	/** Resets a pending or processing row for retry; false means a cancel, delete or terminal write won the race. */
+	async requeueIfActive(id: string): Promise<boolean> {
+		const result = await databaseFactory
+			.getClient()
+			.update(downloads.table)
+			.set({ status: "pending", errorText: null })
+			.where(and(eq(downloads.table.id, id), inArray(downloads.table.status, ["pending", "processing"])));
+
+		return result.changes > 0;
 	},
 
 	/** Hands a download that failed mid-run back to `pending`, unless a cancel, delete or failure was written meanwhile. */

@@ -74,6 +74,10 @@ function downloadNotFound(): DomainError {
 	return new DomainError("not_found", "Download not found", { code: "download_not_found" });
 }
 
+function completedDownloadCancel(): DomainError {
+	return new DomainError("validation", "Completed download cannot be cancelled", { code: "completed_download_cancel" });
+}
+
 async function getStorageQuota(profileId: string): Promise<StorageQuota> {
 	return {
 		maxBytes: serverConfig.downloads.maxStorageBytesPerProfile,
@@ -317,12 +321,18 @@ class DownloadsService {
 	async cancel(downloadId: string): Promise<{ success: true }> {
 		const row = await downloadsRepository.findById(downloadId);
 		if (!row) throw downloadNotFound();
-		if (row.status === "completed")
-			throw new DomainError("validation", "Completed download cannot be cancelled", { code: "completed_download_cancel" });
+		if (row.status === "completed") throw completedDownloadCancel();
+
+		const cancelled = await downloadsRepository.cancelIfNotCompleted(downloadId);
+		if (!cancelled) {
+			const current = await downloadsRepository.findById(downloadId);
+			if (!current) throw downloadNotFound();
+
+			throw completedDownloadCancel();
+		}
 
 		this.killInFlight(downloadId);
-		await downloadsRepository.update(downloadId, { status: "cancelled" });
-		await deleteDownloadFile(row);
+		await deleteDownloadFile(cancelled);
 
 		return { success: true };
 	}
@@ -356,7 +366,8 @@ class DownloadsService {
 				continue;
 			}
 
-			await downloadsRepository.update(row.id, { status: "pending", errorText: null });
+			if (!(await downloadsRepository.requeueIfActive(row.id))) continue;
+
 			await enqueueDownloadsProcess(row.id);
 			requeued++;
 		}
@@ -367,10 +378,10 @@ class DownloadsService {
 	/** Marks a download failed unless it already finished or was cancelled. */
 	async markFailed(downloadId: string, errorCode: string): Promise<void> {
 		const row = await downloadsRepository.findById(downloadId);
-		if (!row || row.status === "completed" || row.status === "cancelled") return;
+		if (!row) return;
+		if (!(await downloadsRepository.failIfActive(downloadId, errorCode))) return;
 
 		this.killInFlight(downloadId);
-		await downloadsRepository.update(downloadId, { status: "failed", errorText: errorCode });
 		detach(this.promoteQueued(row.profileId));
 	}
 

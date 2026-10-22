@@ -35,4 +35,13 @@ export class PluginHandlerTable<THandler> {
 
 		return handlers;
 	}
+
+	entries(): Array<{ pluginId: string; handler: THandler }> {
+		const entries: Array<{ pluginId: string; handler: THandler }> = [];
+		for (const [pluginId, set] of this.handlersByPlugin) {
+			for (const handler of set) entries.push({ pluginId, handler });
+		}
+
+		return entries;
+	}
 }

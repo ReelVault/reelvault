@@ -79,4 +79,34 @@ describe("SubtitleInfoCache", () => {
 		cache.invalidate("sub-2");
 		expect((await cache.getOrSet("sub-2")).format).toBe("vtt");
 	});
+
+	test("invalidateAndWait drops a value cached by a load that raced the invalidation", async () => {
+		await seedSubtitles();
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let delayed = true;
+		const cache = new SubtitleInfoCache({
+			findSubtitle: async (id) => {
+				if (delayed) {
+					delayed = false;
+					await gate;
+				}
+
+				return await subtitlesRepository.findByPrimaryId({ primaryId: id });
+			},
+			findMediaFilePath: async () => null,
+		});
+
+		const load = cache.getOrSet("sub-2");
+		const invalidation = cache.invalidateAndWait("sub-2");
+		release();
+		await load;
+		await invalidation;
+
+		await db.client().update(schema.subtitles).set({ format: "vtt" }).where(eq(schema.subtitles.id, "sub-2"));
+
+		expect((await cache.getOrSet("sub-2")).format).toBe("vtt");
+	});
 });

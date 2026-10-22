@@ -44,8 +44,8 @@ export async function findDownloadSource(mediaFileId: string) {
 }
 
 /** Fails a download whose source media file disappeared — retrying cannot bring it back. */
-export async function failMissingSource(downloadId: string): Promise<void> {
-	await downloadsRepository.update(downloadId, { status: "failed", errorText: "download.media_missing" });
+export async function failMissingSource(downloadId: string): Promise<boolean> {
+	return await downloadsRepository.failIfActive(downloadId, "download.media_missing");
 }
 
 /** The download and its source, when it still waits to run; a missing source fails it instead of leaving it `pending`. */
@@ -67,6 +67,12 @@ export async function loadPendingDownload(downloadId: string): Promise<PendingDo
 	return { row, filePath: mediaFile.filePath, durationSeconds: mediaFile.duration ?? 0, sourceFileName: mediaFile.fileName };
 }
 
+/** The live ffmpeg process of one run; `aborted` stays set when cancellation arrives before the spawn. */
+interface DownloadProcessState {
+	current: Subprocess | undefined;
+	aborted: boolean;
+}
+
 /**
  * Runs a download that holds a running slot: ffmpeg MP4 (faststart) → completed.
  * A `cancelled` row written mid-run makes the exit handler drop the partial file
@@ -79,10 +85,39 @@ export async function runClaimedDownload(
 	options: DownloadRunOptions,
 ): Promise<void> {
 	const { row, filePath, durationSeconds, sourceFileName } = pending;
+	const processState: DownloadProcessState = { current: undefined, aborted: false };
+	const abortProcess = () => {
+		processState.aborted = true;
+		const running = processState.current;
+		if (!running) return;
+
+		// SIGTERM first, SIGKILL after the grace period: a plain kill left ffmpeg
+		// alive on a stalled mount, so the cancelled download kept burning CPU
+		// and holding the disk.
+		detachCatching(killFfmpegProcessGracefully(running));
+	};
+	// Register before output preparation: a cancellation during that work must
+	// still stop the run before ffmpeg starts.
+	context.abortHandles.set(row.id, abortProcess);
 
 	try {
 		const outputPath = await prepareOutput(row.id, row.quality, sourceFileName);
-		const exitCode = await runFfmpeg(context, { downloadId: row.id, filePath, durationSeconds, quality: row.quality, outputPath, options });
+		if (processState.aborted) {
+			await deleteDownloadOutput(outputPath);
+
+			return;
+		}
+
+		const exitCode = await runFfmpeg(context, {
+			downloadId: row.id,
+			filePath,
+			durationSeconds,
+			quality: row.quality,
+			outputPath,
+			options,
+			processState,
+			abortProcess,
+		});
 		await finalizeDownload({ downloadId: row.id, profileId: row.profileId, quality: row.quality, outputPath, exitCode });
 	} catch (error) {
 		await downloadsRepository.releaseClaim(row.id);
@@ -122,25 +157,15 @@ function runFfmpeg(
 		quality: DownloadQuality;
 		outputPath: string;
 		options: DownloadRunOptions;
+		processState: DownloadProcessState;
+		abortProcess: () => void;
 	},
 ): Promise<number | null> {
-	const { downloadId, filePath, durationSeconds, quality, outputPath, options } = params;
-	const procRef: { current: Subprocess | undefined } = { current: undefined };
-	const killProc = () => {
-		const running = procRef.current;
-		if (!running) return;
+	const { downloadId, filePath, durationSeconds, quality, outputPath, options, processState, abortProcess } = params;
+	// Aborted after load but before spawn — a cancellation can arrive while the output is prepared.
+	if (processState.aborted || options.signal?.aborted) return Promise.reject(new Error("Download aborted before start"));
 
-		// SIGTERM first, SIGKILL after the grace period: a plain kill left ffmpeg
-		// alive on a stalled mount, so the cancelled download kept burning CPU
-		// and holding the disk.
-		detachCatching(killFfmpegProcessGracefully(running));
-	};
-	context.abortHandles.set(downloadId, killProc);
-	// Aborted after load but before spawn — killProc is a no-op here, so
-	// without this check ffmpeg would run to completion unstoppably.
-	if (options.signal?.aborted) return Promise.reject(new Error("Download aborted before start"));
-
-	options.signal?.addEventListener("abort", killProc, { once: true });
+	options.signal?.addEventListener("abort", abortProcess, { once: true });
 
 	// ffmpeg emits progress far more often than a whole-percent display changes.
 	// One tick previously cost three UPDATEs (download row + job + operation);
@@ -171,9 +196,9 @@ function runFfmpeg(
 				if (error) reject(error);
 				else resolve(code);
 			});
-		procRef.current = builder.run(outputPath);
+		processState.current = builder.run(outputPath);
 	}).finally(() => {
-		options.signal?.removeEventListener("abort", killProc);
+		options.signal?.removeEventListener("abort", abortProcess);
 	});
 }
 
@@ -214,11 +239,22 @@ async function finalizeDownload(params: {
 		return;
 	}
 
-	await downloadsRepository.update(downloadId, { status: "completed", progressPercent: 100, sizeBytes });
+	if (!(await downloadsRepository.completeProcessing(downloadId, sizeBytes))) await deleteOutputUnlessCompleted(downloadId, outputPath);
 }
 
 /** Drops the partial output and records why the download failed. */
 async function failFinalizing(downloadId: string, outputPath: string, errorText: string): Promise<void> {
-	await deleteDownloadOutput(outputPath);
-	await downloadsRepository.update(downloadId, { status: "failed", errorText });
+	if (await downloadsRepository.failIfActive(downloadId, errorText)) {
+		await deleteDownloadOutput(outputPath);
+
+		return;
+	}
+
+	await deleteOutputUnlessCompleted(downloadId, outputPath);
+}
+
+/** A failed or cancelled finalization owns the partial file; a completed row keeps it. */
+async function deleteOutputUnlessCompleted(downloadId: string, outputPath: string): Promise<void> {
+	const row = await downloadsRepository.findById(downloadId);
+	if (row?.status !== "completed") await deleteDownloadOutput(outputPath);
 }
