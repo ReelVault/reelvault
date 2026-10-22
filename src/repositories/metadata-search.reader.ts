@@ -1,7 +1,8 @@
 import type { GlobalSearchResponse } from "@reelvault/sdk/common";
-import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { filterLike, filterStartsWith } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { metadataImageOn, posterImagesOn } from "@/integrations/drizzle-orm/utils/join-conditions.utils";
 import { toMap, trimAndFilter } from "@/utils/array.utils";
 import { fuzzyTitleDistance } from "@/utils/media-match/fuzzy.matcher";
@@ -22,19 +23,18 @@ function ftsMatchQuery(term: string): string {
 	return tokens.join(" ");
 }
 
-/** Prefix-first LIKE scan over a small named lookup table (collections, genres). */
+/** Prefix-first LIKE scan over a small named lookup table (collections, genres); wildcards in the term match literally. */
 function findNamedMatches(
 	client: ReturnType<typeof databaseFactory.getClient>,
 	table: typeof schema.collections | typeof schema.genres,
-	containsPattern: string,
-	prefixPattern: string,
+	term: string,
 	limit: number,
 ) {
 	return client
 		.select({ id: table.id, name: table.name })
 		.from(table)
-		.where(like(table.name, containsPattern))
-		.orderBy(sql`CASE WHEN ${table.name} LIKE ${prefixPattern} THEN 0 ELSE 1 END`, table.name)
+		.where(filterLike(table.name, term))
+		.orderBy(sql`CASE WHEN ${filterStartsWith(table.name, term)} THEN 0 ELSE 1 END`, table.name)
 		.limit(limit);
 }
 
@@ -67,8 +67,6 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 	if (!searchTerm) return { titles: [], people: [], collections: [], genres: [] };
 
 	const client = databaseFactory.getClient();
-	const prefixPattern = `${searchTerm}%`;
-	const containsPattern = `%${searchTerm}%`;
 	// Titles and people go through the trigger-maintained FTS5 index instead
 	// of leading-wildcard LIKE scans per keystroke. Small lookup tables
 	// (collections, genres) keep the LIKE scan.
@@ -110,8 +108,8 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 		imageUpdatedAt: isNullish(row.imageUpdatedAt) ? null : new Date(row.imageUpdatedAt * 1000),
 	}));
 	const [rawCollections, genres] = await Promise.all([
-		findNamedMatches(client, schema.collections, containsPattern, prefixPattern, limit),
-		findNamedMatches(client, schema.genres, containsPattern, prefixPattern, limit),
+		findNamedMatches(client, schema.collections, searchTerm, limit),
+		findNamedMatches(client, schema.genres, searchTerm, limit),
 	]);
 
 	const matchedTitles = [...rawTitles, ...fuzzyTitles];

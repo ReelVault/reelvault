@@ -24,19 +24,20 @@ export function filterLte(column: SQLiteColumn, value: string | number | boolean
 	return lte(column, value);
 }
 
-export function filterLike(column: SQLiteColumn, searchTerm: string): SQL {
-	// Wildcards are matched literally: a user searching "50%" means the
-	// literal text, not "50" followed by anything.
-	const escaped = searchTerm.replaceAll(/[\\%_]/g, (char) => `\\${char}`);
+const LIKE_WILDCARD_REGEX = /[\\%_]/g;
 
-	return sql`${column} LIKE ${`%${escaped}%`} ESCAPE ${"\\"}`;
+/** Wildcards are matched literally: a user searching "50%" means the literal text, not "50" followed by anything. */
+function escapeLike(term: string): string {
+	return term.replaceAll(LIKE_WILDCARD_REGEX, (char) => `\\${char}`);
+}
+
+export function filterLike(column: SQLiteColumn, searchTerm: string): SQL {
+	return sql`${column} LIKE ${`%${escapeLike(searchTerm)}%`} ESCAPE ${"\\"}`;
 }
 
 /** A prefix match — the same literal-wildcard rule as {@link filterLike}. */
 export function filterStartsWith(column: SQLiteColumn, prefix: string): SQL {
-	const escaped = prefix.replaceAll(/[\\%_]/g, (char) => `\\${char}`);
-
-	return sql`${column} LIKE ${`${escaped}%`} ESCAPE ${"\\"}`;
+	return sql`${column} LIKE ${`${escapeLike(prefix)}%`} ESCAPE ${"\\"}`;
 }
 
 export function filterM2M(
