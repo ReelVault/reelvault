@@ -639,214 +639,183 @@ The browse and collections rows are the combined result of every change above; t
 
 ### Playback
 
-- **Software-transcode capacity cap** — software video transcodes are now capped from measured CPU capacity (2 on the smallest tier, 4 at the top), leaving cores for HTTP; hardware transcodes and direct-stream remuxes are unaffected. `stream.maxSoftwareTranscodes` overrides the cap (`0` = automatic).
+- **Software-transcode capacity cap** — software video transcodes are capped from measured CPU capacity (2–4) to keep cores free for the interface. Hardware transcodes and remuxes are unaffected; `stream.maxSoftwareTranscodes` overrides the cap (`0` = automatic).
 
 ## Fixes
 
 ### Playback & streaming
 
-- **Corrected software transcoding resolution** — fixed distorted output when downscaling video, including software-encoding fallbacks.
-- **Improved direct-stream seeking** — seeks now use the correct keyframe position, keeping the playback timeline aligned with the video.
-- **Fixed playback session handling** — prevented released sessions from retaining capacity reservations, stale playlist waits or newer operations being closed by an older FFmpeg process.
-- **Fixed playback during shutdown** — active streaming sessions now close gracefully on `SIGINT` and `SIGTERM`, while seeks cancelled during shutdown return a specific error.
-- **Fixed playback buffer checks** — seeking no longer reports data as buffered while a restart is clearing that buffer.
-- **Improved FFmpeg process cleanup** — cancelled downloads now force-stop processes that ignore `SIGTERM`. FFmpeg and FFprobe waits are also bounded when a process cannot exit.
-- **Corrected HLS keyframe intervals** — GOP sizing now accounts for the source frame rate instead of applying an overly restrictive limit.
-- **Corrected encoder diagnostics** — logs now report software encoding after a hardware-encoder fallback. The transcode log now names the accelerator and encoder that actually encode the stream, not the configured setting, which said nothing about what was used.
-- **Bounded the hardware probe at startup** — the test encode that proves a hardware encoder works now has a short fixed budget, so a driver that hangs instead of failing can no longer keep the server from binding its port.
+- **Fixed distorted software transcodes** — downscaling now produces the correct resolution, including software fallbacks.
+- **Fixed direct-stream seeking** — seeks now use the correct keyframe position.
+- **Fixed playback session cleanup** — released sessions no longer keep capacity reservations or close newer operations.
+- **Fixed playback during shutdown** — active sessions close gracefully on `SIGINT`/`SIGTERM`; cancelled seeks return a specific error.
+- **Fixed buffer checks after a restart** — seeking no longer reports data as buffered while the restart clears it.
+- **Fixed stuck FFmpeg processes** — cancelled downloads now stop even when FFmpeg ignores the normal stop signal; FFmpeg and FFprobe waits are bounded.
+- **Fixed HLS keyframe intervals** — GOP sizing now follows the source frame rate.
+- **Fixed encoder diagnostics** — logs now name the accelerator and encoder actually used, including after a software fallback.
+- **Fixed startup with a hung hardware probe** — the hardware test now has a short fixed budget and cannot delay server startup.
 - **Fixed keyframe caching** — cached probes no longer return a keyframe from after the requested position.
-- **Playback decisions now see the source bitrate and container** — the query a session starts from never selected them, so the per-stream bandwidth limit was not enforced without a client cap, a source below the client's bitrate cap was transcoded instead of remuxed, and every start and seek used the slowest (100 MB) probe budget instead of the container's own.
-- **Sidecar subtitles play again** — `.srt`/`.ass` files the scanner imported from a video's folder returned 404 from the content endpoint, which only served files under the subtitles directory. A stored file is now served from the subtitles directory or the folder of its own video.
-- ****Offline downloads no longer get stuck in&#x20;**`**processing**`** — a run that failed after taking its running slot (ffmpeg not starting, the output folder not created) kept the slot forever, so the worker's retry found nothing to do and the profile's other downloads never started until a restart. The slot is now handed back, so the retry runs it and the last attempt marks it failed.
-- **Download cancellation is now atomic** — a cancellation racing completion or failure can no longer overwrite the final status or delete a completed file, and a cancellation that arrives while the output is being prepared stops the run before ffmpeg starts.
+- **Fixed playback decisions** — the source bitrate and container are now read, so limits, remuxing and seek probes use the right values.
+- **Fixed sidecar subtitles** — `.srt`/`.ass` files next to a video now play instead of returning 404.
+- **Fixed stuck offline downloads** — a failed download releases its running slot, so retries and other downloads continue without a restart.
+- **Fixed download cancellation** — cancelling can no longer overwrite the final status or delete a completed file.
 
 ### Libraries, scanning & metadata
 
-- **Fixed episode numbering** — episode numbers up to four digits are recognized correctly, including `S01E100`, `1x100` and `E1000` formats, without mistaking movie release years for episode numbers.
-- **Unified episode filename recognition** — regular scans, sidecar scans and offline catalog rebuilds now recognize the same episode naming formats.
-- **Handled duplicate episode files** — importing a second file for an existing episode no longer interrupts an offline catalog rebuild; the duplicate is skipped with a reason.
-- **Fixed duplicate episode notifications** — adding another file for an existing episode no longer triggers a false new-episode notification.
-- **Fixed duplicate title matching** — titles differing only by capitalization or Unicode representation are resolved consistently. Conflicting provider updates merge duplicate entries instead of aborting the transaction.
-- **Fixed Windows library cleanup** — removed files no longer leave stale media entries or scan findings behind.
-- **Fixed subtitle extraction and caching** — MKV cover art, font attachments and data tracks are no longer imported as subtitles. Editing subtitles also invalidates cached cues correctly.
-- **Deleting a subtitle clears its content info after the row is gone** — a concurrent content read could otherwise cache the deleted subtitle for 30 minutes.
-- **Fixed duplicate external subtitles** — uploading another subtitle in the same language no longer incorrectly reports it as missing or deletes the uploaded file.
-- **Fixed WebVTT uploads with a UTF-8 BOM** — valid files whose header starts with a BOM are accepted instead of being rejected as unreadable.
-- **Fixed bulk watched status** — files without a known duration can now be marked as watched, as intended.
-- **Fixed watch-history recording** — playback progress and watched history are saved atomically, preventing completed plays from disappearing from history after a failed write.
-- **Improved library deletion safety** — deleting a single file or title now respects active playback sessions, just like bulk deletion.
-- **Fixed provider override updates** — failed updates no longer erase existing library provider overrides.
-- **Fixed title matching for non-decomposing letters** — titles using ł, ø, đ, ß, æ or œ now normalize to the same ASCII form as provider spellings such as "Lodz" or "Strasse".
-- **Fixed show titles that absorbed a resolution tag** — a resolution placed before the episode marker (`Show 1080p S01E02.mkv`) no longer becomes part of the show title, and `WIDTHxHEIGHT` resolutions are stripped as release noise too.
-- **Fixed the local backdrop choice** — when a folder holds several numbered backdrops, the lowest-numbered one is used regardless of the order in which the filesystem lists them.
-- **Refreshes keep the library's metadata language** — a title refresh, an artwork refresh and a single-episode refresh fetched seasons and episodes in the provider's default language, so every refresh overwrote translated episode titles, overviews and season names. They now use the library's language, as the import always did.
-- **Moving a file to another title updates everything that shows it** — the reassigned file kept appearing under its old title for up to five minutes (cached title pages), the library stats were not recounted, and in sidecar mode the NFO next to the file still named the old title, so a later rescan could match it back.
-- ****Global search matches&#x20;**`**%**`**&#x20;and&#x20;**`**_**`**&#x20;literally in genre and collection names**** — they were used as wildcards, so a search for either listed every genre and collection.
+- **Fixed episode numbering** — four-digit episode numbers and formats such as `S01E100`, `1x100` and `E1000` are recognised without mistaking release years for episodes.
+- **Unified episode filename recognition** — regular scans, sidecar scans and offline rebuilds now read the same naming formats.
+- **Fixed duplicate episode imports** — a second file for an existing episode no longer interrupts an offline rebuild.
+- **Fixed false new-episode notifications** — adding another file for an existing episode no longer sends one.
+- **Fixed duplicate title matching** — titles differing only in capitalization or Unicode are matched consistently; conflicting provider updates merge duplicates instead of failing.
+- **Fixed Windows library cleanup** — removed files no longer leave stale media entries or scan findings.
+- **Fixed subtitle extraction** — MKV cover art, fonts and data tracks are no longer imported as subtitles; editing a subtitle clears cached cues.
+- **Fixed deleted subtitle caching** — deleting a subtitle now clears its cached file information immediately.
+- **Fixed duplicate external subtitles** — uploading the same language again no longer reports it as missing or deletes the file.
+- **Fixed WebVTT uploads** — files with a UTF-8 BOM are accepted.
+- **Fixed bulk watched status** — files without a known duration can be marked watched.
+- **Fixed watch-history writes** — progress and history are saved together, so completed plays no longer disappear after a failed write.
+- **Fixed library deletion safety** — deleting a file or title now respects active playback sessions, like bulk deletion.
+- **Fixed provider override updates** — failed updates no longer erase existing library overrides.
+- **Fixed title matching for special letters** — ł, ø, đ, ß, æ and œ now match their ASCII provider spellings.
+- **Fixed show titles with a resolution tag** — `Show 1080p S01E02.mkv` no longer takes `1080p` into the show title.
+- **Fixed backdrop choice** — the lowest-numbered local backdrop is used consistently.
+- **Fixed refresh language** — title, artwork and single-episode refreshes now keep the library's metadata language.
+- **Fixed moved files** — moving a file to another title now updates cached pages, library stats and sidecar NFOs immediately.
+- **Fixed global search wildcards** — `%` and `_` are treated literally in genre and collection names.
 
 ### Plugins & integrations
 
-- **Fixed plugin installation and removal** — plugins with stale lockfile entries or manually created directories can now be reinstalled or uninstalled correctly.
-- **Fixed plugin upgrades and rollback** — failed upgrades no longer leave duplicate entries, and restoring a disabled version keeps the correct plugin state.
-- **Fixed plugin state persistence** — concurrent installs can no longer overwrite `pinned` or `cspDisabled` settings.
-- **Corrupt plugin storage values now fail with a specific code** — reading a value that is not valid JSON returns `plugin.storage_corrupt` and logs the plugin and key instead of a generic internal error.
-- **Fixed plugin lifecycle isolation** — unloading a plugin no longer unregisters core workers with matching job names.
-- **Fixed the test suite hanging on a mocked module** — a module mock that called back into the module it replaced recursed forever, and a mock that named only the exports it changed left every other export undefined for the files that ran after it. Mocks now keep the real exports they do not control and are restored when their file ends, so `bun test` and the coverage run finish instead of hanging.
-- **Fixed a playback test that depended on the host's GPU** — the software-transcode cap test assumed no hardware encoder was available, so it failed on any machine with a working GPU and only passed when no other test had probed FFmpeg first. The test now pins the encoder state it relies on.
-- **Improved plugin configuration error handling** — lockfile read and write failures are no longer silently ignored when enabling or disabling plugins.
-- **Improved plugin repository diagnostics** — repository counts are accurate, and unsupported token formats now report their actual error.
-- **Improved plugin administration performance** — plugin manifests and lockfiles are no longer unnecessarily reread and parsed for every admin view.
-- **Fixed notification channel errors** — failures while reporting a broken channel are logged without creating unhandled promise rejections.
-- **Fixed phantom failed plugin cards** — reloading or enabling a plugin that is not installed now answers `404 plugin.not_found` instead of silently succeeding and leaving a failed card for an id that never existed in the plugin list.
-- **Fixed duplicate entities in one plugin registration** — a plugin that registers the same entity id twice in one batch is refused with `plugin.entity_duplicate` before anything is registered; before, the second copy silently replaced the first.
-- **Plugin configuration for an uninstalled plugin answers 404** — the configuration endpoint returns `404 plugin.not_found` for an id with no installed package, instead of reporting a broken package.
-- ****A&#x20;**`**beforeArtifactCreate**`**&#x20;hook can no longer store an unserved content type**** — the type a hook returned was only checked for being non-empty, so a hook could store an artifact as `text/html` and have it served from the server's own origin. The returned type now passes the same allow-list as the write.
-- **A rejected plugin hook returns 403 instead of 500** — `plugin.hook_rejected` now identifies the hook and the rejecting plugin, so failures such as a blocked metadata save are reported as forbidden actions.
+- **Fixed plugin installation and removal** — stale lockfile entries and manually created directories no longer block reinstall or uninstall.
+- **Fixed plugin upgrades and rollback** — failed upgrades leave no duplicate entries, and a disabled plugin stays disabled.
+- **Fixed plugin state persistence** — concurrent installs can no longer overwrite pinned or CSP settings.
+- **Fixed corrupt plugin storage** — invalid JSON returns `plugin.storage_corrupt` and logs the plugin and key.
+- **Fixed plugin lifecycle isolation** — unloading a plugin no longer unregisters core workers with the same name.
+- **Improved plugin configuration errors** — lockfile read and write failures are no longer silent when enabling or disabling a plugin.
+- **Improved plugin repository diagnostics** — counts are accurate and unsupported token formats report the real error.
+- **Improved plugin administration performance** — manifests and lockfiles are no longer reread for every admin view.
+- **Fixed notification channel errors** — failures are logged without unhandled promise rejections.
+- **Fixed phantom plugin cards** — reloading an uninstalled plugin now returns `404 plugin.not_found` instead of leaving a failed card.
+- **Fixed duplicate plugin entities** — registering the same entity id twice in one batch is rejected with `plugin.entity_duplicate`.
+- **Fixed uninstalled plugin configuration** — the endpoint returns `404 plugin.not_found` instead of reporting a broken package.
+- **Fixed plugin artifact content types** — plugin artifacts now pass the same content-type allow-list on creation, so a hook cannot store `text/html`.
+- **Fixed rejected plugin hooks** — a rejected hook now returns `403 plugin.hook_rejected` with the hook and plugin name.
 
 ### Workers & background operations
 
-- **Fixed operation progress tracking** — resumed operations now count only jobs that were actually re-enqueued, and fully queued operations no longer remain pending.
-- **Fixed cancellation of dependent jobs** — shared dependencies are counted once, preventing progress from exceeding 100%.
-- **Fixed job cancellation races** — pending jobs are cancelled before running jobs, and cancelled operations cannot start additional queued jobs.
-- **Fixed worker finalization errors** — failed finalization is logged instead of producing an unhandled rejection.
-- **Fixed manual worker execution** — deduplication races no longer leave phantom pending operations.
-- **Fixed worker progress consistency** — task and operation progress are now updated in a single transaction.
-- **Damaged worker results no longer fail the audit endpoint** — an unreadable stored result is treated as missing instead of throwing a 500.
-- **Fixed worker resource tracking** — workers that finish running are removed from the active-count map.
-- **Improved scheduled job processing** — due jobs can be enqueued concurrently instead of waiting for each preceding job.
-- **Improved library watcher recovery** — rescue mode now reacts immediately when enabled or disabled at runtime.
+- **Fixed operation progress** — resumed operations count only jobs actually re-enqueued, and fully queued operations no longer stay pending.
+- **Fixed cancellation of dependent jobs** — shared dependencies are counted once, so progress cannot exceed 100%.
+- **Fixed job cancellation races** — pending jobs are cancelled before running jobs, and cancelled operations cannot start more work.
+- **Fixed worker finalization** — failed finalization is logged instead of producing an unhandled rejection.
+- **Fixed manual worker runs** — deduplication races no longer leave phantom pending operations.
+- **Fixed worker progress consistency** — task and operation progress now update in one transaction.
+- **Fixed damaged worker results** — an unreadable result is treated as missing instead of failing the audit endpoint.
+- **Fixed worker resource tracking** — finished workers are removed from the active-count map.
+- **Improved scheduled jobs** — due jobs are enqueued concurrently instead of one by one.
+- **Fixed library watcher recovery** — rescue mode reacts immediately when enabled or disabled.
 
 ### Administration, security & reliability
 
-- **Secured state-changing requests** — media audit, quick-connect, two-factor authentication and setup requests now enforce the appropriate cross-site and origin checks.
-- **Fixed log deletion and downloads** — blank log file IDs are rejected instead of being treated as requests to delete or download the active log.
-- **Fixed database restoration** — the server now shuts down gracefully, restores the backup and starts again using the restored database.
-- **Fixed server startup diagnostics** — startup failures and port-conflict messages are written before the process exits.
-- **Improved shutdown reliability** — every shutdown step gets a chance to run even if another fails. Database connections and log buffers are properly closed or flushed, and repeated termination signals force an exit.
-- **Fixed session cookie handling** — malformed authentication cookies are treated as missing sessions instead of causing HTTP 500 errors.
-- **Fixed rate-limit reporting** — successful responses now report the correct limits for routes with custom budgets.
-- **Fixed request path classification** — normalized `.` and `..` path segments can no longer bypass rate-limit exemptions or public-request classification.
-- **Improved request validation** — shared schemas now consistently validate route parameters and library field selections.
-- **Improved error diagnostics** — internal database, FFmpeg, worker, cache, concurrency, sorting and settings errors now expose specific error codes while retaining HTTP 500 responses.
-- **Corrected error type names in logs** — the missing-media-tools and plugin-route validation errors now report their own type instead of the base error class, so a log line names the failure that actually happened.
-- **Timer ticks no longer crash the server** — the realtime stale-connection sweep and the streaming session reaper now run on the shared recurring timer, so a throw inside a tick is logged instead of taking the process down.
-- **Bounded sidecar subtitle checks** — the scanner stats candidate subtitle files with a bounded fan-out, so a directory holding thousands of them no longer opens that many file handles at once.
-- **Fixed paginated result ordering** — title recommendations, media markers, admin users and sessions no longer skip or repeat rows when timestamps match.
-- **Fixed server resource monitoring** — container CPU usage now uses the container's own cgroup measurements instead of host-wide CPU usage.
-- **Fixed negative system memory readings** — usage and percentage are clamped to the effective total, so the admin dashboard no longer fails with a 500 under a constrained memory limit.
-- **Fixed admin profile routes for unknown accounts** — profile listing and creation now return 404 instead of listing nothing or failing with a 500 on the foreign-key insert.
-- **Fixed server component upgrades** — failed component swaps restore moved files instead of leaving the installation without the `server/` directory.
-- **Fixed static asset MIME types** — web and plugin UI assets now use a consistent MIME mapping, including JavaScript, fonts and WebVTT files, while plugin file restrictions remain enforced.
-- **Improved server rescue and maintenance** — download-retention timers stop before database closure, and startup or shutdown failures are reported more reliably.
-- **Fixed plugin UI security policy updates** — the web Content Security Policy is rebuilt when plugins change rather than on every static asset request.
-- **Fixed plugin repository counting** — repository totals now return the actual number of entries instead of a value capped at one.
-- **Kept the original error as the cause** — a failure raised while handling another failure now carries the original error as its `cause`, so the server log shows what actually went wrong instead of only the outermost message.
-- **Fixed expired API keys still authenticating** — a key was accepted from the authentication cache for up to the cache's lifetime after it expired; it is now refused from its expiry time onward.
-- **Database optimize refreshes both connections** — the admin action ran `PRAGMA optimize` only on the main connection, so the transaction connection kept stale query plans.
-- **Release years no longer slip a year west of UTC** — top-watched insights and the admin live-session list read the year of a 1 January release as the previous year on servers in a negative UTC offset.
-- **Trending ranks loaded titles on the same popularity scale** — a trending candidate loaded during ranking was normalized against a maximum taken without it, so a barely played title could outrank much more played ones.
-- **Graceful shutdown finishes again** — flushing the logs called `flush` on the console stream, which Bun exposes as a boolean, so the shutdown stopped with an error after every step had run: the process then waited for the shutdown timeout and exited with a failure code, including the restart after an update. The console stream is no longer flushed as a function.
-- **Administration commands work in a release install** — `doctor`, `admin:reset-password`, `admin:two-factor-enforcement` and the `db:*` commands were documented for every install, but the release archive shipped neither their scripts nor a `bun` on the PATH, so they only ran from a source checkout. The archive now includes them and the launchers pass a command through: `./start.sh doctor`, `./start.sh admin:reset-password <email>` (`start.bat` on Windows). `db:migrate` applies migrations the way the server does at boot.
-- **Release archives bundle the Bun the server is tested with** — the archives shipped Bun 1.4.2 while the server requires 1.4.3, and `doctor` checked for 1.4.2. The bundled runtime now follows `packageManager` and `doctor` reads the minimum from `engines`. The archives also stop shipping the server's 400 test files.
+- **Secured state-changing requests** — media audit, quick-connect, two-factor and setup requests now enforce the right cross-site and origin checks.
+- **Fixed log deletion and downloads** — blank log IDs are rejected, so a request cannot target the active log by accident.
+- **Fixed database restoration** — the server shuts down gracefully, restores the backup and starts again.
+- **Fixed startup diagnostics** — startup failures and port conflicts are written before the process exits.
+- **Improved shutdown reliability** — every shutdown step runs even if another fails, and repeated signals force an exit.
+- **Fixed session cookies** — malformed authentication cookies are treated as missing sessions instead of causing 500s.
+- **Fixed rate-limit reporting** — successful responses now report the correct limits for custom budgets.
+- **Fixed request paths** — normalized `.` and `..` segments can no longer bypass rate-limit exemptions or public-request checks.
+- **Improved request validation** — shared schemas now validate route parameters and library field selections consistently.
+- **Improved error diagnostics** — database, FFmpeg, worker, cache, concurrency, sorting and settings errors now carry specific codes while still returning 500.
+- **Fixed error type names** — logs now report the actual failing error type.
+- **Fixed timer crashes** — realtime and streaming timer errors are logged instead of taking the server down.
+- **Bounded sidecar subtitle checks** — large folders no longer open thousands of file handles at once.
+- **Fixed paginated ordering** — recommendations, markers, admin users and sessions no longer skip or repeat rows when timestamps match.
+- **Fixed container CPU monitoring** — container CPU now uses cgroup measurements instead of host-wide usage.
+- **Fixed negative memory readings** — usage is clamped to the effective total, so the dashboard no longer fails under a memory limit.
+- **Fixed admin profile routes** — profile listing and creation now return 404 for unknown accounts.
+- **Fixed server component upgrades** — failed swaps restore moved files instead of leaving the installation without the server directory.
+- **Fixed static asset MIME types** — web and plugin assets now use consistent types, including JavaScript, fonts and WebVTT.
+- **Improved server rescue** — download-retention timers stop before database closure, and startup/shutdown failures are reported more reliably.
+- **Fixed plugin CSP updates** — the web Content Security Policy is rebuilt when plugins change, not on every asset request.
+- **Fixed plugin repository counts** — totals now return the actual number of entries.
+- **Fixed lost error causes** — an error raised while handling another error now keeps the original as its cause, so logs show the real failure.
+- **Fixed expired API keys** — expired keys are refused immediately instead of staying valid through the authentication cache.
+- **Fixed database optimize** — the admin action now refreshes both database connections.
+- **Fixed release years west of UTC** — 1 January releases no longer show the previous year on servers with a negative UTC offset.
+- **Fixed trending ranks** — candidates now use the same popularity scale, so barely played titles cannot outrank popular ones.
+- **Fixed graceful shutdown** — log flushing no longer turns a clean shutdown into a timeout and failure code.
+- **Fixed administration commands in release installs** — `doctor`, `admin:reset-password`, `admin:two-factor-enforcement` and `db:*` now run through `./start.sh <command>` (`start.bat` on Windows).
+- **Fixed release archives** — archives now bundle the tested Bun 1.4.4 and no longer include the server's 400 test files.
 
 ### Runtime
 
-- **Bun 1.4.4** — the runtime bundled in release archives is now 1.4.4, bringing security fixes for TLS, WebSocket, `Bun.password`, `Bun.serve`, `bun:sqlite` and the package manager.
+- **Bun 1.4.4** — the bundled runtime now includes security fixes for TLS, WebSocket, `Bun.password`, `Bun.serve`, `bun:sqlite` and the package manager.
 
 ## Performance
 
 ### Database & query efficiency
 
-- **Stored the media-presence timestamp on the title** — `metadata.latest_media_created_at` is maintained by the media-file writers (insert, delete, reassign, library delete, merge) and backfilled once at boot. Catalog lists now test one column instead of running an `EXISTS` probe over `media_files` for every title, and “recently added” ranks through `metadata_type_latest_media_idx` instead of a correlated `MAX` over the catalog. On a cold 50,000-title catalog (in-process): catalog page **10.61 → 1.36 ms**, projected page **10.24 → 1.12 ms**, filtered page **9.51 → 6.31 ms**, deep offset page **16.48 → 3.54 ms**, recently-added ranking **30.6 → 0.73 ms**, and a cold Discover build **32.44 → 1.87 ms**. Cold HTTP c=10: catalog browse **103 → 610 req/s** (p95 103 → 18 ms), projected browse **103 → 707 req/s** (p95 104 → 16 ms), deep offset **67 → 263 req/s** (p95 161 → 41 ms), filtered browse **115 → 147 req/s** (p95 93 → 72 ms), Discover **25 → 52 req/s** (p95 522 → 222 ms), and mixed traffic **107 → 291 req/s** (p95 356 → 109 ms). The response schema keeps the column internal, so the API payload is unchanged; unrelated endpoints stayed within the benchmark’s run-to-run spread.
-- **Similar-title scoring now aggregates traits once** — the ranked-id page used five correlated subqueries per candidate and re-ran the candidate scan for the total. A single trait union scores each candidate once, keeps the collection/director bonuses as `EXISTS` (one hit, not one per match) and genre/keyword/cast as counts, and still returns the total with a window. On 50,000 titles the cold rank fell **29.75 → 13.39 ms**; cold HTTP c=10 rose from **34 → 98 req/s** (p95 316 → 115 ms). Results are unchanged, including multi-collection and multi-director sources.
-- **Faster library statistics** — library lists and details no longer scan the full media table. Cold 50,000-file HTTP c=10: list **400 → 651 req/s**, detail **407 → 1,018 req/s**.
-- **Library and dashboard stats update instantly** — media counts and sizes are kept up to date automatically instead of being recalculated on every request. Cold 50,000-file catalog, HTTP c=10: library list **133 → 2,478 req/s**, library detail **133 → 2,698 req/s**, admin dashboard **37 → 59 req/s**.
-- **Fast collection poster previews with an exact fallback** — a preview now reads the first 16 poster rows per collection, deduplicates them in memory, and takes the full distinct-image window only when that window is full and still holds fewer than four images. On 50,000 titles with distinct posters the cold page fell **20.6 → 1.9 ms**; cold HTTP c=10 `GET /collections?limit=24` reached **611 req/s** (p95 18 ms). A collection that shares one poster across its window keeps the old exact result. The benchmark catalog now uses a 128-poster pool instead of one shared image so the preview path is exercised realistically.
-- **Covering relation indexes** — genre, keyword, company, cast, crew and collection lookup indexes now carry `metadata_id`, so similarity traits and filtered genre counts read the index without a table lookup. On 50,000 titles the raw similar score query fell **19.1 → 16.5 ms** and the filtered `year+genre` count **6.6 → 5.3 ms**.
-- **Leaner Discover candidate and relation reads** — recommendation candidates fetch only `id`, `popularity` and `createdAt` instead of the full metadata row, and `hasMediaFiles` tests the maintained `latest_media_created_at` stamp. Genres, keywords and top-billed cast now load in one JSON-driven union instead of three statements. Cold HTTP c=1 Discover fell **26.4 → 21.9 ms**; candidate fetch and relation load each dropped by roughly 0.5–0.9 ms.
-- **Admin dashboard covering indexes** — `media_files_admin_stats_idx` and `metadata_admin_stats_idx` turn the dashboard's full aggregates into narrow index scans. Cold stats **24.6 → 17.8 ms**; HTTP c=10 dashboard **226 → 270 req/s** (p95 68 → 57 ms). The write cost measured **+6%** over 10,000 media-file inserts (71.6 → 75.9 ms), paid only on writes.
-- **Served the watched-history listing from an index** — the default (keyset) page no longer sorts the whole profile history in a temporary B-tree: the profile/watched-at index now carries the id tie-breaker, so the query is a covering index search. The plan changed from `SCAN watched_history` + `USE TEMP B-TREE FOR ORDER BY` to `SEARCH watched_history USING COVERING INDEX`; the wall clock is unchanged at the benchmark's scale (0.43–0.45 ms p50 before, 0.43–0.48 ms p50 after on a 50,000-row catalog).
-- **Grouped smart-play relations once** — the per-title season and episode scans became a group-by, so a batch no longer re-scans the whole relation set per title. A 50-title batch went from 1.15 to 1.08 ms p50 (a series batch from 0.36 to 0.35 ms).
-- **Unified bulk id existence checks** — every bulk precheck now deduplicates and chunks its id list, so a large batch cannot exceed SQLite's bound-variable limit.
-- **Optimized list pagination** — composite indexes now support filtering, sorting and stable ID tie-breakers without temporary sorts. In the database benchmark, typed title browsing improved from 0.14 to 0.03 ms p50, while offset browsing improved from 0.14 to 0.004 ms.
-- **Optimized descending pagination** — sort tie-breakers now follow the requested direction, eliminating an unnecessary temporary sort. Descending browsing improved from 0.13 to 0.02 ms p50.
-- **Reduced database reads for playback** — playback session data now loads in 2 statements instead of 4–5 on a cold preferences cache, or 1 instead of 3–4 with warm preferences. Playback views also combine media, relation, marker, metadata and episode reads, reducing repeated queries.
-- **Optimized playback overview queries** — seasons, episodes, media files, progress and watchlist data are loaded together where beneficial. The playback view's next-episode suggestion now uses data it already has.
-- **Optimized Continue Watching** — title, media, season/episode and backdrop data now require 2 statements instead of 5.
-- **Optimized smart-play batches** — title metadata and watchlist state are included in batch reads. A 50-title watchlist-aware batch improved from 0.161 to 0.101 ms p50; a series batch improved from 0.047 to 0.031 ms.
-- **Optimized title detail reads** — metadata details now use 1 statement instead of 2, with all ten relation arrays loaded in one pass. Media-file and episode detail reads also avoid separate relation queries.
-- **Reduced repeated collection queries** — collection pages reuse their selected rows and load poster previews and counts together. A cold-count page now uses 4 statements instead of 6.
-- **Optimized Discover** — recently added movies and shows are ranked separately but hydrated together, reducing the combined path from 10 to 6 statements. Recommendations and trending titles also avoid fetching overlapping titles twice.
-- **Optimized bulk watched updates** — marking 40 files as watched now requires 4 statements instead of 121, while preserving playback preferences, history and per-file events.
-- **Optimized marker imports** — importing markers for 50 files now uses 5 statements instead of 300, reducing the measured time from 30.4 to 3.3 ms.
-- **Optimized relation loading** — large relation batches avoid unnecessary chunk recursion. A 5,000-title relation load now uses 3 statements instead of 9.
-- **Improved large ID batches** — increased the query chunk size from 500 to 2,000, reducing a 5,000-title relation batch from 30 to 9 statements.
-- **Optimized watchlist and rating writes** — existence checks now read only the required ID instead of loading all title relations. Measured write throughput improved by 27% for watchlist toggles and 19% for ratings.
-- **Optimized trickplay artifact queries** — bulk artifact reads now filter in the database and use one batch query. A 200-file operation improved from 15.2 to 0.5 ms (27.8×).
-- **Optimized scan findings** — library existence is checked as part of the existing query, reducing the cold path from 2 statements to 1.
-- **Improved database statement caching** — the compiled-statement cache now better accommodates dynamic queries. A 48-query-shape benchmark improved from 0.11 to 0.03 ms p50.
-- **Removed unnecessary relation reads** — media details and playback data now reuse rows and relations already fetched, avoiding redundant queries while preserving response payloads.
-- **Improved database maintenance** — planner statistics refresh incrementally, and full-text index merges yield between operations. On a 20,000-row catalog, maintenance time fell from 30.6 to 9.6 ms, while the longest event-loop stall dropped from 25.6 to 0.1 ms.
-- **Reduced database maintenance overhead** — redundant indexes were avoided where their write cost exceeded their benefit, and existence checks use more efficient queries.
-- **Kept measured-neutral query changes out** — merging page counts with `COUNT(*) OVER ()` and combining all media-page relations into one JSON bundle were tested but rejected because they slowed common queries.
+- **Faster catalog lists** — catalog pages no longer probe every title for media files. Cold 50,000-title catalog: page **10.61 → 1.36 ms**, recently added **30.6 → 0.73 ms**; HTTP c=10 browse **103 → 610 req/s**, Discover **25 → 52 req/s**.
+- **Faster similar titles** — the ranked page scores each candidate once. 50,000 titles: cold rank **29.75 → 13.39 ms**; HTTP c=10 **34 → 98 req/s**.
+- **Library and dashboard stats update instantly** — counts and sizes are no longer recalculated on every request. Cold 50,000-file HTTP c=10: library list **133 → 2,478 req/s**, detail **133 → 2,698 req/s**, admin dashboard **37 → 59 req/s**.
+- **Faster collection posters** — previews read only the first 16 poster rows per collection and keep the exact result when needed. Cold page **20.6 → 1.9 ms**; HTTP c=10 **611 req/s**.
+- **Faster similar and genre queries** — similar titles and genre-filtered lists read less data. Similar score **19.1 → 16.5 ms**; filtered `year+genre` count **6.6 → 5.3 ms**.
+- **Faster Discover** — recommendations fetch fewer columns and load genres, keywords and cast together. Cold HTTP c=1 **26.4 → 21.9 ms**.
+- **Faster watched-history listing** — the default page now reads a covering index instead of sorting the whole profile history. Time is unchanged at **0.44 ms**.
+- **Faster catalog pagination** — typed title browsing **0.14 → 0.03 ms**; offset browsing **0.14 → 0.004 ms**; descending **0.13 → 0.02 ms**.
+- **Fewer database reads** — playback **4–5 → 1–2 statements**, Continue Watching **5 → 2**, title details **2 → 1**, collections **6 → 4**, Discover **10 → 6**.
+- **Faster bulk watched updates** — marking 40 files takes **121 → 4 statements**.
+- **Faster marker imports** — 50 files take **300 → 5 statements**, or **30.4 → 3.3 ms**.
+- **Faster relation loading** — 5,000 titles take **9 → 3 statements**; large ID batches take **30 → 9**.
+- **Faster watchlist and rating writes** — throughput **+27%** for watchlist toggles and **+19%** for ratings.
+- **Faster trickplay artifact lookup** — 200 files **15.2 → 0.5 ms**.
+- **Faster statement caching** — a 48-query-shape benchmark **0.11 → 0.03 ms**.
+- **Faster database maintenance** — 20,000 rows **30.6 → 9.6 ms**; longest event-loop stall **25.6 → 0.1 ms**.
 
 ### Library scanning
 
-- **Reduced large-library scan memory** — discovery now stats files in batches and keeps a single resolved-path map instead of three path collections. A 100,000-file scan peaked at 148–150 MB instead of 165–166 MB (about 10% less), with scan time unchanged; the resolve/dedupe and new-file passes yield every 5,000 files so a large walk cannot block the event loop.
+- **Lower scan memory** — a 100,000-file scan peaks at **148–150 MB** instead of **165–166 MB**, with scan time unchanged.
 
 ### HTTP, caching & resource usage
 
-- **Bulk watch-state checks no longer run one after another** — `POST /me/watch-state/bulk` checks up to 500 media files with bounded concurrency instead of 500 sequential awaits, and still refuses the first id in request order that is not accessible.
-- **Reduced per-request middleware overhead** — normalized pathnames and credential headers are memoized for the life of a request, and a cache miss no longer rebuilds the same response-cache key after the handler.
-- **Adaptive brotli compression** — cores below the slow-core threshold use quality 2 and a 64 KB window instead of quality 4/256 KB. Bodies grow by roughly 10–25% while compression CPU falls; a 617 KB details payload went from 1.16 to 0.77 ms.
-- **Reduced response-body copying** — compressed responses now reuse the existing byte buffer. Copying a 64 KB body improved from 0.88 to 0.015 ms, with identical compressed output.
-- **Improved compressed endpoint throughput** — per-profile details and playback views showed higher throughput in the measured runs after eliminating redundant body copies; results varied by endpoint and remained within the benchmark's approximately ±10% run-to-run spread.
-- **Reduced asset request overhead** — static application assets no longer trigger unnecessary session and profile resolution. CPU time for 4,000 authenticated asset requests fell from 773 to 740 ms.
-- **Optimized static file serving** — request paths are extracted without constructing a new URL object for every request.
-- **Improved response caching** — similar-title and admin resource endpoints now coalesce concurrent requests instead of running the same handler multiple times.
-- **Improved profile cache invalidation** — insight caches are indexed by profile, avoiding full cache-key scans after watchlist, rating and playback changes.
-- **Improved per-profile response caching** — details and playback-view cache keys now include the caller's credentials, preventing unrelated sessions from sharing cached responses.
-- **Improved image cache eviction** — rewriting a cached file now moves it to the newest position, preventing frequently updated files from being evicted as old entries.
-- **Bounded in-memory caches by installed RAM** — the seven provider result caches now share one total entry budget (1,400 entries at 4 GiB, capped at 4,200) instead of each taking the full per-cache limit, and Bun's compiled-statement cache scales from 128 entries at 1 GiB to 512 at 8 GiB and above.
-- **Reduced worker scheduling overhead** — due jobs are enqueued concurrently, and completed workers are removed from resource-tracking maps.
-- **Reduced bulk-delete overhead** — active session IDs are collected once and checked using set membership instead of copying the session list for every file.
-- **Improved server maintenance scheduling** — cleanup and full-text index merges yield between operations instead of blocking the event loop for an entire batch.
-- **Unified boolean query parsing** — boolean flags consistently accept `true`/`1` and `false`/`0`, including the health endpoint.
-- **Improved library health checks** — filesystem stats for independent library paths are collected concurrently.
-- **Optimized first-run checks** — setup status checks whether an account exists instead of counting every user.
-- **Reduced repeated plugin file reads** — plugin manifests and lockfiles use file metadata to invalidate their cache, reducing a cache-miss manifest read from 0.405 to 0.022 ms.
+- **Faster bulk watch-state checks** — 500 files are checked with bounded concurrency instead of one by one.
+- **Less per-request work** — paths and credentials are parsed once; static assets skip session/profile lookups; 4,000 authenticated asset requests **773 → 740 ms**.
+- **Faster compression** — low-core hosts use faster compression; a 617 KB details payload **1.16 → 0.77 ms**.
+- **Less response copying** — a 64 KB body copy **0.88 → 0.015 ms**.
+- **Better response and image caches** — similar-title and admin requests are coalesced, insight caches invalidate per profile, and rewritten images stay newest. Provider caches now share a RAM-based budget.
+- **Faster plugin reads** — a cache-miss manifest read **0.405 → 0.022 ms**.
+- **Less worker and cleanup overhead** — due jobs run concurrently; bulk deletes collect active sessions once; maintenance yields between batches.
+- **Faster first-run checks** — setup checks whether an account exists instead of counting users.
 
 ### Trickplay generation
 
-- **Parallelized trickplay rendering** — independent sprite grids now render concurrently within a CPU budget that reserves resources for the server. A 10-minute 1080p source with 300 frames improved from 17,390 to 6,524 ms (2.67×) on a 16-thread Ryzen 7 7800X3D.
+- **Faster trickplay rendering** — independent sprite grids render concurrently within a CPU budget. A 10-minute 1080p source with 300 frames **17,390 → 6,524 ms** (2.67×).
 
 ### Performance measurements
 
-The table prioritizes measurements most relevant to a Jellyfin/Plex-style streaming host: catalog and Discover responsiveness under concurrent HTTP load, library operations, background media processing, memory use, and maintenance stalls. The figures are from this release's recorded benchmarks; results depend on the test environment and workload. HTTP results marked **c=10** were measured with 10 concurrent clients.
+HTTP results use 10 concurrent clients unless noted. Figures come from this release's recorded benchmarks; results depend on the machine and workload.
 
-| Area                                            |                Before |                   After | Result                                |
-| ----------------------------------------------- | --------------------: | ----------------------: | ------------------------------------- |
-| **HTTP: catalog browse, 50,000 titles (c=10)**  | 103 req/s, p95 103 ms |    610 req/s, p95 18 ms | 5.9× throughput; 82% lower p95        |
-| **HTTP: projected catalog browse (c=10)**       | 103 req/s, p95 104 ms |    707 req/s, p95 16 ms | 6.9× throughput; 85% lower p95        |
-| **HTTP: deep-offset catalog browse (c=10)**     |  67 req/s, p95 161 ms |    263 req/s, p95 41 ms | 3.9× throughput; 75% lower p95        |
-| **HTTP: filtered catalog browse (c=10)**        |  115 req/s, p95 93 ms |    147 req/s, p95 72 ms | 28% higher throughput                 |
-| **HTTP: Discover (c=10)**                       |  25 req/s, p95 522 ms |    52 req/s, p95 222 ms | 2.1× throughput; 57% lower p95        |
-| **HTTP: mixed traffic (c=10)**                  | 107 req/s, p95 356 ms |   291 req/s, p95 109 ms | 2.7× throughput; 69% lower p95        |
-| **Similar-title ranking, 50,000 titles**        |              29.75 ms |                13.39 ms | 2.2× faster                           |
-| **Library list, 50,000 files**                  |              10.78 ms |                 7.36 ms | 32% faster                            |
-| **Library detail, HTTP (c=10)**                 |  407 req/s, p95 26 ms | 2,661 req/s, p95 6.6 ms | 6.5× throughput; 75% lower p95        |
-| **HTTP: admin dashboard, 50,000 titles (c=10)** |  37 req/s, p95 319 ms |    53 req/s, p95 213 ms | 44% throughput; 33% lower p95         |
-| Typed title browsing                            |               0.14 ms |                 0.03 ms | 4.7× faster                           |
-| Unfiltered newest browsing                      |               0.14 ms |                 0.02 ms | 7× faster                             |
-| Descending browsing                             |               0.13 ms |                 0.02 ms | 6.5× faster                           |
-| Watched-history listing, 50,000-row catalog     |               0.44 ms |                 0.44 ms | Same time; full scan → covering index |
-| Smart-play batch, 50 titles                     |               1.15 ms |                 1.08 ms | 6% faster                             |
-| 5,000-title relation loading                    |          9 statements |            3 statements | 67% fewer                             |
-| Marking 40 files as watched                     |        121 statements |            4 statements | 97% fewer                             |
-| Importing markers for 50 files                  |        300 statements |            5 statements | 98% fewer                             |
-| Trickplay artifact lookup for 200 files         |               15.2 ms |                  0.5 ms | 27.8× faster                          |
-| Trickplay generation                            |             17,390 ms |                6,524 ms | 2.67× faster                          |
-| Large library scan peak memory (100k files)     |            165–166 MB |              148–150 MB | ~10% less                             |
-| Database maintenance, 20,000 rows               |               30.6 ms |                  9.6 ms | 69% less time                         |
-| Longest maintenance event-loop stall            |               25.6 ms |                  0.1 ms | 99.6% shorter                         |
-| 64 KB response-body copy                        |               0.88 ms |                0.015 ms | 58.7× faster                          |
-| Plugin manifest read on cache miss              |              0.405 ms |                0.022 ms | 18× faster                            |
+| Area                                            |                Before |                   After | Change                               |
+| ----------------------------------------------- | --------------------: | ----------------------: | ------------------------------------ |
+| **Catalog browse, 50,000 titles (c=10)**        | 103 req/s, p95 103 ms |    610 req/s, p95 18 ms | 5.9× throughput; 82% lower p95       |
+| **Projected catalog browse (c=10)**             | 103 req/s, p95 104 ms |    707 req/s, p95 16 ms | 6.9× throughput; 85% lower p95       |
+| **Deep-offset catalog browse (c=10)**           |  67 req/s, p95 161 ms |    263 req/s, p95 41 ms | 3.9× throughput; 75% lower p95       |
+| **Filtered catalog browse (c=10)**              |  115 req/s, p95 93 ms |    147 req/s, p95 72 ms | 28% higher throughput                |
+| **Discover (c=10)**                             |  25 req/s, p95 522 ms |    52 req/s, p95 222 ms | 2.1× throughput; 57% lower p95       |
+| **Mixed traffic (c=10)**                        | 107 req/s, p95 356 ms |   291 req/s, p95 109 ms | 2.7× throughput; 69% lower p95       |
+| **Similar titles, 50,000 titles**               |              29.75 ms |                13.39 ms | 2.2× faster                          |
+| **Library list, 50,000 files (c=10)**           | 133 req/s, p95 139 ms | 2,478 req/s, p95 7.1 ms | 18.6× throughput; 95% lower p95      |
+| **Library detail, 50,000 files (c=10)**         | 133 req/s, p95 139 ms | 2,698 req/s, p95 6.6 ms | 20.3× throughput; 95% lower p95      |
+| **Admin dashboard, 50,000 titles (c=10)**       |  37 req/s, p95 319 ms |    59 req/s, p95 203 ms | 59% higher throughput; 36% lower p95 |
+| **Typed title browsing**                        |               0.14 ms |                 0.03 ms | 4.7× faster                          |
+| **Unfiltered newest browsing**                  |               0.14 ms |                 0.02 ms | 7× faster                            |
+| **Descending browsing**                         |               0.13 ms |                 0.02 ms | 6.5× faster                          |
+| **Smart-play batch, 50 titles**                 |               1.15 ms |                 1.08 ms | 6% faster                            |
+| **Marking 40 files as watched**                 |        121 statements |            4 statements | 97% fewer                            |
+| **Importing markers for 50 files**              |        300 statements |            5 statements | 98% fewer                            |
+| **Trickplay artifact lookup, 200 files**        |               15.2 ms |                  0.5 ms | 27.8× faster                         |
+| **Trickplay generation**                        |             17,390 ms |                6,524 ms | 2.67× faster                         |
+| **Large library scan peak memory (100k files)** |            165–166 MB |              148–150 MB | ~10% less                            |
+| **Database maintenance, 20,000 rows**           |               30.6 ms |                  9.6 ms | 69% less time                        |
+| **Longest maintenance stall**                   |               25.6 ms |                  0.1 ms | 99.6% shorter                        |
+| **64 KB response-body copy**                    |               0.88 ms |                0.015 ms | 58.7× faster                         |
+| **Plugin manifest read on cache miss**          |              0.405 ms |                0.022 ms | 18× faster                           |
