@@ -4,6 +4,12 @@ import { Writable } from "node:stream";
 const LOG_COALESCE_FLUSH_MS = 2;
 
 /**
+ * A log target. A file stream offers `flush()` to reach the disk; Bun's
+ * `process.stdout` carries a boolean `flush` instead, which must not be called.
+ */
+type LogTarget = Writable & { flush?: (() => Promise<void>) | boolean };
+
+/**
  * Batches log lines into one target write per flush window. Per-line writes
  * cost a libuv request each; at request-log volume that event-loop churn shows
  * up as throughput loss. Lines are accepted immediately — the pending buffer is
@@ -11,14 +17,14 @@ const LOG_COALESCE_FLUSH_MS = 2;
  * one buffer in arrival order.
  */
 export class CoalescingStream extends Writable {
-	private readonly target: Writable & { flush?: () => Promise<void> };
+	private readonly target: LogTarget;
 	private pending: Buffer[] = [];
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private flushing = false;
 	private finalCallback: ((error?: Error | null) => void) | undefined;
 	private drainWaiters: Array<() => void> = [];
 
-	constructor(target: Writable & { flush?: () => Promise<void> }) {
+	constructor(target: LogTarget) {
 		super();
 		this.target = target;
 	}
@@ -29,7 +35,9 @@ export class CoalescingStream extends Writable {
 			this.drainWaiters.push(resolve);
 			this.flush();
 			this.settleDrain();
-		}).then(() => this.target.flush?.());
+		}).then(async () => {
+			if (typeof this.target.flush === "function") await this.target.flush();
+		});
 	}
 
 	override _write(chunk: Buffer | string, encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
