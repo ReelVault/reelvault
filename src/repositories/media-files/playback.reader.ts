@@ -31,9 +31,9 @@ export async function findForTechnicalRefresh(mediaFileId: string) {
 	});
 }
 
-/** The projection a playback session is created from. */
+/** The projection a playback session is created from; the decision reads the container and its bitrate. */
 const playbackSessionFields = parseFields({
-	fields: "id,filePath,duration,size,sourceMtimeMs,videoStreams,audioStreams,subtitles,isEnabled",
+	fields: "id,filePath,duration,size,bitRate,formatName,sourceMtimeMs,videoStreams,audioStreams,subtitles,isEnabled",
 });
 
 export async function findForPlaybackSession(mediaFileId: string) {
