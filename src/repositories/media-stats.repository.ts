@@ -1,4 +1,4 @@
-import { inArray, sql } from "drizzle-orm";
+import { count, eq, inArray, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
@@ -33,6 +33,10 @@ function emptyDelta(libraryId: string): MediaStatsDelta {
 	return { libraryId, fileCount: 0, totalSize: 0, movieCount: 0, episodeCount: 0, qualityCount: 0 };
 }
 
+function sumOfLibraryStat(column: typeof schema.libraryMediaStats.fileCount) {
+	return sql<number>`(SELECT COALESCE(SUM(${column}), 0) FROM ${schema.libraryMediaStats})`;
+}
+
 function rowDelta(row: MediaFileStatsRow, sign: 1 | -1): MediaStatsDelta {
 	return {
 		libraryId: row.libraryId,
@@ -53,22 +57,32 @@ function mergeDelta(target: MediaStatsDelta, source: MediaStatsDelta): void {
 }
 
 /** True after the boot backfill created the catalog row; before that reads and writes use the live scan. */
-export function hasCatalogMediaStats(tx?: DatabaseTransaction): boolean {
+export async function hasCatalogMediaStats(tx?: DatabaseTransaction): Promise<boolean> {
 	const client = databaseFactory.getClient({ tx });
-	const rows = client.all<{ one: number }>(sql`SELECT 1 AS one FROM catalog_media_stats WHERE id = 1 LIMIT 1`);
+	const rows = await client
+		.select({ id: schema.catalogMediaStats.id })
+		.from(schema.catalogMediaStats)
+		.where(eq(schema.catalogMediaStats.id, 1))
+		.limit(1);
 
 	return rows.length > 0;
 }
 
-export function getCatalogMediaStats(tx?: DatabaseTransaction): CatalogMediaStats | undefined {
+export async function getCatalogMediaStats(tx?: DatabaseTransaction): Promise<CatalogMediaStats | undefined> {
 	const client = databaseFactory.getClient({ tx });
-	const rows = client.all<CatalogMediaStats>(sql`
-		SELECT file_count AS fileCount, total_size AS totalSize, movie_count AS movieCount,
-			episode_count AS episodeCount, quality_count AS qualityCount
-		FROM catalog_media_stats WHERE id = 1 LIMIT 1
-	`);
+	const [row] = await client
+		.select({
+			fileCount: schema.catalogMediaStats.fileCount,
+			totalSize: schema.catalogMediaStats.totalSize,
+			movieCount: schema.catalogMediaStats.movieCount,
+			episodeCount: schema.catalogMediaStats.episodeCount,
+			qualityCount: schema.catalogMediaStats.qualityCount,
+		})
+		.from(schema.catalogMediaStats)
+		.where(eq(schema.catalogMediaStats.id, 1))
+		.limit(1);
 
-	return rows[0];
+	return row;
 }
 
 export async function getLibraryMediaStats(
@@ -140,7 +154,7 @@ async function applyCatalogDelta(delta: MediaStatsDelta, tx?: DatabaseTransactio
  * that seed media files directly on the live fallback.
  */
 export async function applyMediaFileStats(rows: readonly MediaFileStatsRow[], sign: 1 | -1, tx?: DatabaseTransaction): Promise<void> {
-	if (rows.length === 0 || !hasCatalogMediaStats(tx)) return;
+	if (rows.length === 0 || !(await hasCatalogMediaStats(tx))) return;
 
 	const byLibrary = new Map<string, MediaStatsDelta>();
 	const total = emptyDelta("");
@@ -158,7 +172,7 @@ export async function applyMediaFileStats(rows: readonly MediaFileStatsRow[], si
 
 /** Updates only `media_files.file_size` after a technical refresh. */
 export async function applyMediaFileSizeDelta(libraryId: string, sizeDelta: number, tx?: DatabaseTransaction): Promise<void> {
-	if (sizeDelta === 0 || !hasCatalogMediaStats(tx)) return;
+	if (sizeDelta === 0 || !(await hasCatalogMediaStats(tx))) return;
 	const delta = { ...emptyDelta(libraryId), totalSize: sizeDelta };
 	await applyLibraryDelta(delta, tx);
 	await applyCatalogDelta(delta, tx);
@@ -166,7 +180,7 @@ export async function applyMediaFileSizeDelta(libraryId: string, sizeDelta: numb
 
 /** Updates only the quality-tag counter after an edit or a technical refresh. */
 export async function applyMediaFileQualityDelta(libraryId: string, qualityDelta: number, tx?: DatabaseTransaction): Promise<void> {
-	if (qualityDelta === 0 || !hasCatalogMediaStats(tx)) return;
+	if (qualityDelta === 0 || !(await hasCatalogMediaStats(tx))) return;
 	const delta = { ...emptyDelta(libraryId), qualityCount: qualityDelta };
 	await applyLibraryDelta(delta, tx);
 	await applyCatalogDelta(delta, tx);
@@ -179,7 +193,7 @@ export async function applyMediaFileFlagDelta(
 	episodeDelta: number,
 	tx?: DatabaseTransaction,
 ): Promise<void> {
-	if ((movieDelta === 0 && episodeDelta === 0) || !hasCatalogMediaStats(tx)) return;
+	if ((movieDelta === 0 && episodeDelta === 0) || !(await hasCatalogMediaStats(tx))) return;
 	const delta = { ...emptyDelta(libraryId), movieCount: movieDelta, episodeCount: episodeDelta };
 	await applyLibraryDelta(delta, tx);
 	await applyCatalogDelta(delta, tx);
@@ -189,24 +203,19 @@ export async function applyMediaFileFlagDelta(
 export async function rebuildMediaStats(tx?: DatabaseTransaction): Promise<void> {
 	await runInTransaction(tx, async (runTx) => {
 		const client = databaseFactory.getClient({ tx: runTx });
-		await Promise.resolve(client.run(sql`DELETE FROM library_media_stats`));
-		await Promise.resolve(
-			client.run(sql`
-				INSERT INTO library_media_stats (library_id, file_count, total_size, movie_count, episode_count, quality_count)
-				SELECT library_id, COUNT(*), COALESCE(SUM(file_size), 0),
-					COUNT(CASE WHEN movie_id IS NOT NULL THEN 1 END),
-					COUNT(CASE WHEN episode_id IS NOT NULL THEN 1 END),
-					COUNT(CASE WHEN quality_tag IS NOT NULL THEN 1 END)
-				FROM media_files
-				GROUP BY library_id
-			`),
-		);
-		await Promise.resolve(
-			client.run(sql`
-				INSERT INTO library_media_stats (library_id, file_count, total_size, movie_count, episode_count, quality_count)
-				SELECT id, 0, 0, 0, 0, 0 FROM libraries
-				WHERE id NOT IN (SELECT library_id FROM library_media_stats)
-			`),
+		await client.delete(schema.libraryMediaStats);
+		await client.insert(schema.libraryMediaStats).select(
+			client
+				.select({
+					libraryId: schema.mediaFiles.libraryId,
+					fileCount: count().as("file_count"),
+					totalSize: sql<number>`coalesce(sum(${schema.mediaFiles.size}), 0)`.as("total_size"),
+					movieCount: count(schema.mediaFiles.movieId).as("movie_count"),
+					episodeCount: count(schema.mediaFiles.episodeId).as("episode_count"),
+					qualityCount: count(schema.mediaFiles.qualityTag).as("quality_count"),
+				})
+				.from(schema.mediaFiles)
+				.groupBy(schema.mediaFiles.libraryId),
 		);
 		await rebuildCatalogFromLibraries(runTx);
 	});
@@ -215,19 +224,25 @@ export async function rebuildMediaStats(tx?: DatabaseTransaction): Promise<void>
 /** Recomputes the global row from the per-library rows (used after a library deletion). */
 export async function rebuildCatalogFromLibraries(tx?: DatabaseTransaction): Promise<void> {
 	const client = databaseFactory.getClient({ tx });
-	await Promise.resolve(
-		client.run(sql`
-			INSERT INTO catalog_media_stats (id, file_count, total_size, movie_count, episode_count, quality_count)
-			SELECT 1, COALESCE(SUM(file_count), 0), COALESCE(SUM(total_size), 0),
-				COALESCE(SUM(movie_count), 0), COALESCE(SUM(episode_count), 0), COALESCE(SUM(quality_count), 0)
-			FROM library_media_stats
-			WHERE 1
-			ON CONFLICT(id) DO UPDATE SET
-				file_count = excluded.file_count,
-				total_size = excluded.total_size,
-				movie_count = excluded.movie_count,
-				episode_count = excluded.episode_count,
-				quality_count = excluded.quality_count
-		`),
-	);
+
+	await client
+		.insert(schema.catalogMediaStats)
+		.values({
+			id: 1,
+			fileCount: sumOfLibraryStat(schema.libraryMediaStats.fileCount),
+			totalSize: sumOfLibraryStat(schema.libraryMediaStats.totalSize),
+			movieCount: sumOfLibraryStat(schema.libraryMediaStats.movieCount),
+			episodeCount: sumOfLibraryStat(schema.libraryMediaStats.episodeCount),
+			qualityCount: sumOfLibraryStat(schema.libraryMediaStats.qualityCount),
+		})
+		.onConflictDoUpdate({
+			target: schema.catalogMediaStats.id,
+			set: {
+				fileCount: sql`excluded.file_count`,
+				totalSize: sql`excluded.total_size`,
+				movieCount: sql`excluded.movie_count`,
+				episodeCount: sql`excluded.episode_count`,
+				qualityCount: sql`excluded.quality_count`,
+			},
+		});
 }

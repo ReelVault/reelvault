@@ -10,7 +10,7 @@ const mediaMarkers = defineTableAccess("mediaMarkers", { primaryKeyColumn: "id" 
 /** Aggregate counts backing the admin dashboard stats card. */
 export const adminStatsRepository = {
 	async getMediaStats() {
-		const summary = getCatalogMediaStats();
+		const summary = await getCatalogMediaStats();
 		if (summary) {
 			return {
 				totalFiles: summary.fileCount,

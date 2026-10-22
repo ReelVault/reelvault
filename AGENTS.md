@@ -191,6 +191,7 @@ Don't work around these. If one seems wrong, stop and ask the user.
 - Flat, imperative code. No speculative abstractions, no deep nesting.
 - DTOs come from `Static<typeof Schema>`; DB rows from `$inferSelect` or `InferTable`. Use library types instead of hand-rolling them.
 - `exactOptionalPropertyTypes` is on: an optional property that can receive an explicit `undefined` is typed `foo?: T | undefined`.
+- Prefer the Drizzle query builder (`client.select`, `insert`, `update`, `delete`) and its `sql` template with schema-bound identifiers. A hand-written SQL string, or a direct `client.run(...)` / `client.all(...)` call with a `sql` template, is the last resort: use it only when Drizzle cannot express the query, or when a measured benchmark proves the raw form is faster. When it stays, interpolate every table and column from `schema` (never spell table/column names as string literals) and add a comment explaining why the raw form is required.
 - Biome owns formatting. Don't hand-format.
 
 ## Architecture
@@ -288,6 +289,7 @@ Before you add or move a file, check this section. If no folder fits, ask the us
 ## Schema and migrations
 
 - The schema, relations and migrations live in `src/integrations/drizzle-orm/` (`migrations/`).
+- A new table that references another table must add its relations to `src/integrations/drizzle-orm/relations.schema.ts` in the same change — both the owning side and the inverse (`r.one`/`r.many`) where the domain traverses it. A schema is never left out of the relation graph.
 - Schema changes go through `bun run db:generate --name "..."`. Never `db:push`. Never hand-write, edit or assemble migration files.
 - Between releases, squash the unreleased migrations: delete their folders and run `db:generate` once. Never edit a released migration.
 - After a change in `sdk/`, publish from `sdk/`, then bump `@reelvault/sdk` here and in the website and plugin consumers.

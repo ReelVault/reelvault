@@ -106,6 +106,11 @@ export interface MoreLikeThisHost {
 type MoreLikeThisClient = ReturnType<typeof databaseFactory.getClient>;
 
 /**
+ * Raw SQL is deliberate here: the trait UNION ALL, the score CTE and the
+ * window total must stay in one statement to preserve the ranked-page plan.
+ * Every table and column is interpolated from `schema`, so a rename fails at
+ * compile time instead of drifting into a string literal.
+ *
  * Loads a source title's shared traits in 2 statements (metadata row + one
  * junction UNION ALL) instead of "metadata row + 5 relation loads". SQLite is
  * single-threaded, so fewer synchronous statements per request directly raise

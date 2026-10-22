@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
@@ -46,16 +46,15 @@ export async function refreshLatestMediaCreatedAt(metadataIds: readonly string[]
 export async function backfillLatestMediaCreatedAt(tx?: DatabaseTransaction): Promise<void> {
 	const client = databaseFactory.getClient({ tx });
 
-	await Promise.resolve(
-		client.run(sql`
-		UPDATE metadata
-		SET latest_media_created_at = (
-			SELECT MAX(media_files.created_at)
-			FROM media_files
-			WHERE media_files.metadata_id = metadata.id
-		)
-		WHERE latest_media_created_at IS NULL
-			AND EXISTS (SELECT 1 FROM media_files WHERE media_files.metadata_id = metadata.id)
-	`),
-	);
+	await client
+		.update(schema.metadata)
+		.set({
+			latestMediaCreatedAt: sql`(SELECT MAX(${schema.mediaFiles.createdAt}) FROM ${schema.mediaFiles} WHERE ${schema.mediaFiles.metadataId} = ${schema.metadata.id})`,
+		})
+		.where(
+			and(
+				isNull(schema.metadata.latestMediaCreatedAt),
+				exists(client.select({ one: sql`1` }).from(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, schema.metadata.id))),
+			),
+		);
 }

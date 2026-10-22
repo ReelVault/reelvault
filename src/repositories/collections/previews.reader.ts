@@ -138,6 +138,9 @@ async function queryCountsOnly(collectionIds: string[], tx: DatabaseTransaction 
  * Reads counts and the first `FAST_POSTER_SCAN` poster rows per collection.
  * A collection only needs the full distinct-image pass when that window is
  * full and still holds fewer than four distinct images.
+ *
+ * Raw SQL is required for `json_group_array`; tables and columns are
+ * interpolated from `schema`.
  */
 function queryFastPreviews(
 	collectionIds: string[],

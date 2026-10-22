@@ -52,7 +52,7 @@ export async function deleteWithDependents(caches: LibraryStatsCaches, libraryId
 		// removed library leaves no orphan resume state.
 		await client.delete(schema.scanState).where(eq(schema.scanState.libraryId, libraryId));
 		await client.delete(schema.libraries).where(eq(schema.libraries.id, libraryId));
-		if (hasCatalogMediaStats(tx)) await rebuildCatalogFromLibraries(tx);
+		if (await hasCatalogMediaStats(tx)) await rebuildCatalogFromLibraries(tx);
 
 		clearStatsCaches(caches);
 

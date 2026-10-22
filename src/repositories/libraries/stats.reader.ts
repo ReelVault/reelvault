@@ -28,7 +28,7 @@ export async function loadLibraryStats(libraryIds: readonly string[], tx?: Datab
 	const stats = new Map<string, LibraryStats>();
 	if (libraryIds.length === 0) return stats;
 
-	if (hasCatalogMediaStats(tx)) {
+	if (await hasCatalogMediaStats(tx)) {
 		const summary = await getLibraryMediaStats(libraryIds, tx);
 		for (const libraryId of libraryIds) {
 			const row = summary.get(libraryId);

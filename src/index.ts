@@ -46,7 +46,7 @@ const PUBLIC_BIND_HOSTS: ReadonlySet<string> = new Set(["0.0.0.0", "::", "*"]);
 
 /** Seeds the media-stats summary once; after this boot every media-file write keeps it current. */
 async function buildMediaStatsIfMissing(): Promise<void> {
-	if (hasCatalogMediaStats()) return;
+	if (await hasCatalogMediaStats()) return;
 
 	logger.info("Building media statistics summary...");
 	await rebuildMediaStats();

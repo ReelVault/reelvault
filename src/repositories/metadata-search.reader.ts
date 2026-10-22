@@ -74,6 +74,8 @@ export async function searchGlobal({ term, limit }: { term: string; limit: numbe
 
 	let rawTitles: Array<{ id: string; title: string; type: "movie" | "tv_show" }> = [];
 	if (metadataMatch) {
+		// FTS5 virtual tables are not part of the Drizzle schema; the joined
+		// `metadata` columns are still interpolated from `schema`.
 		rawTitles = client.all<{ id: string; title: string; type: "movie" | "tv_show" }>(sql`
 				SELECT m.id AS id, m.title AS title, m.type AS type
 				FROM metadata_fts

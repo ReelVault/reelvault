@@ -61,7 +61,7 @@ describe("media statistics summary writes", () => {
 		await rebuildMediaStats();
 		await createMovieFile();
 
-		expect(getCatalogMediaStats()).toEqual({
+		expect(await getCatalogMediaStats()).toEqual({
 			fileCount: 1,
 			totalSize: 1_000,
 			movieCount: 1,
@@ -84,7 +84,7 @@ describe("media statistics summary writes", () => {
 			sourceMtimeMs: 123,
 		});
 
-		expect(getCatalogMediaStats()).toMatchObject({ fileCount: 1, totalSize: 2_500, qualityCount: 1 });
+		expect(await getCatalogMediaStats()).toMatchObject({ fileCount: 1, totalSize: 2_500, qualityCount: 1 });
 		const libraryStats = await getLibraryMediaStats(["lib-1"]);
 		expect(libraryStats.get("lib-1")).toEqual({ fileCount: 1, totalSize: 2_500 });
 	});
@@ -96,7 +96,7 @@ describe("media statistics summary writes", () => {
 
 		await mediaRepository.updateAndRead(mediaFileId, { qualityTag: "2160p" });
 
-		expect(getCatalogMediaStats()).toMatchObject({ fileCount: 1, qualityCount: 1 });
+		expect(await getCatalogMediaStats()).toMatchObject({ fileCount: 1, qualityCount: 1 });
 	});
 
 	test("moves the movie and episode counters when a file is reassigned", async () => {
@@ -111,7 +111,7 @@ describe("media statistics summary writes", () => {
 			episodeId: "episode-1",
 		});
 
-		expect(getCatalogMediaStats()).toMatchObject({ fileCount: 1, movieCount: 0, episodeCount: 1 });
+		expect(await getCatalogMediaStats()).toMatchObject({ fileCount: 1, movieCount: 0, episodeCount: 1 });
 		const libraryStats = await getLibraryMediaStats(["lib-1"]);
 		expect(libraryStats.get("lib-1")).toEqual({ fileCount: 1, totalSize: 1_000 });
 	});
@@ -123,7 +123,7 @@ describe("media statistics summary writes", () => {
 
 		await mediaRepository.deleteByIds([mediaFileId]);
 
-		expect(getCatalogMediaStats()).toEqual({
+		expect(await getCatalogMediaStats()).toEqual({
 			fileCount: 0,
 			totalSize: 0,
 			movieCount: 0,
@@ -143,7 +143,7 @@ describe("media statistics summary rebuilds", () => {
 
 		await librariesRepository.deleteWithDependents("lib-1");
 
-		expect(getCatalogMediaStats()).toEqual({
+		expect(await getCatalogMediaStats()).toEqual({
 			fileCount: 0,
 			totalSize: 0,
 			movieCount: 0,
@@ -168,7 +168,7 @@ describe("media statistics summary rebuilds", () => {
 
 		await rebuildMediaStats();
 
-		expect(getCatalogMediaStats()).toEqual({
+		expect(await getCatalogMediaStats()).toEqual({
 			fileCount: 1,
 			totalSize: 4_000,
 			movieCount: 1,
