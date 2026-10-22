@@ -147,4 +147,73 @@ describe("metadata similar titles from the stored source", () => {
 			removeTreeSync(tempDir);
 		}
 	});
+
+	test("counts collection and director bonuses once, while summing genre and cast matches", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "reelvault-similar-bonus-test-"));
+		const factory = new DatabaseFactory(join(tempDir, "test.sqlite"));
+		try {
+			factory.migrate();
+			const db = factory.sqlite;
+			const now = Math.floor(Date.now() / 1000);
+
+			const insertMetadata = db.prepare(
+				"INSERT INTO metadata (id, stable_key, title, original_title, overview, tagline, type, status, release_date, origin_country, popularity, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, 'movie', NULL, '2020-01-01', NULL, 0, ?, ?)",
+			);
+			for (const id of ["m-source", "m-genre-cast", "z-one", "a-two", "z-two", "a-one"]) {
+				insertMetadata.run(id, id, id, id, now, now);
+			}
+
+			const insertCollection = db.prepare("INSERT INTO collections (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
+			insertCollection.run("c-1", "c-1", "One", now, now);
+			insertCollection.run("c-2", "c-2", "Two", now, now);
+			db.prepare("INSERT INTO genres (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+				"g-1",
+				"g-1",
+				"Genre",
+				now,
+				now,
+			);
+			const insertPerson = db.prepare("INSERT INTO people (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
+			for (const person of ["p-1", "p-2", "d-1", "d-2"]) {
+				insertPerson.run(person, person, person, now, now);
+			}
+
+			const linkCollection = db.prepare("INSERT INTO metadata_collections (metadata_id, collection_id, sort_order) VALUES (?, ?, ?)");
+			for (const [metadataId, collectionId] of [
+				["m-source", "c-1"],
+				["m-source", "c-2"],
+				["z-one", "c-1"],
+				["a-two", "c-1"],
+				["z-two", "c-1"],
+				["z-two", "c-2"],
+				["a-one", "c-1"],
+			] as const) {
+				linkCollection.run(metadataId, collectionId, 0);
+			}
+			db.prepare("INSERT INTO metadata_genres (metadata_id, genre_id) VALUES (?, ?)").run("m-source", "g-1");
+			db.prepare("INSERT INTO metadata_genres (metadata_id, genre_id) VALUES (?, ?)").run("m-genre-cast", "g-1");
+
+			const linkCast = db.prepare("INSERT INTO metadata_cast (metadata_id, person_id, role, sort_order) VALUES (?, ?, 'Actor', ?)");
+			linkCast.run("m-source", "p-1", 0);
+			linkCast.run("m-source", "p-2", 1);
+			linkCast.run("m-genre-cast", "p-1", 0);
+
+			const linkCrew = db.prepare(
+				"INSERT INTO metadata_crew (metadata_id, person_id, job, department) VALUES (?, ?, 'Director', 'Directing')",
+			);
+			linkCrew.run("m-source", "d-1");
+			linkCrew.run("m-source", "d-2");
+			linkCrew.run("z-one", "d-1");
+			linkCrew.run("a-two", "d-1");
+			linkCrew.run("a-two", "d-2");
+
+			const result = await metadataRepository.getMoreLikeThis({ metadataId: "m-source", limit: 10, offset: 0, tx: factory.db });
+
+			expect(result.data.map((row) => row.id)).toEqual(["m-genre-cast", "z-one", "a-two", "z-two", "a-one"]);
+			expect(result.total).toBe(5);
+		} finally {
+			factory.shutdown();
+			removeTreeSync(tempDir);
+		}
+	});
 });

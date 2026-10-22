@@ -43,6 +43,9 @@ export const mediaFiles = sqliteTable(
 		uniqueIndex("media_files_episode_default_unique").on(t.episodeId).where(sql`${t.episodeId} IS NOT NULL AND ${t.isDefault} = 1`),
 		// library_id-only lookups are served by the two composites below.
 		index("media_files_library_created_idx").on(t.libraryId, t.createdAt),
+		// Library list/stats aggregate `count(*)` and `sum(file_size)` per library;
+		// this covering index keeps that cold query off the wide media_files rows.
+		index("media_files_library_size_idx").on(t.libraryId, t.size),
 		// Scanner keyset (`WHERE library_id = ? AND id > ? ORDER BY id`) walks this
 		// range instead of sorting a library page per poll.
 		index("media_files_library_id_idx").on(t.libraryId, t.id),

@@ -1,5 +1,5 @@
 import type { FieldsConfig, MetadataWithRelation, SelectFields } from "@reelvault/sdk/common";
-import { and, desc, eq, inArray, ne, or, type SQL, sql } from "drizzle-orm";
+import { eq, inArray, like, type SQL, sql } from "drizzle-orm";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -166,145 +166,163 @@ interface SimilarityTraits {
 	keywordIds: string[];
 	directors: string[];
 	topCast: string[];
-	type: MoreLikeThisSource["type"];
-}
-
-/** Per-candidate score terms. Weights are chosen so collection and director rank highest, right after genre. */
-function buildSimilarityScores(traits: SimilarityTraits) {
-	const { collectionIds, genreIds, keywordIds, directors, topCast, type } = traits;
-
-	let collectionScore = sql`0`;
-	if (collectionIds.length > 0) {
-		collectionScore = sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCollections} WHERE ${schema.metadataCollections.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCollections.collectionId, collectionIds)}) THEN -100 ELSE 0 END)`;
-	}
-
-	let genreScore = sql`0`;
-	if (genreIds.length > 0) {
-		genreScore = sql`(SELECT COUNT(*) * 30 FROM ${schema.metadataGenres} WHERE ${schema.metadataGenres.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataGenres.genreId, genreIds)})`;
-	}
-
-	let keywordScore = sql`0`;
-	if (keywordIds.length > 0) {
-		keywordScore = sql`(SELECT COUNT(*) * 12 FROM ${schema.metadataKeywords} WHERE ${schema.metadataKeywords.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataKeywords.keywordId, keywordIds)})`;
-	}
-
-	let directorScore = sql`0`;
-	if (directors.length > 0) {
-		directorScore = sql`(CASE WHEN EXISTS (SELECT 1 FROM ${schema.metadataCrew} WHERE ${schema.metadataCrew.metadataId} = ${schema.metadata.id} AND ${schema.metadataCrew.job} LIKE '%Director%' AND ${inArray(schema.metadataCrew.personId, directors)}) THEN 80 ELSE 0 END)`;
-	}
-
-	let castScore = sql`0`;
-	if (topCast.length > 0) {
-		castScore = sql`(SELECT COUNT(*) * 15 FROM ${schema.metadataCast} WHERE ${schema.metadataCast.metadataId} = ${schema.metadata.id} AND ${inArray(schema.metadataCast.personId, topCast)})`;
-	}
-
-	// Prefer the same type (movie -> movies, show -> show)
-	const typeScore = sql`CASE WHEN ${schema.metadata.type} = ${type} THEN 50 ELSE 0 END`;
-
-	return { collectionScore, genreScore, keywordScore, directorScore, castScore, typeScore };
 }
 
 /**
- * Candidates that share at least one trait with the source. Each subset drives from the junction
- * side, so SQLite starts at the trait matches instead of scanning every row of the metadata table.
+ * One row per matching trait. Collection and director rows are DISTINCT because
+ * their score is an EXISTS bonus, not a count; genre, keyword and cast rows keep
+ * one row per match because those scores multiply by the match count.
  */
-function buildCandidateFilter(client: MoreLikeThisClient, traits: Omit<SimilarityTraits, "type">): SQL | undefined {
-	const { collectionIds, genreIds, keywordIds, directors, topCast } = traits;
+function buildTraitUnion(traits: SimilarityTraits): SQL | undefined {
+	const parts: SQL[] = [];
 
-	const candidateFeatureFilters: SQL[] = [];
-	const featureGroups = [
-		{ ids: collectionIds, table: schema.metadataCollections, column: schema.metadataCollections.collectionId },
-		{ ids: genreIds, table: schema.metadataGenres, column: schema.metadataGenres.genreId },
-		{ ids: keywordIds, table: schema.metadataKeywords, column: schema.metadataKeywords.keywordId },
-		{ ids: directors, table: schema.metadataCrew, column: schema.metadataCrew.personId },
-		{ ids: topCast, table: schema.metadataCast, column: schema.metadataCast.personId },
-	];
-	for (const group of featureGroups) {
-		if (group.ids.length > 0) {
-			// Drive the candidate set from the (small) junction side: `id IN (...)`
-			// lets SQLite start at the trait matches instead of scanning every row of
-			// the type and probing each one with a correlated EXISTS.
-			candidateFeatureFilters.push(
-				inArray(
-					schema.metadata.id,
-					client.select({ id: group.table.metadataId }).from(group.table).where(inArray(group.column, group.ids)),
-				),
-			);
+	if (traits.collectionIds.length > 0) {
+		parts.push(
+			sql`SELECT DISTINCT ${schema.metadataCollections.metadataId} AS metadata_id, 'collection' AS kind, -100 AS weight FROM ${schema.metadataCollections} WHERE ${inArray(schema.metadataCollections.collectionId, traits.collectionIds)}`,
+		);
+	}
+	if (traits.genreIds.length > 0) {
+		parts.push(
+			sql`SELECT ${schema.metadataGenres.metadataId} AS metadata_id, 'genre' AS kind, 30 AS weight FROM ${schema.metadataGenres} WHERE ${inArray(schema.metadataGenres.genreId, traits.genreIds)}`,
+		);
+	}
+	if (traits.keywordIds.length > 0) {
+		parts.push(
+			sql`SELECT ${schema.metadataKeywords.metadataId} AS metadata_id, 'keyword' AS kind, 12 AS weight FROM ${schema.metadataKeywords} WHERE ${inArray(schema.metadataKeywords.keywordId, traits.keywordIds)}`,
+		);
+	}
+	if (traits.directors.length > 0) {
+		parts.push(
+			sql`SELECT DISTINCT ${schema.metadataCrew.metadataId} AS metadata_id, 'director' AS kind, 80 AS weight FROM ${schema.metadataCrew} WHERE ${like(schema.metadataCrew.job, "%Director%")} AND ${inArray(schema.metadataCrew.personId, traits.directors)}`,
+		);
+	}
+	if (traits.topCast.length > 0) {
+		parts.push(
+			sql`SELECT ${schema.metadataCast.metadataId} AS metadata_id, 'cast' AS kind, 15 AS weight FROM ${schema.metadataCast} WHERE ${inArray(schema.metadataCast.personId, traits.topCast)}`,
+		);
+	}
+
+	return parts.length > 0 ? sql.join(parts, sql` UNION ALL `) : undefined;
+}
+
+function buildScoresCte(traits: SQL): SQL {
+	return sql`WITH traits AS (${traits}), scores AS (
+		SELECT metadata_id,
+			SUM(CASE kind WHEN 'genre' THEN 30 WHEN 'keyword' THEN 12 WHEN 'cast' THEN 15 ELSE 0 END)
+			+ CASE WHEN MAX(CASE WHEN kind = 'collection' THEN 1 ELSE 0 END) = 1 THEN -100 ELSE 0 END
+			+ CASE WHEN MAX(CASE WHEN kind = 'director' THEN 1 ELSE 0 END) = 1 THEN 80 ELSE 0 END AS weight
+		FROM traits
+		GROUP BY metadata_id
+	)`;
+}
+
+interface RankedRow {
+	id: string;
+	score: number;
+	total: number;
+}
+
+interface SimilarPageContext {
+	client: MoreLikeThisClient;
+	metadataId: string;
+	typeScore: number;
+	typeFilter: SQL;
+	limit: number;
+	offset: number;
+}
+
+function collectSimilarityTraits(source: MoreLikeThisSource): SimilarityTraits {
+	const directors: string[] = [];
+	const topCastCandidates: Array<{ id: string; sortOrder: number }> = [];
+	for (const crew of source.crew ?? []) {
+		if (crew.job?.toLowerCase().includes("director") && crew.data?.id) directors.push(crew.data.id);
+	}
+	for (const cast of source.cast ?? []) {
+		if ((cast.role?.toLowerCase().includes("actor") || !cast.role) && cast.data?.id) {
+			topCastCandidates.push({ id: cast.data.id, sortOrder: cast.sortOrder ?? 0 });
 		}
 	}
 
-	return candidateFeatureFilters.length > 0 ? or(...candidateFeatureFilters) : undefined;
+	topCastCandidates.sort((a, b) => a.sortOrder - b.sortOrder);
+
+	return {
+		collectionIds: pluckValidIds(source.collections),
+		genreIds: pluckValidIds(source.genres),
+		keywordIds: pluckValidIds(source.keywords),
+		directors,
+		topCast: topCastCandidates.slice(0, 5).map((cast) => cast.id),
+	};
 }
 
-async function rankSimilarIds(
+function readFallbackRows({ client, metadataId, typeScore, typeFilter, limit, offset }: SimilarPageContext): RankedRow[] {
+	return client.all<RankedRow>(sql`
+		SELECT m.id AS id, ${typeScore} AS score, COUNT(*) OVER () AS total
+		FROM ${schema.metadata} AS m
+		WHERE m.id <> ${metadataId}${typeFilter}
+		ORDER BY score DESC, m.id DESC
+		LIMIT ${limit + 1} OFFSET ${offset}
+	`);
+}
+
+function readFallbackTotal({ client, metadataId, typeFilter }: SimilarPageContext): number {
+	return client.get<{ total: number }>(sql`SELECT COUNT(*) AS total FROM ${schema.metadata} AS m WHERE m.id <> ${metadataId}${typeFilter}`)
+		.total;
+}
+
+function readScoredRows({ client, metadataId, typeScore, typeFilter, limit, offset }: SimilarPageContext, cte: SQL): RankedRow[] {
+	return client.all<RankedRow>(sql`
+		${cte}
+		SELECT m.id AS id, scores.weight + ${typeScore} AS score, COUNT(*) OVER () AS total
+		FROM scores CROSS JOIN ${schema.metadata} AS m ON m.id = scores.metadata_id
+		WHERE m.id <> ${metadataId}${typeFilter}
+		ORDER BY score DESC, m.id DESC
+		LIMIT ${limit + 1} OFFSET ${offset}
+	`);
+}
+
+function readScoredTotal({ client, metadataId, typeFilter }: SimilarPageContext, cte: SQL): number {
+	return client.get<{ total: number }>(sql`
+		${cte}
+		SELECT COUNT(*) AS total
+		FROM scores CROSS JOIN ${schema.metadata} AS m ON m.id = scores.metadata_id
+		WHERE m.id <> ${metadataId}${typeFilter}
+	`).total;
+}
+
+function pageIds(rows: RankedRow[], limit: number): string[] {
+	return (rows.length > limit ? rows.slice(0, limit) : rows).map((row) => row.id);
+}
+
+function rankSimilarIds(
 	client: MoreLikeThisClient,
 	metadataId: string,
 	source: MoreLikeThisSource,
 	limit: number,
 	offset: number,
-): Promise<{ ids: string[]; total: number }> {
-	// Prepare the ID sets for the shared traits.
-	const collectionIds = pluckValidIds(source.collections);
-	const genreIds = pluckValidIds(source.genres);
-	const keywordIds = pluckValidIds(source.keywords);
+): { ids: string[]; total: number } {
+	const traits = collectSimilarityTraits(source);
+	const context: SimilarPageContext = {
+		client,
+		metadataId,
+		typeScore: source.type ? 50 : 0,
+		typeFilter: source.type ? sql` AND m.type = ${source.type}` : sql``,
+		limit,
+		offset,
+	};
+	const traitUnion = buildTraitUnion(traits);
 
-	// Single-pass: directors + top 5 cast
-	const directors: string[] = [];
-	const topCastCandidates: Array<{ id: string; sortOrder: number }> = [];
-	for (const c of source.crew ?? []) {
-		if (c.job?.toLowerCase().includes("director") && c.data?.id) directors.push(c.data.id);
+	if (!traitUnion) {
+		const rows = readFallbackRows(context);
+		const ids = pageIds(rows, limit);
+
+		return { ids, total: ids.length === 0 && offset > 0 ? readFallbackTotal(context) : (rows[0]?.total ?? 0) };
 	}
 
-	for (const c of source.cast ?? []) {
-		if ((c.role?.toLowerCase().includes("actor") || !c.role) && c.data?.id) {
-			topCastCandidates.push({ id: c.data.id, sortOrder: c.sortOrder ?? 0 });
-		}
-	}
+	const cte = buildScoresCte(traitUnion);
+	const rows = readScoredRows(context, cte);
+	const ids = pageIds(rows, limit);
 
-	topCastCandidates.sort((a, b) => a.sortOrder - b.sortOrder);
-	const topCast = topCastCandidates.slice(0, 5).map((c) => c.id);
-
-	// 2. Build the scoring queries
-	const { collectionScore, genreScore, keywordScore, directorScore, castScore, typeScore } = buildSimilarityScores({
-		collectionIds,
-		genreIds,
-		keywordIds,
-		directors,
-		topCast,
-		type: source.type,
-	});
-
-	const candidateFilter = buildCandidateFilter(client, { collectionIds, genreIds, keywordIds, directors, topCast });
-	const typeFilter = source.type ? eq(schema.metadata.type, source.type) : undefined;
-
-	// 3. Run the ID + similarity-score query. `COUNT(*) OVER ()` returns the
-	// filtered total in the same pass, so the expensive 5x-EXISTS count scan is
-	// only needed when an empty page sits past the end (no rows to read it from).
-	const candidateWhere = and(ne(schema.metadata.id, metadataId), typeFilter, candidateFilter);
-	const recommendedWithProbe = await client
-		.select({
-			id: schema.metadata.id,
-			score: sql<number>`(${collectionScore} + ${genreScore} + ${keywordScore} + ${directorScore} + ${castScore} + ${typeScore})`.as(
-				"score",
-			),
-			total: sql<number>`COUNT(*) OVER ()`.as("total"),
-		})
-		.from(schema.metadata)
-		.where(candidateWhere)
-		.orderBy((t) => sql`${desc(t.score)}, ${desc(t.id)}`)
-		.limit(limit + 1)
-		.offset(offset);
-
-	const hasMore = recommendedWithProbe.length > limit;
-	const recommendedIds = hasMore ? recommendedWithProbe.slice(0, limit) : recommendedWithProbe;
-	let total = recommendedWithProbe[0]?.total ?? 0;
-	if (recommendedIds.length === 0 && offset > 0) {
-		total = await client.$count(schema.metadata, candidateWhere);
-	}
-
-	const ids = recommendedIds.map((r) => r.id);
-
-	return { ids, total };
+	return { ids, total: ids.length === 0 && offset > 0 ? readScoredTotal(context, cte) : (rows[0]?.total ?? 0) };
 }
 
 export async function getMoreLikeThis<F extends string>(
@@ -343,7 +361,7 @@ export async function getMoreLikeThis<F extends string>(
 			}
 		}
 
-		page = await rankSimilarIds(client, metadataId, source, limit, offset);
+		page = rankSimilarIds(client, metadataId, source, limit, offset);
 		if (!preFetchedSource) similarIdsCache.set(cacheKey, page);
 	}
 
