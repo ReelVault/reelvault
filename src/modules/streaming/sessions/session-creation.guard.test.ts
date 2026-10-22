@@ -4,7 +4,7 @@ import { SessionCreationGuard } from "./session-creation.guard";
 describe("session creation guard", () => {
 	test("allows the first creation and blocks a burst within the cooldown", () => {
 		let now = 1_000;
-		const guard = new SessionCreationGuard({ now: () => now });
+		const guard = new SessionCreationGuard({ cooldownMs: 500, now: () => now });
 
 		guard.assertCooldown("profile-1");
 		now = 1_200;
@@ -15,7 +15,7 @@ describe("session creation guard", () => {
 
 	test("restarts the cooldown from each allowed creation", () => {
 		let now = 1_000;
-		const guard = new SessionCreationGuard({ now: () => now });
+		const guard = new SessionCreationGuard({ cooldownMs: 500, now: () => now });
 
 		guard.assertCooldown("profile-1");
 		now = 1_600;

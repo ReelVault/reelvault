@@ -19,18 +19,15 @@ mockModuleWithRealExports("@/utils/file.utils", {
 
 const PLUGIN_ID = "org.reelvault.test";
 const db = useTestDatabase();
-const activeStubs: Array<{ restore(): void }> = [];
 let mediaFileId = "";
 
 beforeEach(async () => {
-	activeStubs.length = 0;
 	mediaArtifactsService.invalidateByteTotals();
 	mediaFileId = await insertMovieMediaFile(db.client(), "/media/movie.mkv", "meta-1");
 });
 
 afterEach(() => {
 	getFileStatsImpl = realGetFileStats;
-	for (const stub of activeStubs.toReversed()) stub.restore();
 });
 
 // The next test file must get the real module back.

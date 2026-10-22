@@ -99,15 +99,14 @@ describe("DatabaseFactory.transaction", () => {
 	});
 
 	test("a queued write behind a rolled-back transaction still succeeds", async () => {
-		const transaction = databaseFactory
-			.transaction(async (tx) => {
-				await tx.run(sql`INSERT INTO transaction_lock_probe (value) VALUES ('rolled-back')`);
-				throw new Error("boom");
-			})
-			.catch(() => undefined);
+		const boom = new Error("boom");
+		const transaction = databaseFactory.transaction(async (tx) => {
+			await tx.run(sql`INSERT INTO transaction_lock_probe (value) VALUES ('rolled-back')`);
+			throw boom;
+		});
 		const write = client.insert(probe).values({ value: "after-rollback" });
 
-		await Promise.all([transaction, write]);
+		await Promise.all([expect(transaction).rejects.toBe(boom), write]);
 
 		const [rolledBack] = await databaseFactory.getClient().select().from(probe).where(eq(probe.value, "rolled-back"));
 		expect(rolledBack).toBeUndefined();

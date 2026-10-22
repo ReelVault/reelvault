@@ -1,12 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertChecksumMatches } from "@/utils/crypto.utils";
 import { checksumForFile, serverAssetName, webAssetName } from "./update-release.utils";
-
-const releaseFailure = {
-	checksum: true,
-	code: "update.checksum_mismatch",
-	message: "Downloaded release archive failed the SHA256 verification",
-};
 
 describe("serverAssetName", () => {
 	test("maps linux x64 and arm64 and windows", () => {
@@ -49,17 +42,6 @@ describe("checksumForFile", () => {
 		const binarySums = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 *ReelVault-Server-1.2.3-linux-x64.tar.gz";
 		expect(checksumForFile(binarySums, "ReelVault-Server-1.2.3-linux-x64.tar.gz")).toBe(
 			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		);
-	});
-});
-
-describe("assertChecksumMatches", () => {
-	test("rejects different digests and different lengths", () => {
-		expect(() => assertChecksumMatches("aabb", "ccdd", releaseFailure)).toThrow(
-			expect.objectContaining({ category: "validation", code: releaseFailure.code }),
-		);
-		expect(() => assertChecksumMatches("aabb", "aabbcc", releaseFailure)).toThrow(
-			expect.objectContaining({ category: "validation", code: releaseFailure.code }),
 		);
 	});
 });

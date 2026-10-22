@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { clampSeekOffsetToDuration } from "./playback-budgets.utils";
 
 describe("clampSeekOffsetToDuration", () => {
-	test("rejects non-positive and non-finite offsets", () => {
+	test("normalizes non-positive and non-finite offsets to zero", () => {
 		expect(clampSeekOffsetToDuration(0)).toBe(0);
 		expect(clampSeekOffsetToDuration(-5)).toBe(0);
 		expect(clampSeekOffsetToDuration(Number.NaN)).toBe(0);

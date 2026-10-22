@@ -12,7 +12,7 @@ export type CanonicalWorkerId =
 /** Every accepted spelling (definition id, camelCase settings key, virtual
  * allocation category) mapped to its category. Definition ids that have no
  * resource category must be listed in UNCATEGORIZED_WORKER_IDS instead —
- * a worker-ids test enforces that the union covers every registered worker. */
+ * built-in-workers.test.ts enforces that the union covers every registered worker. */
 const WORKER_ID_ALIASES: Record<string, CanonicalWorkerId> = {
 	imageProcessing: "image-processing",
 	"image-processing": "image-processing",

@@ -31,6 +31,7 @@ describe("playback position utils", () => {
 	test("computeProgressPercent rounds and caps at 100", () => {
 		expect(computeProgressPercent(0, 100)).toBe(0);
 		expect(computeProgressPercent(1, 3)).toBe(33);
+		expect(computeProgressPercent(2, 3)).toBe(67);
 		expect(computeProgressPercent(150, 100)).toBe(100);
 	});
 

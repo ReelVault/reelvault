@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { fingerprintPlaybackSession, PlaybackSessionIdempotencyRegistry } from "./playback-session.registry";
 
 describe("PlaybackSessionIdempotencyRegistry", () => {
-	test("normalizes codec order before fingerprinting", () => {
+	test("normalizes the media id case and the codec lists before fingerprinting", () => {
 		// The fingerprint is "<media file id>|<video codecs>|<audio codecs>|<max bitrate>|<audio stream
 		// index>|<audio language>|<subtitle language>|<subtitles enabled>|<forced subtitles only>",
 		// with the ids lowercased and the codec lists trimmed, deduped and sorted.
@@ -11,7 +11,7 @@ describe("PlaybackSessionIdempotencyRegistry", () => {
 		);
 	});
 
-	test("gives a different fingerprint to a different media file", () => {
+	test("starts the fingerprint with the media file id of a different file", () => {
 		expect(fingerprintPlaybackSession({ mediaFileId: "media-2", videoCodecs: ["AV1", " h264", "av1"], audioCodecs: ["AAC"] })).toBe(
 			"media-2|av1,h264|aac||||||",
 		);

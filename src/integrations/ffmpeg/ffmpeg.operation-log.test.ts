@@ -1,20 +1,22 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FfmpegOperationLog } from "@/integrations/ffmpeg/ffmpeg.operation-log";
 import { removeTree } from "@/utils/directory.utils";
 import { readFile } from "@/utils/file.utils";
-import { currentLogDate } from "@/utils/logging/file-archive.utils";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
 	await Promise.all(temporaryDirectories.splice(0).map((directory) => removeTree(directory)));
+	setSystemTime();
 });
 
 describe("FfmpegOperationLog", () => {
 	it("stores the command, stderr, progress and exit details", async () => {
+		// Pinned local noon, so the daily log directory is a literal date in every time zone.
+		setSystemTime(new Date(2026, 2, 14, 12));
 		const directory = await mkdtemp(join(tmpdir(), "reelvault-ffmpeg-log-"));
 		temporaryDirectories.push(directory);
 		const log = new FfmpegOperationLog({
@@ -37,6 +39,6 @@ describe("FfmpegOperationLog", () => {
 		expect(content).toContain("[stderr] frame= 12 speed=1.2x");
 		expect(content).toContain("[progress] frame= 12 speed=1.2x");
 		expect(content).toContain("exitCode: 0");
-		expect(log.filePath).toContain(join("ffmpeg", currentLogDate()));
+		expect(log.filePath).toContain(join("ffmpeg", "2026-03-14"));
 	});
 });

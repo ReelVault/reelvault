@@ -45,9 +45,10 @@ function productionFiles(files: readonly FileCoverage[]): FileCoverage[] {
 	return files.filter((entry) => entry.file.startsWith(COVERED_PREFIX) && !entry.file.includes(".test."));
 }
 
+/** Isolated: a mock or a global stub from one file must not change another file's result. */
 async function runSuite(coverageDir: string): Promise<void> {
 	const proc = Bun.spawn({
-		cmd: ["bun", "test", "--coverage", "--coverage-reporter=lcov", `--coverage-dir=${coverageDir}`],
+		cmd: [process.execPath, "test", "--isolate", "--coverage", "--coverage-reporter=lcov", `--coverage-dir=${coverageDir}`],
 		stdout: "ignore",
 		stderr: "inherit",
 	});

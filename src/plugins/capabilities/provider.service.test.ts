@@ -84,7 +84,7 @@ test("queries each linked provider with its own external id, ordered by priority
 	expect(results.map((result) => result.provider)).toEqual(["a-provider", "b-provider"]);
 });
 
-test("fetches episodes from each linked provider with its own external id", async () => {
+test("returns the episode from the linked provider that has it, using that provider's own external id", async () => {
 	const calls: Array<{ providerId: string; externalId: string; season: number; episode: number }> = [];
 	registerProviders([
 		createProvider("a-provider", {
@@ -303,7 +303,6 @@ test("a library's provider order is part of the aggregated lookup key, so a reor
 		{ providerId: "order-b", priority: 2, enabled: true },
 	]);
 	await providerService.fetchAggregatedDetails("movie", identity, { libraryId, language: "pl" });
-	const fetchedBefore = fetched.length;
 
 	await metadataProviderSettingsService.setLibraryOverrides(libraryId, [
 		{ providerId: "order-a", priority: 2, enabled: true },
@@ -311,7 +310,8 @@ test("a library's provider order is part of the aggregated lookup key, so a reor
 	]);
 	await providerService.fetchAggregatedDetails("movie", identity, { libraryId, language: "pl" });
 
-	expect(fetched.length).toBeGreaterThan(fetchedBefore);
+	// Each uncached lookup asks both providers once, so the reordered lookup is not served from the first cache entry.
+	expect(fetched.toSorted()).toEqual(["order-a-title", "order-a-title", "order-b-title", "order-b-title"]);
 });
 
 test("fetchDetailsByProvider passes the requested metadata language to the provider", async () => {

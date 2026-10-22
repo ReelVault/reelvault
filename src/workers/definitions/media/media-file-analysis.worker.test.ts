@@ -1,54 +1,86 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { PluginMediaFile } from "@reelvault/sdk/common";
-import { pluginMediaService } from "@/plugins/capabilities/plugin.media";
+import { eq } from "drizzle-orm";
+import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
-import { mediaRepository } from "@/repositories/media-files.repository";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
-import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
+import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { analyzeMediaFileTask } from "./media-file-analysis.worker";
 
-const activeStubs: Array<{ restore(): void }> = [];
+// The media row and the analysis write are real: the task reads the file through the real
+// service and the test reads the stored tag back. The plugin's answer and the event bus are
+// the boundaries, so the test supplies them.
+const db = useTestDatabase();
+const stubs: MethodStub[] = [];
 
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	for (const stub of stubs.splice(0).toReversed()) stub.restore();
 });
 
-const publicMediaFile: PluginMediaFile = { id: "media-1", metadataId: "metadata-1", fileName: "movie.mkv", available: true };
+async function qualityTagOf(mediaFileId: string): Promise<string | null | undefined> {
+	const [row] = await db
+		.client()
+		.select({ qualityTag: schema.mediaFiles.qualityTag })
+		.from(schema.mediaFiles)
+		.where(eq(schema.mediaFiles.id, mediaFileId));
+
+	return row?.qualityTag;
+}
 
 describe("media-file-analysis worker", () => {
-	test("emits media ready after applying plugin analysis", async () => {
-		const calls: string[] = [];
-		activeStubs.push(
-			stubMethod(pluginMediaService, "get", () => Promise.resolve(publicMediaFile)),
+	test("persists the plugin analysis on the media file, then emits media ready", async () => {
+		const mediaFileId = await insertMovieMediaFile(db.client(), "/movies/movie.mkv", "metadata-1");
+		const analyzed: PluginMediaFile[] = [];
+		const emitted: unknown[] = [];
+		let tagAtEmit: string | null | undefined;
+		stubs.push(
 			stubMethod(pluginRegistry, "analyzeMedia", (media: PluginMediaFile) => {
-				expect(media).toBe(publicMediaFile);
+				analyzed.push(media);
 
 				return Promise.resolve({ qualityTag: "1080p" });
 			}),
-			stubMethod(mediaRepository, "update", (input: { primaryId: string; values: unknown }) => {
-				expect(input).toEqual({ primaryId: "media-1", values: { qualityTag: "1080p" } });
-				calls.push("update");
-
-				return Promise.resolve(undefined);
+			stubMethod(pluginEventBus, "emit", async (event: string, input: unknown) => {
+				tagAtEmit = await qualityTagOf(mediaFileId);
+				emitted.push({ event, input });
 			}),
-			stubMethod(pluginEventBus, "emit", (event: string, input: unknown) => {
-				expect(event).toBe("media.file.ready");
-				expect(input).toEqual({
-					libraryId: "library-1",
-					mediaFileId: "media-1",
-					metadataId: "metadata-1",
-					correlationId: "media-1",
-				});
-				calls.push("ready");
+		);
+
+		await expect(analyzeMediaFileTask({ libraryId: "library-1", mediaFileId, metadataId: "metadata-1" })).resolves.toEqual({
+			mediaFileId,
+			analyzed: true,
+		});
+
+		expect(analyzed).toMatchObject([{ id: mediaFileId, metadataId: "metadata-1", fileName: "movie.mkv" }]);
+		// The listeners of media.file.ready already see the analysis the task stored.
+		expect(tagAtEmit).toBe("1080p");
+		expect(emitted).toEqual([
+			{
+				event: "media.file.ready",
+				input: { libraryId: "library-1", mediaFileId, metadataId: "metadata-1", correlationId: mediaFileId },
+			},
+		]);
+	});
+
+	test("emits media ready and leaves the row untouched when no plugin answers the analysis", async () => {
+		const mediaFileId = await insertMovieMediaFile(db.client(), "/movies/movie.mkv", "metadata-1");
+		let emittedEvent = "";
+		stubs.push(
+			stubMethod(pluginRegistry, "analyzeMedia", () => Promise.resolve({})),
+			stubMethod(pluginEventBus, "emit", (event: string) => {
+				emittedEvent = event;
 
 				return Promise.resolve(undefined);
 			}),
 		);
 
-		await expect(analyzeMediaFileTask({ libraryId: "library-1", mediaFileId: "media-1", metadataId: "metadata-1" })).resolves.toEqual({
-			mediaFileId: "media-1",
-			analyzed: true,
+		await expect(analyzeMediaFileTask({ libraryId: "library-1", mediaFileId, metadataId: "metadata-1" })).resolves.toEqual({
+			mediaFileId,
+			analyzed: false,
 		});
-		expect(calls).toEqual(["update", "ready"]);
+
+		expect(await qualityTagOf(mediaFileId)).toBeNull();
+		expect(emittedEvent).toBe("media.file.ready");
 	});
 });

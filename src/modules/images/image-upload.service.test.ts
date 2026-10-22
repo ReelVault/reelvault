@@ -65,9 +65,11 @@ describe("ImageUploadService", () => {
 			expect(result.contentType).toBe("image/webp");
 			expect(result.width).toBe(240);
 			expect(result.height).toBe(360);
-			expect(result.fileSize).toBeGreaterThan(0);
+			expect(result.fileSize).toBe((await stat(result.localPath)).size);
 			expect(result.localPath.startsWith(join(testRoot, ".tmp"))).toBe(true);
-			expect((await stat(result.localPath)).isFile()).toBe(true);
+			// The RIFF container carries the WebP brand at bytes 8 to 12.
+			const bytes = new Uint8Array(await Bun.file(result.localPath).arrayBuffer());
+			expect(new TextDecoder().decode(bytes.subarray(8, 12))).toBe("WEBP");
 		} finally {
 			serverConfig.paths.images = previousImagesPath;
 			await removeTree(testRoot);

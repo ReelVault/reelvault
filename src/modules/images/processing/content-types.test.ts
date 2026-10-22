@@ -22,6 +22,6 @@ describe("getContentType", () => {
 
 	test("rejects unknown formats", () => {
 		expect(() => getContentType("exe")).toThrow(expect.objectContaining({ category: "validation", code: "images.unsupported_format" }));
-		expect(() => getContentType("")).toThrow(expect.objectContaining({ category: "validation" }));
+		expect(() => getContentType("")).toThrow(expect.objectContaining({ category: "validation", code: "images.unsupported_format" }));
 	});
 });

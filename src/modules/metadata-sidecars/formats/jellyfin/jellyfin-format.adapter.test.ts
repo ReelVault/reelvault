@@ -30,17 +30,31 @@ test("Jellyfin movie adapter recognizes and reads a movie document", async () =>
 	}
 });
 
-test("Jellyfin movie adapter drops malformed identifiers and external artwork paths", async () => {
+test("Jellyfin movie adapter drops identifiers that are not in the provider format", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "reelvault-jellyfin-"));
+	const documentPath = join(directory, "movie.nfo");
+	await write(documentPath, "<movie><title>Arrival</title><imdbid>invalid</imdbid><tmdbid>tmdb:329865</tmdbid></movie>");
+
+	try {
+		const document = await new JellyfinFormatAdapter().read({ documentPath });
+		expect(document).toMatchObject({ title: "Arrival" });
+		expect(document?.identifiers).toEqual({});
+	} finally {
+		await removeTree(directory);
+	}
+});
+
+test("Jellyfin movie adapter re-anchors an absolute poster and drops fanart that escapes the movie folder", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "reelvault-jellyfin-"));
 	const documentPath = join(directory, "movie.nfo");
 	await write(
 		documentPath,
-		"<movie><title>Arrival</title><imdbid>invalid</imdbid><tmdbid>tmdb:329865</tmdbid><art><poster>/outside/poster.jpg</poster><fanart>../outside.jpg</fanart></art></movie>",
+		"<movie><title>Arrival</title><art><poster>/outside/poster.jpg</poster><fanart>../outside.jpg</fanart></art></movie>",
 	);
 
 	try {
 		const document = await new JellyfinFormatAdapter().read({ documentPath });
-		expect(document).toMatchObject({ identifiers: {}, artwork: {} });
+		expect(document?.artwork).toEqual({ poster: { path: join(directory, "poster.jpg") } });
 	} finally {
 		await removeTree(directory);
 	}

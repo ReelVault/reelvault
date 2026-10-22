@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, test } from "bun:test";
 import { once } from "node:events";
-import { mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
@@ -40,8 +40,9 @@ describe("DailyRotatingStream", () => {
 		temporaryDirectories.push(directory);
 		const activePath = join(directory, "reelvault.log");
 		await writeFile(activePath, "stale\n");
-		const { mtimeMs } = await stat(activePath);
-		const staleDate = toLocalDateString(mtimeMs);
+		// The leftover file is dated local noon on 1 August 2026, so its archive folder is a literal.
+		const staleMtime = new Date(2026, 7, 1, 12);
+		await utimes(activePath, staleMtime, staleMtime);
 
 		// Regression: the startup archive must complete before the write stream
 		// opens — otherwise the rename moves the just-opened inode into the
@@ -51,7 +52,7 @@ describe("DailyRotatingStream", () => {
 		stream.end();
 		await once(stream, "finish");
 
-		expect(await readFile(join(directory, staleDate, "reelvault.log"), "utf8")).toBe("stale\n");
+		expect(await readFile(join(directory, "2026-08-01", "reelvault.log"), "utf8")).toBe("stale\n");
 		expect(await readFile(activePath, "utf8")).toBe("fresh\n");
 	});
 
@@ -124,14 +125,6 @@ function write(stream: DailyRotatingStream, value: string): Promise<void> {
 	return new Promise((resolve, reject) => {
 		stream.write(value, (error) => (error ? reject(error) : resolve()));
 	});
-}
-
-function toLocalDateString(timestampMs: number): string {
-	const date = new Date(timestampMs);
-	const month = String(date.getMonth() + 1).padStart(2, "0");
-	const day = String(date.getDate()).padStart(2, "0");
-
-	return `${date.getFullYear()}-${month}-${day}`;
 }
 
 test("sanitizeLogValue redacts credentials and filesystem locations", () => {
@@ -219,7 +212,7 @@ test("sanitizeLogValue redacts an Error cause chain", () => {
 			message: "connect failed password=[REDACTED]",
 		},
 	});
-	expect(typeof safe.stack).toBe("string");
+	expect(safe.stack).toBe(outer.stack);
 });
 
 test("sanitizeLogValue marks cycles when redacting", () => {

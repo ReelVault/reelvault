@@ -41,7 +41,7 @@ describe("compareVariants", () => {
 			{ iterations: 5 },
 		);
 		expect(outcome.equalOk).toBe(true);
-		expect(outcome.result.winner).not.toBe("");
+		expect(["a", "b"]).toContain(outcome.result.winner);
 	});
 });
 
@@ -97,7 +97,7 @@ describe("fixture", () => {
 		expect(order).toEqual(["slow", "fast"]);
 	});
 
-	test("runs earlier cleanups when a later setup throws", async () => {
+	test("reports a failed fixture setup and still tears down the fixtures that resolved before it", async () => {
 		const cleanups: string[] = [];
 		const good = fixture("good", ({ onCleanup }) => {
 			onCleanup(() => {
@@ -106,21 +106,15 @@ describe("fixture", () => {
 
 			return 1;
 		});
+		const boom = new Error("setup boom");
 		const bad = fixture("bad", () => {
-			throw new Error("setup boom");
+			throw boom;
 		});
 
 		const mark = markCollection();
 		collectUnits(mark);
 		await good();
-		let failure: unknown;
-		try {
-			await bad();
-		} catch (error) {
-			failure = error;
-		}
-
-		expect(failure).toBeInstanceOf(Error);
+		await expect(bad()).rejects.toMatchObject({ cause: boom });
 		await cleanupFixtures();
 		expect(cleanups).toEqual(["good"]);
 	});

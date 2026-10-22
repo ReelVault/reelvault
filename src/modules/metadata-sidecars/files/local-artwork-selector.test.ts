@@ -25,18 +25,19 @@ describe("selectMovieArtwork", () => {
 		expect(result.poster).toEqual({ path: "/poster.jpg" });
 	});
 
-	test("prefers backdrop.jpg, then landscape.jpg, then fanart.jpg, then numbered backdrops", () => {
-		const withBackdrop = selectMovieArtwork(indexByLowerCaseName(["/backdrop.jpg", "/landscape.jpg", "/fanart.jpg", "/backdrop1.jpg"]));
-		expect(withBackdrop.backdrop).toEqual({ path: "/backdrop.jpg" });
+	test.each([
+		{ name: "backdrop.jpg", listed: ["/backdrop.jpg", "/landscape.jpg", "/fanart.jpg", "/backdrop1.jpg"], expected: "/backdrop.jpg" },
+		{ name: "landscape.jpg", listed: ["/fanart.jpg", "/landscape.jpg", "/backdrop3.jpg"], expected: "/landscape.jpg" },
+		{ name: "fanart.jpg", listed: ["/backdrop3.jpg", "/fanart.jpg"], expected: "/fanart.jpg" },
+	])("picks $name ahead of the lower-ranked backdrop candidates", ({ listed, expected }) => {
+		expect(selectMovieArtwork(indexByLowerCaseName(listed)).backdrop).toEqual({ path: expected });
+	});
 
-		const withFanart = selectMovieArtwork(indexByLowerCaseName(["/fanart.jpg", "/backdrop3.jpg"]));
-		expect(withFanart.backdrop).toEqual({ path: "/fanart.jpg" });
+	test("picks the lowest-numbered backdrop whatever order the folder lists them in", () => {
+		const numbered = ["/backdrop21.jpg", "/backdrop3.jpg", "/backdrop10.jpg"];
 
-		const withLandscape = selectMovieArtwork(indexByLowerCaseName(["/landscape.jpg", "/backdrop3.jpg"]));
-		expect(withLandscape.backdrop).toEqual({ path: "/landscape.jpg" });
-
-		const numberedOnly = selectMovieArtwork(indexByLowerCaseName(["/backdrop3.jpg", "/backdrop21.jpg"]));
-		expect(numberedOnly.backdrop).toEqual({ path: "/backdrop3.jpg" });
+		expect(selectMovieArtwork(indexByLowerCaseName(numbered)).backdrop).toEqual({ path: "/backdrop3.jpg" });
+		expect(selectMovieArtwork(indexByLowerCaseName([...numbered].toReversed())).backdrop).toEqual({ path: "/backdrop3.jpg" });
 	});
 
 	test("never uses a numbered backdrop for the poster", () => {
@@ -44,7 +45,7 @@ describe("selectMovieArtwork", () => {
 		expect(result.poster).toBeUndefined();
 	});
 
-	test("returns undefined entries when nothing matches", () => {
+	test("returns no poster and no backdrop when the folder holds neither", () => {
 		const result = selectMovieArtwork(indexByLowerCaseName(["/video.mkv", "/backdrops.png"]));
 		expect(result.poster).toBeUndefined();
 		expect(result.backdrop).toBeUndefined();
@@ -57,13 +58,18 @@ describe("selectEpisodeThumbnail", () => {
 		expect(selectEpisodeThumbnail("/shows/s01e01.mkv", files)).toEqual({ path: "/s01e01-thumb.jpg" });
 	});
 
+	test("finds the thumbnail when the episode file name differs only in case", () => {
+		const files = indexByLowerCaseName(["/shows/s01e01-thumb.jpg"]);
+		expect(selectEpisodeThumbnail("/shows/S01E01.mkv", files)).toEqual({ path: "/shows/s01e01-thumb.jpg" });
+	});
+
 	test("returns undefined when the thumbnail is missing", () => {
 		expect(selectEpisodeThumbnail("/shows/s01e01.mkv", indexByLowerCaseName(["/folder.jpg"]))).toBeUndefined();
 	});
 });
 
 describe("selectIgnoredAssets", () => {
-	test("flags unsupported artwork files with the path and file name", () => {
+	test("flags banner and logo artwork and leaves posters out", () => {
 		const ignored = selectIgnoredAssets(["/media/banner.png", "/media/clearlogo.png", "/media/logo.jpg", "/media/poster.jpg"]);
 		expect(ignored).toEqual([
 			{ path: "/media/banner.png", fileName: "banner.png", reason: "unsupported-artwork-type" },

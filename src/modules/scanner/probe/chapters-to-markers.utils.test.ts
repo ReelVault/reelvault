@@ -29,27 +29,29 @@ describe("mapChaptersToMarkers (English keyword lists)", () => {
 		expect(markers[0]).toMatchObject({ startSeconds: 0, endSeconds: 90, label: "Intro" });
 	});
 
-	test("is case and diacritic tolerant on both sides", () => {
-		const markers = mapChaptersToMarkers([chapter("00:00:00.000", "00:01:00.000", "Opening")], {
-			intro: ["Opénïng"],
+	test.each([
+		["a keyword with diacritics against a chapter in capitals", "Opénïng", "OPENING"],
+		["a lower-case keyword against a chapter with diacritics", "opening", "Ópéning"],
+	])("matches %s", (_label, keyword, title) => {
+		const markers = mapChaptersToMarkers([chapter("00:00:00.000", "00:01:00.000", title)], {
+			intro: [keyword],
 			credits: [],
 			recap: [],
 		});
-		expect(markers[0]?.type).toBe("intro");
+
+		expect(markers.map((marker) => marker.type)).toEqual(["intro"]);
 	});
 
-	test("skips untitled, too short and absurdly long chapters", () => {
-		const markers = mapChaptersToMarkers(
-			[
-				chapter("00:00:00.000", "00:01:00.000"),
-				chapter("00:01:00.000", "00:01:03.000", "Intro"),
-				chapter("00:02:00.000", "00:40:00.000", "Credits"),
-				chapter("00:41:00.000", "00:42:00.000", "Random chapter mentioning intro inside"),
-			],
-			ENGLISH_KEYWORDS,
-		);
-
-		expect(markers).toHaveLength(0);
+	test.each([
+		["a chapter without a title", chapter("00:00:00.000", "00:01:00.000")],
+		["a chapter shorter than the minimum length", chapter("00:01:00.000", "00:01:03.000", "Intro")],
+		["a chapter longer than the maximum length", chapter("00:02:00.000", "00:40:00.000", "Credits")],
+		[
+			"a keyword that is not the first word of the title",
+			chapter("00:41:00.000", "00:42:00.000", "Random chapter mentioning intro inside"),
+		],
+	])("skips %s", (_label, skipped) => {
+		expect(mapChaptersToMarkers([skipped], ENGLISH_KEYWORDS)).toHaveLength(0);
 	});
 });
 

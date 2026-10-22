@@ -60,7 +60,11 @@ export async function resolveCoreArtifactsBudgetBytes(): Promise<number> {
  * Core generators' write gate: rejects the write when it would exceed the core
  * artifacts budget or leave the artifacts volume below the free-space floor.
  */
-export async function assertCoreArtifactsBudget(bytesAfterWrite: number, incomingBytes: number): Promise<void> {
+export async function assertCoreArtifactsBudget(
+	bytesAfterWrite: number,
+	incomingBytes: number,
+	readVolume: () => Promise<ArtifactsVolume> = readArtifactsVolume,
+): Promise<void> {
 	const budgetBytes = await resolveCoreArtifactsBudgetBytes();
 	if (bytesAfterWrite > budgetBytes) {
 		throw budgetError(`Core artifact storage budget exceeded (${bytesAfterWrite}/${budgetBytes} bytes)`, {
@@ -69,7 +73,7 @@ export async function assertCoreArtifactsBudget(bytesAfterWrite: number, incomin
 		});
 	}
 
-	const volume = await readArtifactsVolume().catch(() => null);
+	const volume = await readVolume().catch(() => null);
 	if (volume && volume.freeBytes - incomingBytes < MIN_FREE_BYTES) {
 		throw budgetError("Core artifact write rejected: artifacts volume is low on free space", {
 			freeBytes: volume.freeBytes,

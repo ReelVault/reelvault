@@ -205,7 +205,7 @@ test("zip members with NUL bytes in their names are refused as unsafe paths", as
 test("a plugin.json below the manifest search depth is refused as missing, one within it is found", async () => {
 	const within = await extractPluginPackage(await writeArchive(new Uint8Array(zipSync({ "a/b/c/plugin.json": PLUGIN_MANIFEST }))));
 	try {
-		expect(within.pluginRoot.endsWith(join("a", "b", "c"))).toBe(true);
+		expect(within.pluginRoot).toEndWith(join("a", "b", "c"));
 	} finally {
 		await within.cleanup();
 	}

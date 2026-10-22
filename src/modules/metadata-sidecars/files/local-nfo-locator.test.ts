@@ -65,7 +65,7 @@ describe("locateLocalNfoChain", () => {
 		removeTreeSync(seasonTwoDir);
 	});
 
-	test("returns empty entries when no sidecars exist", async () => {
+	test("finds no movie document when the folder holds no sidecars", async () => {
 		const chain = await locateLocalNfoChain(join(root, "nothing.mkv"), "movie");
 
 		expect(chain.movieDocument).toBeUndefined();

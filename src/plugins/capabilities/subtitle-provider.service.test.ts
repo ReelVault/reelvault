@@ -151,10 +151,10 @@ describe("subtitle provider downloads", () => {
 		if (!content) throw new Error("Downloaded subtitle content was not found");
 
 		expect(content.contentType).toBe("text/vtt");
-		expect(await content.file.text()).toContain("Hello");
+		expect(await content.file.text()).toBe("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n");
 	});
 
-	test("a second download in the same language replaces the stored file in place", async () => {
+	test("a second download in the same language replaces the earlier file and keeps one row", async () => {
 		let version = 0;
 		registerProviders([
 			createProvider(

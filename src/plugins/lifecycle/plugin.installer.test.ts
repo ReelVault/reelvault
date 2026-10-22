@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,7 +86,7 @@ describe("plugin installer", () => {
 		await expect(installer.list()).resolves.toMatchObject([{ id: "org.reelvault.managed", record: { version: "1.0.0" } }]);
 		await expect(installer.verify()).resolves.toHaveLength(1);
 		await expect(installer.uninstall("org.reelvault.managed")).resolves.toMatchObject({ version: "1.0.0" });
-		expect(await file(join(pluginsDirectory, "org.reelvault.managed")).exists()).toBeFalse();
+		expect(existsSync(join(pluginsDirectory, "org.reelvault.managed"))).toBeFalse();
 		await expect(installer.list()).resolves.toEqual([]);
 	});
 });
@@ -287,14 +288,14 @@ describe("plugin installer: rollback after a failed upgrade", () => {
 		expect(installed.directory).toBe(manualDirectory);
 		expect(await file(join(manualDirectory, "plugin.json")).json()).toMatchObject({ version: "1.0.0" });
 		// No second directory for the same id.
-		expect(await file(join(pluginsDirectory, "org.reelvault.manual")).exists()).toBeFalse();
+		expect(existsSync(join(pluginsDirectory, "org.reelvault.manual"))).toBeFalse();
 		expect(await file(join(pluginsDirectory, "plugins.lock.json")).json()).toMatchObject({
 			plugins: { "org.reelvault.manual": { directory: "manual-name", version: "1.0.0" } },
 		});
 		// The differently-named record still verifies and uninstalls.
 		await expect(installer.verify()).resolves.toHaveLength(1);
 		await installer.uninstall("org.reelvault.manual");
-		expect(await file(manualDirectory).exists()).toBeFalse();
+		expect(existsSync(manualDirectory)).toBeFalse();
 	});
 
 	test("refuses a non-upgrade install when the id lives in a differently named directory", async () => {
@@ -310,7 +311,7 @@ describe("plugin installer: rollback after a failed upgrade", () => {
 			code: "plugin.already_installed",
 		});
 		expect(await file(join(manualDirectory, "plugin.json")).exists()).toBeTrue();
-		expect(await file(join(pluginsDirectory, "org.reelvault.manual-guard")).exists()).toBeFalse();
+		expect(existsSync(join(pluginsDirectory, "org.reelvault.manual-guard"))).toBeFalse();
 	});
 
 	test("removes a stale duplicate directory carrying the same plugin id", async () => {
@@ -326,7 +327,7 @@ describe("plugin installer: rollback after a failed upgrade", () => {
 
 		await installer.install(source, { upgrade: true });
 
-		expect(await file(duplicate).exists()).toBeFalse();
+		expect(existsSync(duplicate)).toBeFalse();
 		expect(await file(join(pluginsDirectory, "org.reelvault.dedupe", "plugin.json")).exists()).toBeTrue();
 	});
 });

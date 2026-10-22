@@ -9,9 +9,8 @@ describe("requestIdentityKey", () => {
 		"x-profile-id": "profile-1",
 		"x-api-key": "machine-key",
 	};
-	/** The key segments are joined with a NUL, in the order path, cookie, profile, auth, api key. */
-	const separator = "\u0000";
-	const headerProfileKey = ["/v1/items?page=2", "session=abc", "profile-1", "Bearer token", "machine-key"].join(separator);
+	// The key segments are joined with a NUL, in the order path, cookie, profile, auth, api key.
+	const headerProfileKey = "/v1/items?page=2\u0000session=abc\u0000profile-1\u0000Bearer token\u0000machine-key";
 
 	it("scopes the key by path, credentials and the header profile", () => {
 		const key = requestIdentityKey(new Request(url, { headers }));
@@ -26,7 +25,7 @@ describe("requestIdentityKey", () => {
 
 		expect(getKey).toBe(`GET:${headerProfileKey}`);
 		expect(headKey).toBe(`HEAD:${headerProfileKey}`);
-		expect(resolvedProfileKey).toBe(["/v1/items?page=2", "session=abc", "profile-2", "Bearer token", "machine-key"].join(separator));
+		expect(resolvedProfileKey).toBe("/v1/items?page=2\u0000session=abc\u0000profile-2\u0000Bearer token\u0000machine-key");
 	});
 });
 

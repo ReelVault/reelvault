@@ -142,7 +142,7 @@ describe("mapMediaProbe", () => {
 });
 
 describe("mapMediaProbe cover art streams", () => {
-	test("drops embedded cover art video streams that would violate DB constraints", () => {
+	test("drops an attached cover art stream and keeps the real video stream", () => {
 		const probe: FFProbeResult = {
 			format: { format_name: "matroska", duration: "120", size: "12345", bit_rate: "8000000" },
 			streams: [

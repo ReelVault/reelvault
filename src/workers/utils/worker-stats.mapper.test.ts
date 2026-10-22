@@ -31,8 +31,8 @@ describe("worker operation contract mapping", () => {
 
 		expect(contract).toMatchObject({
 			id: "operation-1",
-			startedAt: createdAt.toISOString(),
-			createdAt: createdAt.toISOString(),
+			startedAt: "2026-08-02T10:00:00.000Z",
+			createdAt: "2026-08-02T10:00:00.000Z",
 		});
 		// completedAt is null on the row; the contract leaves the key out instead of sending null.
 		expect(contract).not.toHaveProperty("completedAt");
@@ -40,40 +40,44 @@ describe("worker operation contract mapping", () => {
 });
 
 describe("worker item contract mapping", () => {
-	test("exposes prerequisite task IDs for operation task groups", () => {
-		const timestamp = new Date("2026-08-02T10:00:00.000Z");
-		const item = {
-			id: "task-2",
-			workerId: "media-file-ingest",
-			operationId: "operation-1",
-			status: "pending" as const,
-			priority: 0,
-			attempts: 0,
-			maxAttempts: 3,
-			backoffType: "exponential" as const,
-			backoffDelayMs: 1_000,
-			dedupeKey: null,
-			referenceType: null,
-			referenceId: null,
-			data: "{}",
-			result: null,
-			error: null,
-			runAt: timestamp,
-			leaseUntil: null,
-			runnerId: null,
-			claimToken: null,
-			startedAt: null,
-			completedAt: null,
-			dependsOnJobId: null,
-			progressPercent: null,
-			createdAt: timestamp,
-			updatedAt: timestamp,
-		};
+	const timestamp = new Date("2026-08-02T10:00:00.000Z");
+	const item = {
+		id: "task-2",
+		workerId: "media-file-ingest",
+		operationId: "operation-1",
+		status: "pending" as const,
+		priority: 0,
+		attempts: 0,
+		maxAttempts: 3,
+		backoffType: "exponential" as const,
+		backoffDelayMs: 1_000,
+		dedupeKey: null,
+		referenceType: null,
+		referenceId: null,
+		data: "{}",
+		result: null,
+		error: null,
+		runAt: timestamp,
+		leaseUntil: null,
+		runnerId: null,
+		claimToken: null,
+		startedAt: null,
+		completedAt: null,
+		dependsOnJobId: null,
+		progressPercent: null,
+		createdAt: timestamp,
+		updatedAt: timestamp,
+	};
 
-		expect(toJobContract(item, ["task-1"])).toMatchObject({
+	test("exposes a stored prerequisite as the job's only dependency", () => {
+		expect(toJobContract({ ...item, dependsOnJobId: "task-1" })).toMatchObject({
 			id: "task-2",
 			operationId: "operation-1",
 			dependsOnTaskIds: ["task-1"],
 		});
+	});
+
+	test("uses the supplied task ids when the row stores no prerequisite", () => {
+		expect(toJobContract(item, ["task-0", "task-1"])).toMatchObject({ dependsOnTaskIds: ["task-0", "task-1"] });
 	});
 });

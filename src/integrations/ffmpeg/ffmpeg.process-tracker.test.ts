@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { ffmpegProcessTracker, type TrackedProcess } from "./ffmpeg.process-tracker";
 
 interface FakeProcess extends TrackedProcess {
@@ -24,7 +24,10 @@ const fakeProcess = (exited?: Promise<number>): FakeProcess => {
 };
 
 describe("FFmpegProcessTracker", () => {
-	// The tracker is a process-wide singleton, so every test ends with nothing tracked.
+	// The tracker is a process-wide singleton: every test starts and ends with nothing tracked.
+	beforeEach(() => {
+		ffmpegProcessTracker.killAll();
+	});
 	afterEach(() => {
 		ffmpegProcessTracker.killAll();
 	});

@@ -371,7 +371,7 @@ describe("playback progress service: reads and language preferences", () => {
 		]);
 	});
 
-	test("compute methods delegate to the aggregator", () => {
+	test("computes an in-progress status for a partly watched movie", () => {
 		const progress = createService().computePlaybackProgress({
 			metadata: { type: "movie" },
 			mediaFiles: [{ id: "file-1", movieId: "movie-1", episodeId: null }],

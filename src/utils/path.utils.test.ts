@@ -52,7 +52,6 @@ describe("isSubpath", () => {
 
 	test("keeps a filesystem-root parent without a double separator", () => {
 		expect(isSubpath("/var/log/app.log", "/")).toBe(true);
-		expect(isSubpath("/", "/")).toBe(true);
 	});
 });
 

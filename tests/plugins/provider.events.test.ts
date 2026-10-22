@@ -54,7 +54,7 @@ describe("provider events", () => {
 		pluginRegistry.clear();
 	});
 
-	it("publishes each actual metadata search request", async () => {
+	it("publishes one request for a search and one for concurrent identical detail lookups", async () => {
 		const received: Array<{ type: "movie" | "tv_show"; title: string; year?: number | undefined }> = [];
 		unsubscribers.push(
 			pluginEventBus.on("event-observer", "metadata.search.requested", (payload) => {

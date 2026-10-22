@@ -61,9 +61,14 @@ describe("ImageMaintenanceService", () => {
 	test("reoptimizing a source in place invalidates its cached version stamp", async () => {
 		const sourcePath = join(testImagesDir, "posters", "reoptimize.png");
 		// Noise + compressionLevel 0 keeps the PNG far larger than the WebP the
-		// service produces, so the in-place rewrite path actually runs.
+		// service produces, so the in-place rewrite path actually runs. A fixed
+		// seed keeps the input, and so the outcome, the same on every run.
 		const noise = Buffer.alloc(256 * 256 * 3);
-		for (let index = 0; index < noise.length; index++) noise[index] = Math.floor(Math.random() * 256);
+		let seed = 1;
+		for (let index = 0; index < noise.length; index++) {
+			seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+			noise[index] = seed >>> 24;
+		}
 		const png = await sharp(noise, { raw: { width: 256, height: 256, channels: 3 } })
 			.png({ compressionLevel: 0 })
 			.toBuffer();

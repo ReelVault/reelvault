@@ -61,6 +61,22 @@ describe("writeFileWithRollback", () => {
 		expect(await fileExists(sourcePath)).toBe(false);
 	});
 
+	test("keeps a Blob source that lies outside the transcodes root", async () => {
+		const sourceDir = await mkdtemp(join(tmpdir(), "rv-file-record-source-"));
+		temporaryDirectories.push(sourceDir);
+		const sourcePath = join(sourceDir, "upload.webp");
+		await Bun.write(sourcePath, new Uint8Array([1, 2, 3, 4]));
+
+		const dir = await mkdtemp(join(tmpdir(), "rv-file-record-target-"));
+		temporaryDirectories.push(dir);
+		const targetPath = join(dir, "artifact.webp");
+
+		await writeFileWithRollback(targetPath, bunFile(sourcePath), async () => "recorded");
+
+		expect((await stat(targetPath)).size).toBe(4);
+		expect(await fileExists(sourcePath)).toBe(true);
+	});
+
 	test("propagates the persist result value", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "rv-file-record-"));
 		temporaryDirectories.push(dir);

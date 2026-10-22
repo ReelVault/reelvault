@@ -129,9 +129,26 @@ describe("handshake profile", () => {
 	});
 
 	test("an unlock token issued for another profile does not open this one", async () => {
-		const tokenForOtherProfile = signProfileUnlock("profile-someone-else", env.BETTER_AUTH_SECRET, "fingerprint");
+		// The fingerprint matches, so only the profile binding can refuse this token.
+		const tokenForOtherProfile = signProfileUnlock("profile-someone-else", env.BETTER_AUTH_SECRET, profilePinFingerprint(LOCKED_PIN));
 
 		await expect(wsProtocol.assertHandshakeProfile(OWNER.userId, LOCKED.profileId, tokenForOtherProfile)).rejects.toMatchObject({
+			code: "auth.profile_locked",
+		});
+	});
+
+	test("an unlock token issued before the PIN changed no longer opens the profile", async () => {
+		const tokenForOldPin = signProfileUnlock(LOCKED.profileId, env.BETTER_AUTH_SECRET, profilePinFingerprint("previous-hash"));
+
+		await expect(wsProtocol.assertHandshakeProfile(OWNER.userId, LOCKED.profileId, tokenForOldPin)).rejects.toMatchObject({
+			code: "auth.profile_locked",
+		});
+	});
+
+	test("an unlock token signed with another secret does not open the profile", async () => {
+		const forgedToken = signProfileUnlock(LOCKED.profileId, "not-the-server-secret", profilePinFingerprint(LOCKED_PIN));
+
+		await expect(wsProtocol.assertHandshakeProfile(OWNER.userId, LOCKED.profileId, forgedToken)).rejects.toMatchObject({
 			code: "auth.profile_locked",
 		});
 	});
@@ -193,7 +210,7 @@ describe("frame handling", () => {
 		expect(sent).toEqual([]);
 	});
 
-	test("oversized frames are dropped before parsing", async () => {
+	test("ignores a frame over the inbound size limit even when it carries a valid subscription", async () => {
 		const sessionId = openSession(OWNER.profileId);
 		const { socket, sent } = connect({ userId: OWNER.userId, profileId: OWNER.profileId });
 		const padded = JSON.stringify({ type: "subscribe_session", sessionId, padding: "x".repeat(20_000) });

@@ -21,12 +21,13 @@ describe("secret crypto utils", () => {
 		expect(decryptSecret(second, master)).toBe("same-value");
 	});
 
-	test("produces different ciphertexts for different plaintexts", () => {
+	test("keeps each plaintext in its own payload", () => {
 		const master = "master-secret-used-for-derivation";
 		const first = encryptSecret("value-a", master);
 		const second = encryptSecret("value-b", master);
 
-		expect(first).not.toBe(second);
+		expect(decryptSecret(first, master)).toBe("value-a");
+		expect(decryptSecret(second, master)).toBe("value-b");
 	});
 
 	test("fails to decrypt with a different master secret", () => {

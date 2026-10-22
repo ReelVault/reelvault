@@ -35,7 +35,7 @@ describe("PluginLockfileStore", () => {
 		await expect(store.read()).resolves.toEqual({ version: 1, plugins: {} });
 	});
 
-	test("write and read round-trip records atomically without temp leftovers", async () => {
+	test("write and read round-trip records and leave no temp file behind", async () => {
 		await store.write({ version: 1, plugins: { "org.reelvault.a": createRecord("org.reelvault.a") } });
 
 		await expect(store.read()).resolves.toEqual({
@@ -46,7 +46,7 @@ describe("PluginLockfileStore", () => {
 		expect(leftovers).toEqual([]);
 	});
 
-	test("writeRecord appends and refuses to overwrite without replace", async () => {
+	test("writeRecord refuses to replace an installed plugin unless replace is set", async () => {
 		await store.writeRecord("org.reelvault.a", createRecord("org.reelvault.a"), { replace: false });
 
 		await expect(store.writeRecord("org.reelvault.a", createRecord("org.reelvault.a"), { replace: false })).rejects.toMatchObject({

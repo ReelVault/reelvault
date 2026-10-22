@@ -9,7 +9,13 @@ describe("pluginErrorCode", () => {
 		);
 	});
 
-	it("classifies an uncoded error by the phase that failed", () => {
+	it("reports plugin.manifest_invalid for a manifest failure even when the error carries another code", () => {
+		expect(pluginErrorCode(new DomainError("validation", "bad", { code: "plugin.config_invalid" }), "manifest")).toBe(
+			"plugin.manifest_invalid",
+		);
+	});
+
+	it("classifies an uncoded manifest failure as plugin.manifest_invalid and an import failure as plugin.load_failed", () => {
 		expect(pluginErrorCode(new DomainError("validation", "no json"), "manifest")).toBe("plugin.manifest_invalid");
 		expect(pluginErrorCode(new Error("boom"), "import")).toBe("plugin.load_failed");
 	});

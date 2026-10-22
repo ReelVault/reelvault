@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
 import { systemResourcesService } from "@/config/system-resources.service";
@@ -66,7 +66,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	setSystemTime();
+	for (const stub of activeStubs.splice(0).toReversed()) stub.restore();
 	setWorkerRuntime({ registry: workerService.registry, pool: workerService.pool, queue: workerService.queue });
 });
 
@@ -109,7 +110,8 @@ describe("WorkerPollingService.poll", () => {
 		expect((await jobRow("job-1"))?.status).toBe("pending");
 	});
 
-	test("claims at most the worker's concurrency, tags the claimed jobs with this runner, and leaves the rest pending", async () => {
+	test("claims at most the worker's concurrency, tags the claimed jobs with this runner and a timeout lease, and leaves the rest pending", async () => {
+		setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 		await insertJob("job-1", "w-poll", { runAt: new Date(Date.now() - 3000) });
 		await insertJob("job-2", "w-poll", { runAt: new Date(Date.now() - 2000) });
 		await insertJob("job-3", "w-poll", { runAt: new Date(Date.now() - 1000) });
@@ -122,9 +124,7 @@ describe("WorkerPollingService.poll", () => {
 		expect(await jobRow("job-1")).toMatchObject({ status: "running", runnerId: "runner-1" });
 		expect((await jobRow("job-3"))?.status).toBe("pending");
 		// The lease runs for the worker's timeout from the claim.
-		const leaseMs = ((await jobRow("job-1"))?.leaseUntil?.getTime() ?? 0) - Date.now();
-		expect(leaseMs).toBeGreaterThan(55_000);
-		expect(leaseMs).toBeLessThanOrEqual(60_000);
+		expect((await jobRow("job-1"))?.leaseUntil).toEqual(new Date("2026-01-01T00:01:00.000Z"));
 	});
 
 	test("does not reclaim a job this process is still running, even when its lease has expired", async () => {

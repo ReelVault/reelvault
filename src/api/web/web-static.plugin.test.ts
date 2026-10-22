@@ -125,10 +125,10 @@ describe("webStaticPlugin", () => {
 		expect(openEnded.status).toBe(206);
 		expect(await openEnded.text()).toBe("'app');");
 
-		const body = await (await get("/assets/app-Q1W2E3.js")).text();
+		// The seeded asset is `console.log('app');`, so its last three bytes are `');`.
 		const suffix = await get("/assets/app-Q1W2E3.js", { Range: "bytes=-3" });
 		expect(suffix.status).toBe(206);
-		expect(await suffix.text()).toBe(body.slice(-3));
+		expect(await suffix.text()).toBe("');");
 	});
 });
 

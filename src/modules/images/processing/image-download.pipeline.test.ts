@@ -123,21 +123,23 @@ describe("ImageDownloadPipeline", () => {
 		expect(spies.deleted).toContain(spies.renamed[0]?.[1] ?? "");
 	});
 
-	test("throws a ValidationError with the download error when the download fails", async () => {
+	test("rejects a failed download with its coded validation error and removes the temporary files", async () => {
 		const { pipeline, spies } = createPipeline({ downloadSucceeds: false, downloadError: new Error("storage dead") });
 
-		await expect(pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster")).rejects.toThrow(
-			"Cannot download a valid image from https://example.test/poster.jpg: storage dead",
-		);
+		await expect(pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster")).rejects.toMatchObject({
+			category: "validation",
+			code: "images.download_failed",
+		});
 		expect(spies.deleted.filter((path) => path.endsWith(".tmp"))).toHaveLength(2);
 	});
 
 	test("rejects a download whose bytes carry no recognized image format", async () => {
 		const { pipeline } = createPipeline({ metadataFormat: "" });
 
-		await expect(pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster")).rejects.toThrow(
-			"Downloaded file has no recognized image format",
-		);
+		await expect(pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster")).rejects.toMatchObject({
+			category: "validation",
+			code: "images.download_failed",
+		});
 	});
 
 	test("rejects formats outside the content-type allowlist", async () => {
@@ -180,8 +182,9 @@ describe("ImageDownloadPipeline", () => {
 	test("prepareLocalArtwork rejects a local file without a recognized format", async () => {
 		const { pipeline } = createPipeline({ metadataFormat: "" });
 
-		await expect(pipeline.prepareLocalArtwork("/media/Movie/folder.jpg", TARGET, "poster", "poster")).rejects.toThrow(
-			"Local file has no recognized image format",
-		);
+		await expect(pipeline.prepareLocalArtwork("/media/Movie/folder.jpg", TARGET, "poster", "poster")).rejects.toMatchObject({
+			category: "validation",
+			code: "images.format_unrecognized",
+		});
 	});
 });

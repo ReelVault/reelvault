@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	for (const stub of activeStubs.splice(0).toReversed()) stub.restore();
 	workerService.registry.unregister(mediaFileAuditWorker.id);
 });
 
@@ -62,9 +62,9 @@ describe("media file audit task", () => {
 		const queued = (await workerJobRepository.findByOperation(operationId, 10)).filter(
 			(item) => item.workerId === mediaFileAuditWorker.id && item.dependsOnJobId === taskId,
 		);
-		expect(
-			queued.map((item) => JSON.parse(item.data).mediaFileId).toSorted((left: string, right: string) => left.localeCompare(right)),
-		).toEqual(mediaFileIds.toSorted());
+		expect(queued.map((item) => JSON.parse(item.data).mediaFileId).toSorted((left, right) => left.localeCompare(right))).toEqual(
+			mediaFileIds.toSorted((left, right) => left.localeCompare(right)),
+		);
 	});
 
 	test("converts scan failures to domain errors", async () => {

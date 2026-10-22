@@ -56,7 +56,10 @@ describe("profilesService.copyPreferences", () => {
 	test("refuses when the source profile belongs to another account and changes nothing", async () => {
 		await seedProfiles();
 
-		await expect(profilesService.copyPreferences("mine-1", "someone-else", "user-1")).rejects.toMatchObject({ category: "forbidden" });
+		await expect(profilesService.copyPreferences("mine-1", "someone-else", "user-1")).rejects.toMatchObject({
+			category: "forbidden",
+			code: "profile.not_owned",
+		});
 
 		expect(await overridesOf("mine-1")).toEqual([
 			["density", "compact"],

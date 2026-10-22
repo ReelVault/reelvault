@@ -5,6 +5,7 @@ import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { pluginRepositoriesRepository } from "@/repositories/plugin-repositories.repository";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { waitFor } from "../../../tests/helpers/wait.helper";
 import { pluginCatalogService } from "./plugin-catalog.service";
 
 // Repositories, their order and the install status run against the migrated test database.
@@ -80,6 +81,10 @@ describe("pluginCatalogService.getCatalog", () => {
 		let inFlight = 0;
 		let maxInFlight = 0;
 		const fetched: string[] = [];
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
 
 		activeStubs.push(
 			stubMethod(pluginManager, "getInstalledRecords", () => Promise.resolve([])),
@@ -87,9 +92,7 @@ describe("pluginCatalogService.getCatalog", () => {
 				fetched.push(row.name);
 				inFlight++;
 				maxInFlight = Math.max(maxInFlight, inFlight);
-				await new Promise((resolve) => {
-					setTimeout(resolve, 25);
-				});
+				await gate;
 				inFlight--;
 
 				return {
@@ -99,7 +102,11 @@ describe("pluginCatalogService.getCatalog", () => {
 			}),
 		);
 
-		const { plugins } = await pluginCatalogService.getCatalog();
+		const catalog = pluginCatalogService.getCatalog();
+		// Each manifest is held until all three are in flight together, so a serial or limited fetch never gets there.
+		await waitFor(() => inFlight === 3);
+		release();
+		const { plugins } = await catalog;
 
 		expect(plugins.map((entry) => entry.id)).toEqual(["plugin-repo-a", "plugin-repo-b", "plugin-repo-c"]);
 		// Serial fetching would peak at one in-flight manifest. The disabled repository is never fetched.

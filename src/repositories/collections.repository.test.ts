@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +23,7 @@ describe("collectionRepository minimum metadata threshold", () => {
 	});
 
 	afterEach(() => {
+		setSystemTime();
 		for (const spy of spies.splice(0)) spy.mockRestore();
 		factory.shutdown();
 		removeTreeSync(tempDir);
@@ -68,15 +69,19 @@ describe("collectionRepository minimum metadata threshold", () => {
 	});
 
 	// The name filter matches by substring, so the second collection falls inside the first query.
-	test("keeps serving the grouped count for a repeated page within its window", async () => {
+	test("keeps the first grouped count inside its 10 s window, then recounts once the window has passed", async () => {
+		setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 		const name = `cache-probe-${crypto.randomUUID()}`;
 		await seedCollection(name, 1);
 		const query = { limit: 24, minItems: 1, name };
 		expect((await collectionRepository.findPage(query)).total).toBe(1);
 
-		// The count cache lives for 10 s and writes do not flush it, so the repeated page keeps the first total.
+		// Writes do not flush the count cache, so inside the window the repeated page still shows one collection.
 		await seedCollection(`${name}-second`, 1);
 		expect((await collectionRepository.findPage(query)).total).toBe(1);
+
+		setSystemTime(new Date("2026-01-01T00:00:10.001Z"));
+		expect((await collectionRepository.findPage(query)).total).toBe(2);
 	});
 });
 

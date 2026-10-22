@@ -18,6 +18,13 @@ const config: TranscodeConfig = {
 	hlsSegmentDuration: 4,
 };
 
+/** The value that follows a flag in an argument list. */
+function valueAfter(args: string[], flag: string): string | undefined {
+	const index = args.indexOf(flag);
+
+	return index === -1 ? undefined : args[index + 1];
+}
+
 describe("direct-stream strategy", () => {
 	test("refuses to start without an input file", async () => {
 		const strategy = new DirectStreamStrategy(config);
@@ -43,14 +50,14 @@ describe("direct-stream strategy output paths", () => {
 		spies.length = 0;
 	});
 
-	test("passes forward-slash output paths so ffmpeg writes the fMP4 init segment next to the playlist", async () => {
+	test("writes the playlist and segment paths with forward slashes, which FFmpeg needs to place the init segment beside the playlist", async () => {
 		const root = mkdtempSync(join(tmpdir(), "reelvault-direct-stream-"));
 		const inputPath = join(root, "input.mkv");
 		writeFileSync(inputPath, "");
 
 		let playlistPath = "";
 		let outputArgs: string[] = [];
-		const fakeProcess = spawn({ cmd: ["true"], stdout: "ignore", stderr: "pipe" });
+		const fakeProcess = spawn({ cmd: [process.execPath, "-e", "process.exit(0)"], stdout: "ignore", stderr: "pipe" });
 
 		class FakeBuilder extends FFmpegBuilder {
 			override input() {
@@ -101,9 +108,7 @@ describe("direct-stream strategy output paths", () => {
 			});
 
 			expect(playlistPath).toBe("C:/Users/me/AppData/Local/ReelVault/data/transcodes/s1/playlist.m3u8");
-			expect(outputArgs).toEqual(
-				expect.arrayContaining(["-hls_segment_filename", "C:/Users/me/AppData/Local/ReelVault/data/transcodes/s1/seg_%d.m4s"]),
-			);
+			expect(valueAfter(outputArgs, "-hls_segment_filename")).toBe("C:/Users/me/AppData/Local/ReelVault/data/transcodes/s1/seg_%d.m4s");
 		} finally {
 			await fakeProcess.exited;
 			removeTreeSync(root);

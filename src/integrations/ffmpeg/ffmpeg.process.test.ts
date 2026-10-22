@@ -26,12 +26,13 @@ async function spawnIgnoringSigterm() {
 }
 
 describe("killFfmpegProcessGracefully", () => {
-	test("ends a process that ignores SIGTERM", async () => {
+	test("ends a process that ignores SIGTERM by escalating to SIGKILL", async () => {
 		const process = await spawnIgnoringSigterm();
 
 		await killFfmpegProcessGracefully(process, 200);
 
 		expect(await waitForExitWithTimeout(process, 5_000)).toBe(true);
+		expect(process.signalCode).toBe("SIGKILL");
 	}, 15_000);
 
 	test("ends a process that exits on SIGTERM without escalating", async () => {
@@ -41,5 +42,6 @@ describe("killFfmpegProcessGracefully", () => {
 		await killFfmpegProcessGracefully(process, 5_000);
 
 		expect(await waitForExitWithTimeout(process, 5_000)).toBe(true);
+		expect(process.signalCode).toBe("SIGTERM");
 	}, 15_000);
 });

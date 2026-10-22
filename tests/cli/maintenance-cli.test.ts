@@ -1,5 +1,6 @@
+import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTreeSync } from "@/utils/directory.utils";
@@ -38,16 +39,21 @@ describe("maintenance commands", () => {
 		expect(result.output).toContain("integrity check passed");
 	});
 
-	test("db:backup writes a snapshot of the database to the target file", async () => {
+	test("db:backup writes a snapshot file that opens as SQLite and passes its integrity check", async () => {
 		const target = join(mkdtempSync(join(tmpdir(), "rv-cli-target-")), "snapshot.sqlite");
 		dataRoots.push(join(target, ".."));
 		const result = await runScript(["scripts/db-maintenance.script.ts", "backup", target]);
 
 		expect(result.exitCode).toBe(0);
-		expect(existsSync(target)).toBe(true);
+		const snapshot = new Database(target, { readonly: true });
+		try {
+			expect(snapshot.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+		} finally {
+			snapshot.close();
+		}
 	});
 
-	test("reset-password refuses an address that has no account and changes nothing", async () => {
+	test("reset-password refuses an address that has no account", async () => {
 		const result = await runScript(["scripts/reset-password.script.ts", "nobody@example.test"]);
 
 		expect(result.exitCode).toBe(1);

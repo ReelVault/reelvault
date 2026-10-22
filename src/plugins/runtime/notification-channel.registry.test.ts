@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { OutgoingNotification } from "@reelvault/sdk/plugin";
+import { waitFor } from "../../../tests/helpers/wait.helper";
 import {
 	dispatchNotificationToChannels,
 	onNotificationChannelFailure,
@@ -74,10 +75,14 @@ describe("notification channel registry", () => {
 
 	test("a slow channel does not hold up the channels after it", async () => {
 		const order: string[] = [];
+		let releaseSlow!: () => void;
+		const slowGate = new Promise<void>((resolve) => {
+			releaseSlow = resolve;
+		});
 		const slow = {
 			id: "slow",
 			deliver: async () => {
-				await Bun.sleep(50);
+				await slowGate;
 				order.push("slow");
 			},
 		};
@@ -92,8 +97,13 @@ describe("notification channel registry", () => {
 		registerNotificationChannel("plugin-slow", slow);
 		registerNotificationChannel("plugin-fast", fast);
 
-		await dispatchNotificationToChannels({ ...sample });
+		const dispatched = dispatchNotificationToChannels({ ...sample });
+		// Dispatch must reach the fast channel and let it finish while the slow one is still held.
+		await waitFor(() => order.includes("fast"));
+		expect(order).toEqual(["fast"]);
 
+		releaseSlow();
+		await dispatched;
 		expect(order).toEqual(["fast", "slow"]);
 	});
 

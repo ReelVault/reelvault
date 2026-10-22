@@ -33,7 +33,7 @@ describe("plugin configuration", () => {
 		await expect(config.readError(join(pluginsDirectory, "org.reelvault.absent"))).resolves.toBeUndefined();
 	});
 
-	test("loads and saves configuration values directly for administration", async () => {
+	test("save merges an update into the stored config and keeps the keys it does not name", async () => {
 		const pluginsDirectory = await createPluginsDirectory();
 		await writeConfig(pluginsDirectory, "org.reelvault.config", {
 			titlePrefix: "Example",

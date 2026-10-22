@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -37,6 +37,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	restoreWorkerRuntime();
+	setSystemTime();
 });
 
 /** Counts enqueue notifications: the poller is nudged on every enqueue and on pending cancels. */
@@ -79,12 +80,13 @@ describe("WorkerQueueService.enqueue", () => {
 	});
 
 	test("stores the call's options over the definition, floors out-of-range values and keeps the reference", async () => {
+		setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 		const queue = new WorkerQueueService();
 
 		const job = await queue.enqueue("w-queue", null, {
 			attempts: 0, // floors at 1
 			backoff: { type: "fixed", delayMs: -5 }, // floors at 0
-			delayMs: -100, // negative delay → runAt is not in the future
+			delayMs: -5_000, // a negative delay runs at once
 			priority: -10,
 			reference: { type: "library", id: "lib-1" },
 		});
@@ -98,7 +100,7 @@ describe("WorkerQueueService.enqueue", () => {
 			referenceType: "library",
 			referenceId: "lib-1",
 		});
-		expect(stored?.runAt.getTime()).toBeLessThanOrEqual(Date.now());
+		expect(stored?.runAt).toEqual(new Date("2026-01-01T00:00:00.000Z"));
 	});
 });
 
@@ -114,7 +116,7 @@ describe("WorkerQueueService.enqueue priority and dependencies", () => {
 		expect(await workerJobRepository.findItem(explicit.id)).toMatchObject({ priority: 5 });
 	});
 
-	test("a job with several dependency ids depends on the first one", async () => {
+	test("keeps only the first of several dependency ids as the job's dependency", async () => {
 		const queue = new WorkerQueueService();
 		// Dependencies must live in the same operation, so both tasks share one.
 		await workerOperationRepository.create({ id: "op-deps", type: "test" });
@@ -262,10 +264,23 @@ describe("WorkerQueueService.purgeHistory", () => {
 
 	test("without a positive olderThanDays every matching terminal job is removed", async () => {
 		const queue = new WorkerQueueService();
-		await standaloneJob("completed", 10);
-		await standaloneJob("completed", 1);
+		const oldJobId = await standaloneJob("completed", 10);
+		const recentJobId = await standaloneJob("completed", 1);
 
 		expect(await queue.purgeHistory({ status: "completed", olderThanDays: 0 })).toBe(2);
-		expect(await queue.purgeHistory()).toBe(0);
+
+		expect(await workerJobRepository.findItem(oldJobId)).toBeUndefined();
+		expect(await workerJobRepository.findItem(recentJobId)).toBeUndefined();
+	});
+
+	test("without options every terminal job is removed, failed and completed alike", async () => {
+		const queue = new WorkerQueueService();
+		const failedJobId = await standaloneJob("failed", 1);
+		const completedJobId = await standaloneJob("completed", 1);
+
+		expect(await queue.purgeHistory()).toBe(2);
+
+		expect(await workerJobRepository.findItem(failedJobId)).toBeUndefined();
+		expect(await workerJobRepository.findItem(completedJobId)).toBeUndefined();
 	});
 });

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { hashProfilePin, secureRandomInt, verifyProfilePin } from "./crypto.utils";
+import { assertChecksumMatches, hashProfilePin, secureRandomInt, verifyProfilePin } from "./crypto.utils";
 
 describe("profile pin utils", () => {
-	test("hashes a pin and verifies it", async () => {
+	test("hashes a pin with argon2id and verifies it", async () => {
 		const hash = await hashProfilePin("1234");
-		expect(hash?.startsWith("$")).toBe(true);
+		expect(hash?.startsWith("$argon2id$")).toBe(true);
 		expect(await verifyProfilePin(hash ?? "", "1234")).toBe(true);
 		expect(await verifyProfilePin(hash ?? "", "9999")).toBe(false);
 	});
@@ -42,5 +42,18 @@ describe("secureRandomInt", () => {
 	test("rejects inverted and non-integer ranges with a RangeError", () => {
 		expect(() => secureRandomInt(5, 1)).toThrow(RangeError);
 		expect(() => secureRandomInt(1.5, 3)).toThrow(RangeError);
+	});
+});
+
+describe("assertChecksumMatches", () => {
+	const checksumFailure = { checksum: true, code: "update.checksum_mismatch", message: "Checksum mismatch" };
+
+	test("throws a validation error carrying the failure code for a different digest or one of another length", () => {
+		expect(() => assertChecksumMatches("aabb", "ccdd", checksumFailure)).toThrow(
+			expect.objectContaining({ category: "validation", code: "update.checksum_mismatch" }),
+		);
+		expect(() => assertChecksumMatches("aabb", "aabbcc", checksumFailure)).toThrow(
+			expect.objectContaining({ category: "validation", code: "update.checksum_mismatch" }),
+		);
 	});
 });

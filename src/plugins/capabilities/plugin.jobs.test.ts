@@ -1,16 +1,24 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { workerService } from "@/workers/worker.service";
+import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { pluginJobsService } from "./plugin.jobs";
 
 const MAX_PLUGIN_JOB_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+// Plugin jobs belong to no resource category, so the worker ceiling is the default one.
+const PLUGIN_JOB_CONCURRENCY_CEILING = 4;
 const registered: string[][] = [];
+const stubs: MethodStub[] = [];
 
 afterEach(async () => {
 	for (const names of registered.splice(0)) await pluginJobsService.unregister(names);
+	for (const stub of stubs.splice(0).toReversed()) stub.restore();
 });
 
 describe("plugin job clamps", () => {
-	test("clamps plugin-declared concurrency and timeout to safe ceilings", async () => {
+	test("clamps plugin-declared concurrency and timeout to the worker and job ceilings", async () => {
+		// The registry scales the timeout by the host's measured speed; the scale is pinned so only the clamp is measured.
+		stubs.push(stubMethod(systemResourcesService, "scaledTimeoutMs", (baseMs: number) => baseMs));
 		const names = await pluginJobsService.register("org.reelvault.clamp", [
 			{
 				name: "huge",
@@ -21,10 +29,8 @@ describe("plugin job clamps", () => {
 		registered.push(names);
 
 		const definition = workerService.getDefinitions().find((candidate) => candidate.id === names[0]);
-		expect(definition?.concurrency).toBeGreaterThanOrEqual(1);
-		expect(definition?.concurrency).toBeLessThanOrEqual(8);
-		// `timeoutMs` scales with measured hardware, so allow the 2x slow-core headroom.
-		expect(definition?.timeoutMs).toBeLessThanOrEqual(MAX_PLUGIN_JOB_TIMEOUT_MS * 2);
+		expect(definition?.concurrency).toBe(PLUGIN_JOB_CONCURRENCY_CEILING);
+		expect(definition?.timeoutMs).toBe(MAX_PLUGIN_JOB_TIMEOUT_MS);
 	});
 
 	test("namespaces a local job name with its plugin id", async () => {

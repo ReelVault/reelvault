@@ -1,6 +1,6 @@
 import type { MediaIdentity } from "@reelvault/sdk/common";
 import { MemoryCache } from "@/utils/memory.cache";
-import { SCENE_NOISE } from "@/utils/release-tags.constants";
+import { RESOLUTION_NOISE, SCENE_NOISE } from "@/utils/release-tags.constants";
 import {
 	BRACKETED_YEAR_PATTERN,
 	EPISODE_FILE_PATTERN,
@@ -59,7 +59,7 @@ function parseFileNameUncached(fileName: string): MediaIdentity | null {
 
 		if (episode !== undefined) {
 			return {
-				title: cleanTitle(title ?? nameWithoutExt),
+				title: cleanTitle((title ?? nameWithoutExt).replace(RESOLUTION_NOISE, "")),
 				type: "episode",
 				season,
 				episode,

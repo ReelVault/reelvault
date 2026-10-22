@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
+import { clearRateLimitBuckets } from "@/api/middleware/rate-limit.middleware";
 import { invalidateSessionCache } from "@/integrations/better-auth/better-auth.session-cache";
-import { installSessionStub, listApiRoutes, prepareSecuritySuite, type RouteEntry, sendWithin } from "./security.helper";
+import { installSessionStub, listApiRoutes, prepareSecuritySuite, type RouteEntry, type SendOptions, sendWithin } from "./security.helper";
 
 /**
  * Crash suite: every route receives a series of malformed bodies and query strings.
@@ -15,7 +16,23 @@ const sessionStub = installSessionStub();
 afterAll(() => sessionStub.restore());
 beforeEach(() => invalidateSessionCache());
 
+/**
+ * The sweep checks what each handler does with a request, not what the rate limiter does: every
+ * request starts with a fresh budget. Without that, a route's limiter answers most of its sweep with 429.
+ */
+function sweep(ms: number, method: string, path: string, options: SendOptions) {
+	clearRateLimitBuckets();
+
+	return sendWithin(ms, method, path, options);
+}
+
 const ANONYMOUS_REFUSALS = new Set([400, 401, 403, 404, 405, 413, 422, 429]);
+
+/**
+ * Routes that answer an anonymous caller by design: a sign-out without a session is a no-op, and a
+ * device starts quick-connect before anyone is signed in. For these the sweep checks for crashes only.
+ */
+const ANONYMOUS_BY_DESIGN = new Set(["POST /v1/auth/logout", "POST /v1/auth/quick-connect/initiate"]);
 
 const MALFORMED_BODIES: Array<{ name: string; rawBody: string }> = [
 	{ name: "truncated JSON", rawBody: '{"name":' },
@@ -66,13 +83,15 @@ test("no route crashes on a malformed body, and anonymous callers never succeed"
 
 	for (const route of bodyRoutes()) {
 		for (const malformed of MALFORMED_BODIES) {
-			const response = await sendWithin(5000, route.method, route.path, { rawBody: malformed.rawBody });
+			const response = await sweep(5000, route.method, route.path, { rawBody: malformed.rawBody });
 			if (response === "timeout") {
 				findings.push(`${route.method} ${route.template} [${malformed.name}] anonymous: timed out`);
 				continue;
 			}
 			const text = await response.text();
-			if (!ANONYMOUS_REFUSALS.has(response.status)) {
+			if (ANONYMOUS_BY_DESIGN.has(`${route.method} ${route.template}`)) {
+				if (response.status >= 500) findings.push(`${route.method} ${route.template} [${malformed.name}] anonymous -> ${response.status}`);
+			} else if (!ANONYMOUS_REFUSALS.has(response.status)) {
 				findings.push(`${route.method} ${route.template} [${malformed.name}] anonymous -> ${response.status} ${text.slice(0, 140)}`);
 			} else if (!isJsonError(response, text) && response.status !== 405) {
 				findings.push(`${route.method} ${route.template} [${malformed.name}] anonymous error without JSON envelope -> ${response.status}`);
@@ -89,7 +108,7 @@ test("administrator routes refuse malformed bodies from an ordinary user without
 
 	for (const route of adminBodyRoutes) {
 		for (const malformed of MALFORMED_BODIES) {
-			const response = await sendWithin(5000, route.method, route.path, { role: "user", rawBody: malformed.rawBody });
+			const response = await sweep(5000, route.method, route.path, { role: "user", rawBody: malformed.rawBody });
 			if (response === "timeout") {
 				findings.push(`${route.method} ${route.template} [${malformed.name}] as user: timed out`);
 				continue;
@@ -110,12 +129,12 @@ test("administrator routes never crash on a malformed body from an administrator
 
 	for (const route of adminBodyRoutes) {
 		for (const malformed of MALFORMED_BODIES) {
-			const response = await sendWithin(5000, route.method, route.path, { role: "admin", rawBody: malformed.rawBody });
+			const response = await sweep(5000, route.method, route.path, { role: "admin", rawBody: malformed.rawBody });
 			if (response === "timeout") {
 				findings.push(`${route.method} ${route.template} [${malformed.name}] as admin: timed out`);
 				continue;
 			}
-			if (response.status >= 500 && !(route.template.startsWith("/v1/health") && response.status === 503)) {
+			if (response.status >= 500) {
 				findings.push(`${route.method} ${route.template} [${malformed.name}] as admin -> ${response.status}`);
 			}
 		}
@@ -127,8 +146,8 @@ test("administrator routes never crash on a malformed body from an administrator
 test("administrator profile routes return 404 for an unknown account", async () => {
 	const userId = "00000000-0000-4000-8000-000000000000";
 
-	const list = await sendWithin(5000, "GET", `/v1/admin/users/${userId}/profiles`, { role: "admin" });
-	const create = await sendWithin(5000, "POST", `/v1/admin/users/${userId}/profiles`, { role: "admin", body: { name: "Ghost" } });
+	const list = await sweep(5000, "GET", `/v1/admin/users/${userId}/profiles`, { role: "admin" });
+	const create = await sweep(5000, "POST", `/v1/admin/users/${userId}/profiles`, { role: "admin", body: { name: "Ghost" } });
 
 	expect(list).not.toBe("timeout");
 	expect(create).not.toBe("timeout");
@@ -145,7 +164,7 @@ test("query strings with hostile values never crash a read route", async () => {
 
 	for (const route of readRoutes) {
 		for (const query of QUERY_STRINGS) {
-			const response = await sendWithin(5000, route.method, `${route.path}${query}`, { role: "user" });
+			const response = await sweep(5000, route.method, `${route.path}${query}`, { role: "user" });
 			if (response === "timeout") {
 				findings.push(`GET ${route.template}${query} as user: timed out`);
 				continue;

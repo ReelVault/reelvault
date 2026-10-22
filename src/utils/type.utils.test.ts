@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createValueCodecs } from "@/config/value-codecs.utils";
 import { coerceBoolean, parseBooleanToken } from "./type.utils";
 
 describe("parseBooleanToken", () => {
@@ -36,17 +35,5 @@ describe("coerceBoolean", () => {
 		[0, false],
 	] as const)("coerces %p to %p", (value, expected) => {
 		expect(coerceBoolean(value)).toBe(expected);
-	});
-});
-
-describe("the settings codec and the query coercion", () => {
-	const codec = createValueCodecs().boolean();
-
-	test.each(["true", "1", "false", "0"] as const)("read %p the same way", (raw) => {
-		expect(codec.parse(raw)).toBe(coerceBoolean(raw));
-	});
-
-	test("reject a value that is not a boolean", () => {
-		expect(codec.parse("yes")).toBeNull();
 	});
 });

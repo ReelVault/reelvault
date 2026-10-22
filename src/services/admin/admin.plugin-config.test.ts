@@ -5,12 +5,13 @@ import { adminService } from "./admin.service";
 
 /**
  * A plugin's configuration moves between installations as a file. Secret fields never leave the server
- * in an export and are never overwritten by an import; a reset clears only the keys it names.
+ * in an export and are never overwritten by an import.
  */
 
+// What getPluginConfigDetails returns: the config is already redacted, so the secret field is absent.
 const details = {
 	id: "org.reelvault.config-io",
-	config: { region: "eu", apiKey: "stored-secret" },
+	config: { region: "eu" },
 	fields: [
 		{ name: "region", type: "string" as const },
 		{ name: "apiKey", type: "secret" as const },
@@ -25,7 +26,7 @@ describe("admin plugin configuration", () => {
 				format: "reelvault.plugin-config",
 				formatVersion: 1,
 				pluginId: "org.reelvault.config-io",
-				values: details.config,
+				values: { region: "eu" },
 			});
 		} finally {
 			restore.restore();

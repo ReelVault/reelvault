@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { canonicalWorkerId, UNCATEGORIZED_WORKER_IDS } from "@/config/worker-ids.utils";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { loadBuiltInWorkers } from "./built-in.loader";
 
@@ -9,6 +10,27 @@ describe("built-in workers", () => {
 		const ids = builtInWorkers.map((w) => w.id);
 
 		expect(new Set(ids).size).toBe(ids.length);
+	});
+
+	test("every registered worker id is categorized or explicitly uncategorized", async () => {
+		const builtInWorkers = await loadBuiltInWorkers();
+		const registeredIds = builtInWorkers.map((worker) => worker.id);
+
+		for (const id of registeredIds) {
+			const categorized = canonicalWorkerId(id) !== undefined;
+			const explicitlyUncategorized = UNCATEGORIZED_WORKER_IDS.has(id);
+
+			expect({ id, covered: categorized || explicitlyUncategorized }).toEqual({ id, covered: true });
+		}
+	});
+
+	test("the uncategorized set contains no orphaned ids", async () => {
+		const builtInWorkers = await loadBuiltInWorkers();
+		const registeredIds = new Set(builtInWorkers.map((worker) => worker.id));
+
+		for (const id of UNCATEGORIZED_WORKER_IDS) {
+			expect(registeredIds.has(id)).toBe(true);
+		}
 	});
 
 	test("updates worker concurrency dynamically when system settings change", async () => {
@@ -42,6 +64,8 @@ describe("built-in workers", () => {
 		const registry = new WorkerRegistryService();
 		registry.register(libraryScan);
 		registry.register(streamInit);
+		// Read before the rescue is simulated: the protected worker keeps this value while rescue throttles the others.
+		const protectedConcurrency = registry.get("stream-init")?.concurrency;
 
 		const rescueSpy = spyOn(serverRescueService, "getRescueAllocation").mockImplementation((workerId: string) =>
 			workerId === "stream-init" ? undefined : { allocated: 0, throttled: true, reason: "server_rescue" },
@@ -50,7 +74,7 @@ describe("built-in workers", () => {
 		try {
 			expect(registry.get("library-scan")?.concurrency).toBe(0);
 			// Protected from rescue: its hardware-derived concurrency is never throttled to zero.
-			expect(registry.get("stream-init")?.concurrency).toBeGreaterThanOrEqual(1);
+			expect(registry.get("stream-init")?.concurrency).toBe(protectedConcurrency);
 		} finally {
 			rescueSpy.mockRestore();
 		}

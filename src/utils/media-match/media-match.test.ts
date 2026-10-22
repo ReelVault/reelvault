@@ -86,7 +86,6 @@ test("picks best match when filename is English and provider title is translated
 	];
 
 	const ranked = rankCandidates(candidates, "The Shawshank Redemption", 1994);
-	expect(ranked.length).toBeGreaterThan(0);
 	expect(ranked[0]?.item.title).toBe("Skazani na Shawshank");
 	expect(ranked[0]?.score).toBeGreaterThan(0.9);
 
@@ -129,7 +128,6 @@ test("tolerates 1-year discrepancy in release dates", () => {
 	];
 
 	const ranked = rankCandidates(candidates, "Inception", 2011);
-	expect(ranked.length).toBeGreaterThan(0);
 	expect(ranked[0]?.score).toBeGreaterThan(0.7);
 	expect(ranked[0]?.yearScore).toBe(0.8);
 });
@@ -141,8 +139,7 @@ test("cleans edition noise from query variants", () => {
 
 test("strips a trailing year-plus-dash recognition leftover from query variants", () => {
 	const variants = generateQueryVariants("Game of Thrones (2011) -");
-	expect(variants).toContain("Game of Thrones");
-	expect(variants.length).toBeGreaterThan(1);
+	expect(variants).toEqual(["Game of Thrones (2011) -", "Game of Thrones"]);
 });
 
 test("keeps a plain title untouched as the first query variant", () => {

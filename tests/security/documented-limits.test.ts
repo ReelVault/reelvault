@@ -93,8 +93,7 @@ const LIMIT_ACCEPTING_CASES = LIMIT_CASES.filter((limit) => limit.acceptsLimit =
 test.each(LIMIT_ACCEPTING_CASES)("$method $template accepts exactly $max items", async (limit) => {
 	const response = await send(limit.method, limit.template, { role: limit.role, body: limit.body(limit.max) });
 
-	expect(response.status).not.toBe(400);
-	expect(response.status).toBeLessThan(500);
+	expect(response.status).toBe(200);
 });
 
 test("the watchlist status query refuses an oversized id list", async () => {

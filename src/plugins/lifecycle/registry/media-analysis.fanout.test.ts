@@ -32,11 +32,15 @@ describe("MediaAnalysisFanout", () => {
 		fanout.register("plugin-b", [createAnalyzer("shared", () => ({}))]);
 
 		expect(() => fanout.assertRegisterable([createAnalyzer("shared", () => ({}))])).toThrow(
-			expect.objectContaining({ category: "validation", code: "plugin.entity_conflict" }),
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.entity_conflict",
+				params: { id: "shared", plugin: "plugin-b" },
+			}),
 		);
 	});
 
-	test("merges analyzer output in registration order and isolates failures", async () => {
+	test("merges the fields of every analyzer and keeps the others when one throws", async () => {
 		fanout.register("p", [
 			createAnalyzer("a-source", () => ({ source: "WEB-DL" })),
 			createAnalyzer("broken", () => {
@@ -48,9 +52,24 @@ describe("MediaAnalysisFanout", () => {
 		await expect(fanout.analyze(media)).resolves.toEqual({ source: "WEB-DL", qualityTag: "2160p" });
 	});
 
-	test("normalizes whitespace-only values to null and drops undefined fields", async () => {
-		fanout.register("p", [createAnalyzer("trims", () => ({ source: "  WEB-DL  ", edition: "   ", qualityTag: undefined }))]);
+	test("a later analyzer's value wins over an earlier one for the same field", async () => {
+		fanout.register("p", [createAnalyzer("first", () => ({ source: "WEB-DL" })), createAnalyzer("second", () => ({ source: "BluRay" }))]);
+
+		await expect(fanout.analyze(media)).resolves.toEqual({ source: "BluRay" });
+	});
+
+	test("trims values and turns whitespace-only values into null", async () => {
+		fanout.register("p", [createAnalyzer("trims", () => ({ source: "  WEB-DL  ", edition: "   " }))]);
 
 		await expect(fanout.analyze(media)).resolves.toEqual({ source: "WEB-DL", edition: null });
+	});
+
+	test("an undefined field does not overwrite a value an earlier analyzer set", async () => {
+		fanout.register("p", [
+			createAnalyzer("probe", () => ({ qualityTag: "2160p" })),
+			createAnalyzer("sparse", () => ({ qualityTag: undefined, source: "BluRay" })),
+		]);
+
+		await expect(fanout.analyze(media)).resolves.toEqual({ qualityTag: "2160p", source: "BluRay" });
 	});
 });

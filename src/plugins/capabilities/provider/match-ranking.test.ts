@@ -32,7 +32,7 @@ describe("trimNameAndOverview", () => {
 });
 
 describe("normalizeMetadataDetails", () => {
-	test("trims strings, drops non-positive revenue and sorts cast by order", () => {
+	test("trims strings, drops non-positive revenue and nameless cast, and sorts cast by order", () => {
 		const normalized = normalizeMetadataDetails(metadataFixture());
 
 		expect(normalized.title).toBe("Movie");
@@ -54,7 +54,7 @@ describe("discoveryCacheKey", () => {
 });
 
 describe("matchesExternalIdentifiers", () => {
-	test("accepts when the provider owns the namespace or the id matches", () => {
+	test("accepts a provider-owned namespace or a matching id and refuses an empty external id", () => {
 		expect(matchesExternalIdentifiers("tmdb", { ...metadataFixture(), externalId: "other" }, { tmdb: "1" }, new Set())).toBeTrue();
 		expect(matchesExternalIdentifiers("imdb", { ...metadataFixture(), externalId: "tt123" }, {}, new Set(["tt123"]))).toBeTrue();
 		expect(matchesExternalIdentifiers("tmdb", { ...metadataFixture(), externalId: "other" }, {}, new Set(["tt123"]))).toBeFalse();

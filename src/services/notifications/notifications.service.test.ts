@@ -102,18 +102,18 @@ describe("notificationsService.createForAdministrators", () => {
 
 	test("a failing recipient does not stop the others and its error is rethrown", async () => {
 		const quota = new Error("quota");
-		const created: string[] = [];
+		const realCreate = notificationsService.create.bind(notificationsService);
+		// Forces the first recipient's write to fail; every other write goes through the real create.
 		stubs.push(
-			stubMethod(notificationsService, "create", (notification: { userId: string }) => {
-				if (notification.userId === "admin-1") return Promise.reject(quota);
-				created.push(notification.userId);
+			stubMethod(notificationsService, "create", (...args: Parameters<typeof realCreate>) => {
+				if (args[0].userId === "admin-1") return Promise.reject(quota);
 
-				return Promise.resolve("n");
+				return realCreate(...args);
 			}),
 		);
 
 		await expect(notificationsService.createForAdministrators({ type: "bug-report", title: "Subtitles drift" })).rejects.toBe(quota);
-		expect(created).toEqual(["admin-2"]);
+		expect((await storedNotifications()).map((row) => row.userId)).toEqual(["admin-2"]);
 	});
 });
 

@@ -10,6 +10,10 @@ describe("QueryPagination", () => {
 		});
 	});
 
+	test("raises a page or limit below one back to one", () => {
+		expect(parsePagination({ page: -3, limit: 0 })).toEqual({ page: 1, limit: 1, offset: 0 });
+	});
+
 	test("uses safe defaults", () => {
 		expect(parsePagination({})).toEqual({ page: 1, limit: 20, offset: 0 });
 	});
@@ -21,5 +25,9 @@ describe("QueryPagination", () => {
 			total: 0,
 			totalPages: 0,
 		});
+	});
+
+	test("counts a partial last page as a page", () => {
+		expect(buildAdminPagination({ total: 101, page: 1, limit: 50 })).toEqual({ page: 1, limit: 50, total: 101, totalPages: 3 });
 	});
 });

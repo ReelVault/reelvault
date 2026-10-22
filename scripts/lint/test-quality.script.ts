@@ -18,7 +18,11 @@
  *  - R5  a test case may not assert only a loose bound that any value passes;
  *  - R6  a bare `not.toThrow()` may not stand in for an assertion;
  *  - R7  a test file under `src/` must exercise a module from its own folder —
- *       a test that covers another area's code belongs to that area.
+ *       a test that covers another area's code belongs to that area;
+ *  - R8  an assertion may not sit inside an `if`, `else` or `catch` block — it
+ *       passes without running when the branch is not taken;
+ *  - R9  a test title may not say "works", "handles" or "should" — it names the
+ *       condition and the outcome.
  *
  * The code under test is the module the file is named after, or the modules
  * the file imports from its own folder. Its own helpers count as part of it:
@@ -95,8 +99,25 @@ const CALL_MATCHERS = [
 	"toHaveReturnedWith",
 ] as const;
 
-/** Matchers that only prove something is there. */
-const EXISTENCE_MATCHERS = ["toBeDefined", "toBeTruthy", "toBeFalsy", "toBeInstanceOf", "toBeTypeOf"] as const;
+/** Matchers that only prove something is there, or what type it has. */
+const EXISTENCE_MATCHERS = [
+	"toBeDefined",
+	"toBeTruthy",
+	"toBeFalsy",
+	"toBeInstanceOf",
+	"toBeTypeOf",
+	"toBeString",
+	"toBeNumber",
+	"toBeBoolean",
+	"toBeBigInt",
+	"toBeSymbol",
+	"toBeFunction",
+	"toBeObject",
+	"toBeArray",
+	"toBeDate",
+	"toBeRegExp",
+	"toBePromise",
+] as const;
 
 /** Matchers whose bound is satisfied by any value the test could produce. */
 const LOOSE_MATCHERS = ["toBeGreaterThan(0)", "toBeGreaterThanOrEqual(0)", "toBeGreaterThanOrEqual(1)"] as const;
@@ -142,6 +163,10 @@ const TS_EXTENSION = /\.ts$/;
 const RESOLVES_PREFIX = /^resolves\./;
 const REJECTS_PREFIX = /^rejects\./;
 const THROW_MATCHER = /^not\.toThrow|^toThrow/;
+const CONDITIONAL_KEYWORD_PATTERN = /\b(?:if|else|catch|try)\b/g;
+const CATCH_AFTER_BLOCK_PATTERN = /^\s*catch\b/;
+const BAD_TITLE_PATTERN = /\b(?:works|handles|should)\b/i;
+const WHITESPACE_PATTERN = /\s/;
 
 interface Finding {
 	/** The file and the line the problem sits on, as one location string. */
@@ -159,6 +184,8 @@ interface Assertion {
 	matcher: string;
 	expected: string;
 	line: number;
+	/** Offset of the matcher within the case body, for block membership. */
+	offset: number;
 	negated: boolean;
 }
 
@@ -206,10 +233,44 @@ function readAssertions(body: string): Assertion[] {
 		const opening = match.index + match[0].length - 1;
 		const expected = balancedGroup(body, opening);
 		const line = body.slice(0, match.index).split("\n").length;
-		assertions.push({ matcher: match[2] ?? "", expected, line, negated: match[1] !== undefined });
+		assertions.push({ matcher: match[2] ?? "", expected, line, offset: match.index, negated: match[1] !== undefined });
 		match = pattern.exec(body);
 	}
 	return assertions;
+}
+
+function skipWhitespace(source: string, from: number): number {
+	let index = from;
+	while (index < source.length && WHITESPACE_PATTERN.test(source[index] ?? "")) index++;
+	return index;
+}
+
+/** The brace block a keyword introduces, after an optional `( … )` condition. */
+function blockAfterKeyword(masked: string, from: number): [number, number] | undefined {
+	let index = skipWhitespace(masked, from);
+	if (masked[index] === "(") index = skipWhitespace(masked, index + balancedGroup(masked, index).length + 2);
+	if (masked[index] !== "{") return undefined;
+	return [index, index + balancedGroup(masked, index).length + 1];
+}
+
+/** A `try` block hides its failures only when a `catch` clause follows it; `try … finally` does not. */
+function isGuardingBlock(keyword: string, masked: string, block: [number, number]): boolean {
+	if (keyword !== "try") return true;
+	return CATCH_AFTER_BLOCK_PATTERN.test(masked.slice(block[1] + 1));
+}
+
+/** The `if`, `else`, `catch` and swallowing `try` blocks of a case body, as [open, close] offsets. */
+function conditionalBlocks(body: string): Array<[number, number]> {
+	const masked = maskLiterals(body);
+	const blocks: Array<[number, number]> = [];
+	const pattern = new RegExp(CONDITIONAL_KEYWORD_PATTERN.source, "g");
+	let match = pattern.exec(masked);
+	while (match !== null) {
+		const block = blockAfterKeyword(masked, match.index + match[0].length);
+		if (block !== undefined && isGuardingBlock(match[0], masked, block)) blocks.push(block);
+		match = pattern.exec(masked);
+	}
+	return blocks;
 }
 
 /** The production file a specifier points at, when it points at one. */
@@ -389,6 +450,12 @@ function scanTestCase(file: string, testCase: TestCase, context: ExpectationCont
 	const findings: Finding[] = [];
 	const assertions = readAssertions(testCase.body);
 	const location = `${file}:${testCase.line}`;
+	if (BAD_TITLE_PATTERN.test(testCase.title)) {
+		findings.push({
+			file: location,
+			problem: `the title "${testCase.title}" says works, handles or should — name the condition and the outcome`,
+		});
+	}
 	if (assertions.length === 0) {
 		findings.push({ file: location, problem: `test case "${testCase.title}" has no assertion` });
 		return findings;
@@ -398,9 +465,21 @@ function scanTestCase(file: string, testCase: TestCase, context: ExpectationCont
 		findings.push({ file: location, problem: `test case "${testCase.title}" ${structural}` });
 		return findings;
 	}
+	findings.push(...scanConditionalAssertions(file, testCase, assertions));
 	findings.push(...scanExpectations(file, testCase, assertions, context));
 	findings.push(...scanBareThrows(file, testCase, assertions));
 	return findings;
+}
+
+/** The findings of assertions inside a conditional block, which pass when the branch does not run. */
+function scanConditionalAssertions(file: string, testCase: TestCase, assertions: Assertion[]): Finding[] {
+	const blocks = conditionalBlocks(testCase.body);
+	return assertions
+		.filter((assertion) => blocks.some(([open, close]) => assertion.offset > open && assertion.offset < close))
+		.map((assertion) => ({
+			file: `${file}:${testCase.line + assertion.line}`,
+			problem: `an assertion of "${testCase.title}" sits inside an if, else, catch or try-with-catch block — it passes when the branch does not run or the failure is caught`,
+		}));
 }
 
 /** The findings of the expected side of a case. */

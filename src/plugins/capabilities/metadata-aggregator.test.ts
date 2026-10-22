@@ -29,7 +29,16 @@ describe("mergeProviderMetadata", () => {
 		expect(merged.metadata.tagline).toBe("IMDb tagline");
 	});
 
-	test("relation arrays are not unioned — the highest-priority non-empty list wins", () => {
+	test("relation arrays are not unioned: the highest-priority list wins when it is non-empty", () => {
+		const merged = mergeProviderMetadata([
+			contribution("tmdb", { genres: [{ id: "g2", name: "Thriller" }] }),
+			contribution("imdb", { genres: [{ id: "g1", name: "Horror" }] }),
+		]);
+
+		expect(merged.metadata.genres).toEqual([{ id: "g2", name: "Thriller" }]);
+	});
+
+	test("relation arrays fall through to the next provider only when the higher one is empty", () => {
 		const merged = mergeProviderMetadata([
 			contribution("tmdb", { genres: [] }),
 			contribution("imdb", { genres: [{ id: "g1", name: "Horror" }] }),

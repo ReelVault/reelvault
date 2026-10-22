@@ -23,8 +23,9 @@ describe("metadata rating projections", () => {
 			{ value: 47, maxValue: 100, votes: 0 },
 		]);
 
-		expect(weighted).toBeGreaterThan(5.4);
-		expect(weighted).toBeLessThan(5.7);
+		// Ratings on a ten-point scale: 5.7, 5.2 and 4.7. A source with votes weighs 1 + log10(1 + votes); one without votes weighs 1.
+		// (5.7 * (1 + log10(61558)) + 5.2 + 4.7) / ((1 + log10(61558)) + 2) = 5.5074, which rounds to 5.51.
+		expect(weighted).toBe(5.51);
 	});
 
 	test("simple strategy averages every source equally", () => {

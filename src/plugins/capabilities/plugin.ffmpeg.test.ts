@@ -108,7 +108,7 @@ describe("pluginFfmpegService.extractSprite", () => {
 			columns: 2,
 			rows: 1,
 		});
-		expect(contentBytes(sprite.content)).toBeGreaterThan(0);
+		expect(contentBytes(sprite.content)).toBe(FAKE_FRAME_BYTES.length);
 	});
 
 	test("rejects an unknown media file before touching ffmpeg", async () => {

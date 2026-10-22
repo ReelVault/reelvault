@@ -9,7 +9,7 @@ describe("ReelVaultPathPolicy", () => {
 		expect(ReelVaultPathPolicy.episode("/media/show", "Show.S01E01")).toBe("/media/show/Show.S01E01.reelvault.nfo");
 	});
 
-	test("rejects an episode base name containing path separators or traversal", () => {
+	test("rejects an empty episode base name or one containing a path separator", () => {
 		const invalid = expect.objectContaining({ category: "validation", code: "sidecar.path_invalid" });
 		expect(() => ReelVaultPathPolicy.episode("/media/show", "../evil")).toThrow(invalid);
 		expect(() => ReelVaultPathPolicy.episode("/media/show", "a/b")).toThrow(invalid);
@@ -28,7 +28,7 @@ describe("KodiPathPolicy", () => {
 });
 
 describe("getSidecarPathPolicy", () => {
-	test("selects the policy for the flavor and falls back to the native one", () => {
+	test("selects the Kodi policy for kodi and the ReelVault policy for reelvault", () => {
 		expect(getSidecarPathPolicy("kodi").movie("/media/movie")).toBe("/media/movie/movie.nfo");
 		expect(getSidecarPathPolicy("reelvault").movie("/media/movie")).toBe("/media/movie/movie.reelvault.nfo");
 	});

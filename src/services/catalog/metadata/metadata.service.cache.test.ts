@@ -23,6 +23,8 @@ const key = responseCacheKey({ pathWithQuery: "/v1/metadata?cache-test", cookie:
 
 function seedCachedResponse(): void {
 	setCachedResponseBody(key, { etag: "e", body: "{}", expiresAt: Date.now() + 60_000, encoded: new Map() });
+	// The "flushed" checks below pass on an empty cache, so the seed must be there first.
+	if (getCachedResponseBody(key) === undefined) throw new Error("the cached response was not seeded");
 }
 
 async function seedMovie(id: string): Promise<void> {

@@ -13,11 +13,12 @@ describe("profile PIN attempts", () => {
 		clearWrongPins(key);
 	});
 
-	test("starts a fresh budget once the window has passed", () => {
+	test("counts a wrong PIN inside the window and starts a fresh budget once the window has passed", () => {
 		const key = "user-1:profile-attempts-expiry";
 		const start = 2_000_000;
 		recordWrongPin(key, start);
 
+		expect(pinAttemptStatus(key, start)).toEqual({ attemptsRemaining: 9, retryAfterSeconds: 900 });
 		expect(pinAttemptStatus(key, start + 900_000)).toEqual({ attemptsRemaining: 10, retryAfterSeconds: 0 });
 		clearWrongPins(key);
 	});

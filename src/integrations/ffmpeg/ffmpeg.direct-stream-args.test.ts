@@ -26,6 +26,13 @@ function budget(value: number): void {
 	spies.push(spyOn(systemResourcesService, "getFfmpegThreads").mockReturnValue(value));
 }
 
+/** The value that follows a flag: the builder pairs each option with its value. */
+function valueAfter(args: string[], flag: string): string | undefined {
+	const index = args.indexOf(flag);
+
+	return index === -1 ? undefined : args[index + 1];
+}
+
 afterEach(() => {
 	for (const spy of spies.splice(0)) spy.mockRestore();
 });
@@ -36,8 +43,10 @@ describe("buildDirectStreamOutputArgs", () => {
 
 		const args = buildDirectStreamOutputArgs(decision, config, 1, "/tmp/seg_%d.m4s");
 
-		expect(args).toEqual(expect.arrayContaining(["-codec:v:0", "copy", "-codec:a:0", "copy"]));
-		expect(args).toEqual(expect.arrayContaining(["-map_metadata", "-1", "-map_chapters", "-1"]));
+		expect(valueAfter(args, "-codec:v:0")).toBe("copy");
+		expect(valueAfter(args, "-codec:a:0")).toBe("copy");
+		expect(valueAfter(args, "-map_metadata")).toBe("-1");
+		expect(valueAfter(args, "-map_chapters")).toBe("-1");
 	});
 
 	test("maps the video and the chosen audio stream and drops the subtitles", () => {

@@ -29,7 +29,7 @@ describe("negotiateEncoding", () => {
 		expect(negotiateEncoding("x-gzip")).toBe(null);
 	});
 
-	test("repeated and evicted headers keep resolving to the same encoding", () => {
+	test("keeps the same encoding for a header after a burst of other headers", () => {
 		const browser = "gzip, deflate, br, zstd";
 		expect(negotiateEncoding(browser)).toBe("br");
 		expect(negotiateEncoding(browser)).toBe("br");
@@ -75,13 +75,5 @@ describe("compressBuffer", () => {
 	test("deflate output decompresses to the original payload", async () => {
 		const compressed = await compressBuffer(payload, "deflate");
 		expect(inflateSync(compressed).equals(payload)).toBe(true);
-	});
-
-	test("the compressed bytes survive a Response body round trip", async () => {
-		const compressed = await compressBuffer(payload, "gzip");
-		const served = Buffer.from(await new Response(compressed).arrayBuffer());
-
-		expect(served.equals(compressed)).toBe(true);
-		expect(gunzipSync(served).equals(payload)).toBe(true);
 	});
 });

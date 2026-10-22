@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe("mediaService.getAuditStatus", () => {
-	test("serves a completed report from cache instead of re-reading and re-validating it", async () => {
+	test("serves a completed report from cache instead of reading the job again", async () => {
 		const operationId = `op-audit-${crypto.randomUUID()}`;
 		const report = { totalFilesChecked: 12, suspectCount: 0, suspects: [] };
 		let findByOperationCalls = 0;

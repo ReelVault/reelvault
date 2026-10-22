@@ -23,7 +23,8 @@ describe("searchWithVariants", () => {
 			undefined,
 		);
 
-		expect(queries.length).toBeGreaterThanOrEqual(2);
+		// LONG_TITLE has two phrasings: the title itself and its punctuation-free form.
+		expect(queries).toHaveLength(2);
 		expect(result).toEqual([
 			{ externalId: "id-1", title: "Unrelated Film" },
 			{ externalId: "id-2", title: "Obscure Movie II" },
@@ -60,7 +61,7 @@ describe("searchWithVariants", () => {
 			undefined,
 		);
 
-		expect(calls).toBeGreaterThanOrEqual(2);
+		expect(calls).toBe(2);
 		expect(result).toEqual([{ externalId: "late-1", title: LONG_TITLE }]);
 	});
 });

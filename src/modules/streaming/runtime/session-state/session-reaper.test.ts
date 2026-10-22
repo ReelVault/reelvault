@@ -87,6 +87,7 @@ describe("session reaper", () => {
 
 		expect(cancelledOperations).toEqual(["op-1"]);
 		expect(store.has("s1")).toBe(false);
+		expect(reservations.reservedCount).toBe(0);
 		expect(store.getTerminatedSession("s1")?.reason).toBe("admin-stop");
 		expect(store.isProfileTerminatedRecently("profile-1", "file-s1", 1_000)).toEqual({ reason: "admin-stop" });
 		expect(ended).toEqual([
@@ -186,6 +187,9 @@ describe("session reaper: never-started session", () => {
 		const { reaper, store, reservations } = createReaper();
 		registration(store, "s1");
 		registration(store, "s2");
+		reservations.reserve("s1", "user-1");
+		reservations.reserve("s2", "user-1");
+		expect(reservations.reservedCount).toBe(2);
 
 		const released: Array<{ sessionId: string; reason: string }> = [];
 		await reaper.shutdown((sessionId, reason) => {

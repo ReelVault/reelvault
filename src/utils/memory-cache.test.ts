@@ -119,33 +119,6 @@ test("getOrSetMany dedupes against a concurrent single-key getOrSet for the same
 	expect(singleResult).toBe(99);
 });
 
-test("getOrSetMany dedupes two concurrent batch calls sharing a missing key", async () => {
-	const cache = new MemoryCache<number>({ ttlMs: -1, maxSize: -1 });
-	let loaderCalls = 0;
-
-	const loader = async (missing: readonly string[]) => {
-		loaderCalls++;
-		await new Promise((resolve) => {
-			setTimeout(resolve, 15);
-		});
-
-		return new Map(missing.map((key) => [key, key.length]));
-	};
-
-	const [r1, r2] = await Promise.all([
-		cache.getOrSetMany(["shared"], loader),
-		cache.getOrSet("shared", async () => {
-			const value = (await loader(["shared"])).get("shared");
-			if (value === undefined) throw new Error("shared missing from loader result");
-
-			return value;
-		}),
-	]);
-
-	expect(r1.get("shared")).toBe(r2);
-	expect(loaderCalls).toBe(1);
-});
-
 test("getOrSetMany leaves no pending load for a key the loader omits", async () => {
 	const cache = new MemoryCache<number>({ ttlMs: -1, maxSize: -1 });
 

@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
 import type { FfmpegHwaccelOption } from "@/config/definitions/streaming.definitions";
 import { serverConfig } from "@/config/server/server.config";
+import { getDetectedDriDevice } from "./probe.utils";
 
 type HwaccelType = Exclude<FfmpegHwaccelOption, "auto">;
 
@@ -41,26 +41,6 @@ export function hardwareDecodeArgs(hw: DetectedHwaccel): string[] {
 		default:
 			return [];
 	}
-}
-
-let cachedDriDevice: string | null | undefined;
-
-/** DRM render node used for vaapi/qsv (or the forced hwaccelDevice), null when none was found. */
-export function getDetectedDriDevice(): string | null {
-	if (cachedDriDevice !== undefined) return cachedDriDevice;
-
-	const configuredDevice = serverConfig.ffmpeg.hwaccelDevice.trim();
-	if (configuredDevice) {
-		cachedDriDevice = configuredDevice;
-	} else if (process.platform === "linux") {
-		if (existsSync("/dev/dri/renderD128")) cachedDriDevice = "/dev/dri/renderD128";
-		else if (existsSync("/dev/dri/card0")) cachedDriDevice = "/dev/dri/card0";
-		else cachedDriDevice = null;
-	} else {
-		cachedDriDevice = null;
-	}
-
-	return cachedDriDevice;
 }
 
 /** Accelerators this host could use, in preference order. Encoders and hwaccels come from the FFmpeg probe. */

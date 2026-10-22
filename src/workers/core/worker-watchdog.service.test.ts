@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { workerJobRepository } from "@/repositories/worker.repository";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { setWorkerRuntime } from "./worker.runtime";
@@ -136,22 +136,22 @@ describe("WorkerWatchdogService.checkHealth", () => {
 		const state = watchdog.getState();
 
 		expect(state.running).toBe(false);
-		expect(state.lastPollAt).toBe(new Date(1_700_000_000_000).toISOString());
+		expect(state.lastPollAt).toBe("2023-11-14T22:13:20.000Z");
 	});
 });
 
 describe("WorkerWatchdogService recovery visibility", () => {
 	test("getState counts the orphaned jobs requeued since start and dates the latest pass", async () => {
+		// Pinned so the dead runner's lease has ended and the pass is dated to a known instant.
+		setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 		await seedOrphanedJobs([Bun.randomUUIDv7(), Bun.randomUUIDv7(), Bun.randomUUIDv7()]);
 		const watchdog = new WorkerWatchdogService();
-		const startedAt = Date.now();
 
 		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 0 });
 		expect(watchdog.getState().lastRecoveredAt).toBeUndefined();
 
 		expect(await watchdog.recoverOrphaned()).toBe(3);
-		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 3 });
-		expect(Date.parse(watchdog.getState().lastRecoveredAt ?? "")).toBeGreaterThanOrEqual(startedAt);
+		expect(watchdog.getState()).toMatchObject({ recoveredJobs: 3, lastRecoveredAt: "2026-01-01T00:00:00.000Z" });
 	});
 
 	test("an empty pass leaves the counters untouched", async () => {
@@ -194,6 +194,7 @@ describe("WorkerWatchdogService.recoverOrphaned", () => {
 });
 
 afterEach(() => {
+	setSystemTime();
 	activeJobIds.length = 0;
 	restoreWorkerRuntime();
 });

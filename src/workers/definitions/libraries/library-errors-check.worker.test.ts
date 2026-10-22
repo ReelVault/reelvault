@@ -11,7 +11,7 @@ const activeStubs: Array<{ restore(): void }> = [];
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	for (const stub of activeStubs.splice(0).toReversed()) stub.restore();
 	for (const directory of temporaryDirectories.splice(0)) removeTreeSync(directory);
 });
 

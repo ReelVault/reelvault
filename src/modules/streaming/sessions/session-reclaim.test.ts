@@ -21,7 +21,7 @@ describe("findSameTitleSession", () => {
 		expect(findSameTitleSession([{ sessionId: "s1", mediaFileId: "file-c" }], titleOf, "file-a")).toBeUndefined();
 	});
 
-	test("finds nothing for a file whose title is unknown", () => {
-		expect(findSameTitleSession([{ sessionId: "s1", mediaFileId: "file-a" }], titleOf, "file-x")).toBeUndefined();
+	test("finds nothing for a file whose title is unknown, even against a session whose title is also unknown", () => {
+		expect(findSameTitleSession([{ sessionId: "s1", mediaFileId: "file-z" }], titleOf, "file-x")).toBeUndefined();
 	});
 });

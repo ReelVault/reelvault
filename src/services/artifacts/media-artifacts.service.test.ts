@@ -114,7 +114,7 @@ describe("mediaArtifactsService.write validation", () => {
 });
 
 describe("mediaArtifactsService.write quota gate", () => {
-	test("a gate rejection stops the write before any row or file is stored", async () => {
+	test("a gate rejection stops the write before a second row is stored", async () => {
 		const mediaFileId = await seedMediaFile();
 		await mediaArtifactsService.write("core", {
 			mediaFileId,

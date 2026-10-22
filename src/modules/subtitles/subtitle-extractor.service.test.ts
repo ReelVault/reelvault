@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { sleep } from "bun";
 import { CancellationError } from "@/utils/cancellation.utils";
 import { removeTree } from "@/utils/directory.utils";
+import { waitFor } from "../../../tests/helpers/wait.helper";
 import { SubtitleExtractorService } from "./subtitle-extractor.service";
 
 const WEBVTT_BODY = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000 t\n\nhello";
@@ -30,16 +31,6 @@ function writeWebVttToLastArg(args: string[]): Promise<void> {
 	if (!outputPath) return Promise.resolve();
 
 	return writeFile(outputPath, WEBVTT_BODY, "utf8");
-}
-
-async function waitFor(condition: () => boolean): Promise<void> {
-	for (let attempt = 0; attempt < 500; attempt++) {
-		if (condition()) return;
-
-		await sleep(2);
-	}
-
-	throw new Error("Condition not met in time");
 }
 
 function createExtractor(options: HarnessOptions = {}) {
@@ -232,11 +223,24 @@ describe("SubtitleExtractorService in-flight sharing", () => {
 		expect(await result.file.text()).toBe(WEBVTT_BODY);
 	});
 
-	test("waitForInFlight settles even when the extraction fails", async () => {
-		const { extractor } = createExtractor({ runFfmpeg: async () => ({ exitCode: 1, stderr: "boom" }) });
+	test("waitForInFlight resolves without throwing once a failing extraction settles", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const { extractor, ffmpegCalls } = createExtractor({
+			runFfmpeg: async () => {
+				await gate;
+
+				return { exitCode: 1, stderr: "boom" };
+			},
+		});
 
 		const extraction = extractor.extractToVtt("sub-wait-fail", "/media/movie.mkv", 2, "subrip");
-		await extractor.waitForInFlight("sub-wait-fail");
+		await waitFor(() => ffmpegCalls.length > 0);
+		const waiting = extractor.waitForInFlight("sub-wait-fail");
+		release();
+		await waiting;
 
 		expect(await extraction).toBeNull();
 	});

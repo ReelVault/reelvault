@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { apiKeys } from "@/integrations/drizzle-orm/schemas/api-keys.schema";
@@ -16,6 +16,9 @@ import { prepareSecuritySuite, send } from "./security.helper";
 prepareSecuritySuite();
 
 const client = databaseFactory.getClient();
+
+/** A refused key gets the same answer as an anonymous caller: 401 with the session-invalid code. */
+const REFUSED = { status: 401, code: "auth.session_invalid" };
 
 async function seedUser(role: "admin" | "user"): Promise<string> {
 	const id = `key-owner-${crypto.randomUUID()}`;
@@ -44,9 +47,20 @@ async function callAdminAudit(apiKey: string): Promise<Response> {
 	return await send("GET", "/v1/admin/audit", { headers: { "x-api-key": apiKey } });
 }
 
+/** The status and error code a response carries, so each case asserts both against a literal. */
+async function refusalOf(response: Response): Promise<{ status: number; code: unknown }> {
+	const body = (await response.json()) as { code?: unknown };
+
+	return { status: response.status, code: body.code };
+}
+
 beforeEach(async () => {
 	await client.delete(apiKeys);
 	await client.delete(users);
+});
+
+afterEach(() => {
+	setSystemTime();
 });
 
 describe("API key lifecycle", () => {
@@ -64,9 +78,7 @@ describe("API key lifecycle", () => {
 		const { key } = await createKey(adminId, "full");
 		await client.update(users).set({ banned: true, banReason: "test block", banExpires: null }).where(eq(users.id, adminId));
 
-		const response = await callAdminAudit(key);
-
-		expect([401, 403]).toContain(response.status);
+		expect(await refusalOf(await callAdminAudit(key))).toEqual(REFUSED);
 	});
 
 	test("a temporary block that has already expired does not lock the account out", async () => {
@@ -89,7 +101,7 @@ describe("API key lifecycle", () => {
 
 		await apiKeysService.revoke(id);
 
-		expect([401, 403]).toContain((await callAdminAudit(key)).status);
+		expect(await refusalOf(await callAdminAudit(key))).toEqual(REFUSED);
 	});
 
 	test("a rotated key's old secret is refused at once and the new secret authenticates", async () => {
@@ -99,7 +111,7 @@ describe("API key lifecycle", () => {
 
 		const rotated = await apiKeysService.rotate(id);
 
-		expect([401, 403]).toContain((await callAdminAudit(oldKey)).status);
+		expect(await refusalOf(await callAdminAudit(oldKey))).toEqual(REFUSED);
 		expect((await callAdminAudit(rotated.key)).status).toBe(200);
 	});
 
@@ -111,7 +123,22 @@ describe("API key lifecycle", () => {
 			.set({ expiresAt: new Date(Date.now() - 60_000) })
 			.where(eq(apiKeys.id, id));
 
-		expect([401, 403]).toContain((await callAdminAudit(key)).status);
+		expect(await refusalOf(await callAdminAudit(key))).toEqual(REFUSED);
+	});
+
+	test("a key that expires while its principal is cached is refused at once", async () => {
+		const adminId = await seedUser("admin");
+		const { id, key } = await createKey(adminId, "full");
+		await client
+			.update(apiKeys)
+			.set({ expiresAt: new Date(Date.now() + 2_000) })
+			.where(eq(apiKeys.id, id));
+		expect((await callAdminAudit(key)).status).toBe(200);
+
+		// The principal stays cached for 5 s. The clock moves past the key's expiry but stays inside that lifetime.
+		setSystemTime(new Date(Date.now() + 3_000));
+
+		expect(await refusalOf(await callAdminAudit(key))).toEqual(REFUSED);
 	});
 
 	test("a read-only key cannot write, even on a route the administrator may use", async () => {
@@ -125,11 +152,11 @@ describe("API key lifecycle", () => {
 	});
 
 	test("a key with a malformed or unknown secret is refused", async () => {
+		// An administrator exists, so a refusal can only come from the key itself.
 		await seedUser("admin");
 
 		for (const bogus of ["rv_", "rv_0000000000000000000000000000000000000000", "not-a-key", "rv_ spaced value"]) {
-			const response = await callAdminAudit(bogus);
-			expect([401, 403]).toContain(response.status);
+			expect(await refusalOf(await callAdminAudit(bogus))).toEqual(REFUSED);
 		}
 	});
 });

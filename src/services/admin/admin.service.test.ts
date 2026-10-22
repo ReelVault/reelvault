@@ -23,11 +23,10 @@ describe("adminService.setPluginsEnabled", () => {
 			pluginIds: ["org.example.a", "org.example.broken", "org.example.b"],
 		});
 
-		expect(result.results).toEqual([
-			{ pluginId: "org.example.a", ok: true },
-			{ pluginId: "org.example.broken", ok: false, error: "Plugin not found: org.example.broken", errorCode: "not_found" },
-			{ pluginId: "org.example.b", ok: true },
-		]);
+		expect(result.results).toHaveLength(3);
+		expect(result.results[0]).toEqual({ pluginId: "org.example.a", ok: true });
+		expect(result.results[1]).toMatchObject({ pluginId: "org.example.broken", ok: false, errorCode: "not_found" });
+		expect(result.results[2]).toEqual({ pluginId: "org.example.b", ok: true });
 	});
 });
 

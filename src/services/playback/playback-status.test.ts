@@ -31,12 +31,12 @@ describe("playback item status", () => {
 					position: 0,
 					duration: 1200,
 					completed: false,
-					updatedAt: new Date().toISOString(),
+					updatedAt: "2026-01-01T00:00:00.000Z",
 				},
 			]),
-		).toEqual({
+		).toMatchObject({
 			status: "unwatched",
-			progress: expect.anything(),
+			progress: { mediaFileId: "file", position: 0, duration: 1200 },
 		});
 	});
 });

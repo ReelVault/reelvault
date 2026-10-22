@@ -38,8 +38,8 @@ test("does not log when disabled", async () => {
 test("tracks slow queries exceeding threshold", () => {
 	const slow = new DatabaseQueryLogger({ enabled: true, slowThresholdMs: 0 });
 
-	slow.logQuery("SELECT pg_sleep(1)", []);
-	slow.recordQuery("SELECT pg_sleep(1)", [], 1);
+	slow.logQuery("SELECT * FROM media_files WHERE id = ?", ["file-1"]);
+	slow.recordQuery("SELECT * FROM media_files WHERE id = ?", ["file-1"], 1);
 
 	expect(slow.getStats().queryCount).toBe(1);
 	expect(slow.getStats().slowQueryCount).toBe(1);

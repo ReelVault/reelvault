@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { stubMethod } from "../../tests/helpers/method-stub.helper";
 import { ResourceAllocator } from "./resource-allocator.service";
 
 const SETTINGS_KEYS = [
@@ -10,6 +12,7 @@ const SETTINGS_KEYS = [
 ] as const;
 
 const allocators: ResourceAllocator[] = [];
+const stubs: Array<{ restore(): void }> = [];
 
 /** Host readings with the given CPU, memory and disk percentages. */
 function metricsAt(cpuUsedPercent: number, memoryPercent: number, diskPercent: number) {
@@ -45,6 +48,7 @@ function useAllocatorFixture(): void {
 
 	afterEach(async () => {
 		for (const allocator of allocators.splice(0)) await allocator.shutdown();
+		for (const stub of stubs.splice(0)) stub.restore();
 		systemSettingsStore.deleteRuntimeValues([...SETTINGS_KEYS]);
 	});
 }
@@ -90,8 +94,9 @@ describe("ResourceAllocator worker allocation", () => {
 		expect(scanAlloc.throttled).toBe(true);
 		expect(scanAlloc.reason).toBe("critical_pressure");
 
+		// The fixture pins streamingGuaranteedCores to 2, the transcode floor under critical pressure.
 		const transcodeAlloc = allocator.getWorkerAllocation("transcode");
-		expect(transcodeAlloc.allocated).toBeGreaterThanOrEqual(1);
+		expect(transcodeAlloc.allocated).toBe(2);
 		expect(transcodeAlloc.throttled).toBe(false);
 	});
 
@@ -110,16 +115,26 @@ describe("ResourceAllocator worker allocation", () => {
 		expect(imgAlloc.throttled).toBe(false);
 	});
 
+	test("high pressure leaves a worker of weight 30 unthrottled", async () => {
+		const allocator = allocatorWith(metricsAt(90, 50, 50));
+		await takeSnapshot(allocator);
+
+		// media-file-analysis has weight 30. The high-pressure rule throttles only weights below 30.
+		expect(allocator.getWorkerAllocation("media-file-analysis")).toMatchObject({ throttled: false });
+	});
+
 	test("medium pressure throttles low-weight workers when memory above threshold", async () => {
 		// Medium pressure with memory above the 80% throttle threshold (82% stays under the 85% high-pressure line)
 		const allocator = allocatorWith(metricsAt(30, 82, 25));
+		// The automatic concurrency is pinned to 4, so the memory-pressure halving gives 2.
+		stubs.push(stubMethod(systemResourcesService, "getWorkerAutoConcurrency", () => 4));
 		await takeSnapshot(allocator);
 
 		// scanning weight 5 (< 50) + memory > 80% → throttled
 		const scanAlloc = allocator.getWorkerAllocation("scanning");
 		expect(scanAlloc.throttled).toBe(true);
 		expect(scanAlloc.reason).toBe("memory_pressure");
-		expect(scanAlloc.allocated).toBeGreaterThanOrEqual(1);
+		expect(scanAlloc.allocated).toBe(2);
 
 		// imageProcessing weight 80 (>= 50) → not throttled
 		const imgAlloc = allocator.getWorkerAllocation("imageProcessing");
@@ -150,21 +165,17 @@ describe("ResourceAllocator worker allocation", () => {
 		expect(alloc.throttled).toBe(false);
 	});
 
-	test("normalizes kebab-case and camelCase worker IDs", async () => {
-		const allocator = allocatorWith(metricsAt(90, 50, 50));
+	test("normalizes kebab-case and camelCase worker IDs to one profile", async () => {
+		const allocator = allocatorWith(metricsAt(30, 82, 25));
+		stubs.push(stubMethod(systemResourcesService, "getWorkerAutoConcurrency", () => 4));
 		await takeSnapshot(allocator);
 
-		// scanning weight 5 (< 30) -> throttled
-		const kebabScan = allocator.getWorkerAllocation("scanning");
-		expect(kebabScan.allocated).toBe(0);
-		expect(kebabScan.throttled).toBe(true);
-
-		// image-processing weight 80 (>= 30) -> not throttled, both kebab and camel case
-		const kebabImg = allocator.getWorkerAllocation("image-processing");
-		const camelImg = allocator.getWorkerAllocation("imageProcessing");
-		expect(kebabImg.throttled).toBe(false);
-		expect(camelImg.throttled).toBe(false);
-		expect(kebabImg.allocated).toBe(camelImg.allocated);
+		// media-file-analysis has weight 30 (< 50), so memory pressure halves it. An unknown id falls back to weight 50 and is not halved.
+		for (const workerId of ["media-file-analysis", "mediaFileAnalysis"]) {
+			expect(allocator.getWorkerAllocation(workerId)).toMatchObject({ throttled: true, reason: "memory_pressure", allocated: 2 });
+			expect(allocator.getWorkerConcurrencyCeiling(workerId)).toBe(6);
+		}
+		expect(allocator.getWorkerAllocation("unknown-worker")).toMatchObject({ throttled: false, allocated: 4 });
 	});
 });
 

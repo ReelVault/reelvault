@@ -71,7 +71,7 @@ describe("verifyHwaccelCandidates", () => {
 		expect(result.verification?.detail).toBe("no such device");
 	});
 
-	it("picks the first candidate in the preference order, not the first that answers", async () => {
+	it("reports the first candidate of the preference order when every test encode fails", async () => {
 		probeExitCode = 1;
 		const result = await verifyHwaccelCandidates([NVENC, VAAPI]);
 
@@ -87,7 +87,7 @@ describe("verifyHwaccelCandidates", () => {
 		expect(probeCalls[0]?.timeoutMs).toBe(5_000);
 	});
 
-	it("encodes with the candidate's own encoder and the device flag it needs", async () => {
+	it("encodes two frames with the candidate's own encoder", async () => {
 		await verifyHwaccelCandidates([VAAPI]);
 
 		const args = probeCalls[0]?.args ?? [];

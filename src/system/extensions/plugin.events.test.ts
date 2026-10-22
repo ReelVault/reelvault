@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { PluginEventBus } from "./plugin.events";
 
 describe("plugin event bus", () => {
-	it("isolates handler failures and removes all handlers owned by a plugin", async () => {
+	it("isolates a failing handler, freezes the delivered payload, and stops delivering after unsubscribe", async () => {
 		const bus = new PluginEventBus();
 		const received: Array<{ mediaFileId: string; payloadVersion: number; correlationId: string; eventId: string; occurredAt: string }> = [];
 

@@ -2,20 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { probeBudgetForFormat } from "./ffprobe.probe-budgets";
 
 describe("probe budgets", () => {
-	test("tiers probe budgets by container format", () => {
-		const mp4 = probeBudgetForFormat("mov,mp4,m4a,3gp,3g2,mj2");
-		expect(mp4.analyzeduration).toBe("10M");
-		expect(mp4.probesize).toBe("10M");
-
-		const mkv = probeBudgetForFormat("matroska,webm");
-		expect(mkv.analyzeduration).toBe("20M");
-		expect(mkv.probesize).toBe("20M");
-
-		const exotic = probeBudgetForFormat("mpegts");
-		expect(exotic.analyzeduration).toBe("50M");
-		expect(exotic.probesize).toBe("100M");
-
-		const missing = probeBudgetForFormat(null);
-		expect(missing.probesize).toBe("100M");
+	test.each([
+		{ container: "MP4", formatName: "mov,mp4,m4a,3gp,3g2,mj2", analyzeduration: "10M", probesize: "10M" },
+		{ container: "Matroska", formatName: "matroska,webm", analyzeduration: "20M", probesize: "20M" },
+		{ container: "MPEG-TS", formatName: "mpegts", analyzeduration: "50M", probesize: "100M" },
+		{ container: "unidentified", formatName: null, analyzeduration: "50M", probesize: "100M" },
+	])("sets the probe budget for a $container file", ({ formatName, analyzeduration, probesize }) => {
+		expect(probeBudgetForFormat(formatName)).toEqual({ analyzeduration, probesize });
 	});
 });

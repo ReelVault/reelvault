@@ -133,6 +133,10 @@ async function notifyProfile(userId: string, profileId: string): Promise<string>
 	return await notificationsService.create({ userId, profileId, type: "isolation.test", title: "Isolation notification" });
 }
 
+async function notifyAccount(userId: string): Promise<string> {
+	return await notificationsService.create({ userId, type: "isolation.test", title: "Isolation account notification" });
+}
+
 async function listNotificationIds(profileId: string): Promise<string[]> {
 	const response = await send("GET", "/v1/notifications", { role: "user", headers: { "x-profile-id": profileId } });
 	const body = (await response.json()) as Array<{ id: string }>;
@@ -259,13 +263,13 @@ describe("notifications", () => {
 	});
 
 	test("a foreign profile header falls back to account-wide notifications only", async () => {
-		const foreignId = await notifyProfile(OTHER_ID, PROFILE.foreign);
-		const ownId = await notifyProfile(USER_ID, PROFILE.mine);
+		await notifyProfile(OTHER_ID, PROFILE.foreign);
+		await notifyProfile(USER_ID, PROFILE.mine);
+		const accountId = await notifyAccount(USER_ID);
 
 		const ids = await listNotificationIds(PROFILE.foreign);
 
-		expect(ids).not.toContain(foreignId);
-		expect(ids).not.toContain(ownId);
+		expect(ids).toEqual([accountId]);
 	});
 
 	test("notifications of a PIN-protected profile are visible only after a valid unlock", async () => {
@@ -306,7 +310,8 @@ describe("notifications", () => {
 
 		expect(await removed.json()).toEqual({ deleted: 0 });
 		expect(await bulk.json()).toEqual({ deleted: 0 });
-		expect(marked.status).toBeGreaterThanOrEqual(400);
+		expect(marked.status).toBe(403);
+		expect(await marked.json()).toMatchObject({ code: "notification.access_denied" });
 		expect(row?.readAt).toBeNull();
 	});
 });

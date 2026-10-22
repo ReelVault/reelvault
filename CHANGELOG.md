@@ -672,6 +672,8 @@ The browse and collections rows are the combined result of every change above; t
 - **Improved library deletion safety** — deleting a single file or title now respects active playback sessions, just like bulk deletion.
 - **Fixed provider override updates** — failed updates no longer erase existing library provider overrides.
 - **Fixed title matching for non-decomposing letters** — titles using ł, ø, đ, ß, æ or œ now normalize to the same ASCII form as provider spellings such as "Lodz" or "Strasse".
+- **Fixed show titles that absorbed a resolution tag** — a resolution placed before the episode marker (`Show 1080p S01E02.mkv`) no longer becomes part of the show title, and `WIDTHxHEIGHT` resolutions are stripped as release noise too.
+- **Fixed the local backdrop choice** — when a folder holds several numbered backdrops, the lowest-numbered one is used regardless of the order in which the filesystem lists them.
 
 #### Plugins & integrations
 
@@ -687,6 +689,8 @@ The browse and collections rows are the combined result of every change above; t
 - **Improved plugin administration performance** — plugin manifests and lockfiles are no longer unnecessarily reread and parsed for every admin view.
 - **Fixed notification channel errors** — failures while reporting a broken channel are logged without creating unhandled promise rejections.
 - **Fixed phantom failed plugin cards** — reloading or enabling a plugin that is not installed now answers `404 plugin.not_found` instead of silently succeeding and leaving a failed card for an id that never existed in the plugin list.
+- **Fixed duplicate entities in one plugin registration** — a plugin that registers the same entity id twice in one batch is refused with `plugin.entity_duplicate` before anything is registered; before, the second copy silently replaced the first.
+- **Plugin configuration for an uninstalled plugin answers 404** — the configuration endpoint returns `404 plugin.not_found` for an id with no installed package, instead of reporting a broken package.
 
 #### Workers & background operations
 
@@ -726,6 +730,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed plugin UI security policy updates** — the web Content Security Policy is rebuilt when plugins change rather than on every static asset request.
 - **Fixed plugin repository counting** — repository totals now return the actual number of entries instead of a value capped at one.
 - **Kept the original error as the cause** — a failure raised while handling another failure now carries the original error as its `cause`, so the server log shows what actually went wrong instead of only the outermost message.
+- **Fixed expired API keys still authenticating** — a key was accepted from the authentication cache for up to the cache's lifetime after it expired; it is now refused from its expiry time onward.
 
 ### Performance
 

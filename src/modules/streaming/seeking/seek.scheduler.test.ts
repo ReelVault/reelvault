@@ -5,6 +5,16 @@ import { SeekScheduler } from "./seek.scheduler";
 
 const decision = createMockPlaybackDecision({ mode: "transcode" });
 
+/** A promise the test settles by hand, to hold the executor at a known point. */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+	let settle!: () => void;
+	const promise = new Promise<void>((resolve) => {
+		settle = resolve;
+	});
+
+	return { promise, resolve: settle };
+}
+
 describe("seek scheduler", () => {
 	test("debounces rapid seeks into a single execution with the last offset", async () => {
 		const executions: number[] = [];
@@ -28,25 +38,26 @@ describe("seek scheduler", () => {
 
 	test("serializes flushes per session through the mutex chain", async () => {
 		const started: number[] = [];
-		let releaseSecond!: () => void;
-		const gate = new Promise<void>((resolve) => {
-			releaseSecond = resolve;
-		});
+		const gate = deferred();
+		const firstStarted = deferred();
 		const scheduler = new SeekScheduler(1, async (_sessionId, offset) => {
 			started.push(offset);
-			if (offset === 10) await gate;
+			if (offset === 10) {
+				firstStarted.resolve();
+				await gate.promise;
+			}
 
 			return offset;
 		});
 
 		const first = scheduler.schedule("s1", 10, decision);
-		await sleep(15);
+		await firstStarted.promise;
 		const second = scheduler.schedule("s1", 20, decision);
 		await sleep(15);
 
-		// The second seek waits for the first to complete (mutex), even though the timer has already fired.
+		// The second seek waits for the first to complete (mutex), even though its own debounce has already fired.
 		expect(started).toEqual([10]);
-		releaseSecond();
+		gate.resolve();
 		expect(await second).toMatchObject({ startTime: 20 });
 		expect(await first).toMatchObject({ startTime: 10 });
 		expect(started).toEqual([10, 20]);
@@ -80,36 +91,35 @@ describe("seek scheduler", () => {
 	});
 
 	test("isSeeking is true only while the executor runs", async () => {
-		let release!: () => void;
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
+		const gate = deferred();
+		const entered = deferred();
 		const scheduler = new SeekScheduler(1, async () => {
-			await gate;
+			entered.resolve();
+			await gate.promise;
 
 			return 0;
 		});
 
 		const pending = scheduler.schedule("s1", 0, decision);
-		await sleep(15);
+		expect(scheduler.isSeeking("s1")).toBe(false);
+		await entered.promise;
 		expect(scheduler.isSeeking("s1")).toBe(true);
 
-		release();
+		gate.resolve();
 		await pending;
 		expect(scheduler.isSeeking("s1")).toBe(false);
 	});
 
 	test("executor errors are delivered to all waiters", async () => {
-		const scheduler = new SeekScheduler(1, () => Promise.reject(new Error("seek exploded")));
+		const failure = new Error("seek exploded");
+		const scheduler = new SeekScheduler(1, () => Promise.reject(failure));
 
 		const first = scheduler.schedule("s1", 10, decision);
 		const second = scheduler.schedule("s1", 10, decision);
-		const results = await Promise.allSettled([first, second]);
+		const outcomes = await Promise.allSettled([first, second]);
+		const reasons = outcomes.map((outcome) => (outcome.status === "rejected" ? outcome.reason : undefined));
 
-		expect(results.every((result) => result.status === "rejected")).toBe(true);
-		expect(results.filter((result) => result.status === "rejected").map((result) => result.reason.message)).toEqual([
-			"seek exploded",
-			"seek exploded",
-		]);
+		expect(reasons[0]).toBe(failure);
+		expect(reasons[1]).toBe(failure);
 	});
 });

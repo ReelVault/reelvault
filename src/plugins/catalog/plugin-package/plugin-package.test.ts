@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { lstatSync, readFileSync, statSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { strToU8, zipSync } from "fflate";
 import { assertChecksumMatches } from "@/utils/crypto.utils";
 import { removeTree } from "@/utils/directory.utils";
@@ -38,7 +38,7 @@ describe("plugin package utils", () => {
 		const extracted = await extractPluginPackage(archivePath);
 		deferCleanup(extracted.cleanup);
 
-		expect(extracted.pluginRoot.endsWith("org.example.zipped")).toBe(true);
+		expect(basename(extracted.pluginRoot)).toBe("org.example.zipped");
 	});
 
 	test("extracts a gzipped tarball with ustar prefix paths", async () => {
@@ -53,7 +53,7 @@ describe("plugin package utils", () => {
 		const extracted = await extractPluginPackage(archivePath);
 		deferCleanup(extracted.cleanup);
 
-		expect(extracted.pluginRoot.endsWith("x")).toBe(true);
+		expect(basename(extracted.pluginRoot)).toBe(pluginDirectory);
 	});
 
 	test("rejects zip entries escaping the extraction root", async () => {
@@ -83,9 +83,9 @@ describe("plugin package utils", () => {
 		const treeDirectory = extracted.pluginRoot;
 		const created = lstatSync(join(treeDirectory, "node_modules", ".bin", "tool"));
 		expect(created.isSymbolicLink()).toBe(true);
-		expect(readFileSync(join(treeDirectory, "node_modules", ".bin", "tool"), "utf8")).toContain("export");
+		expect(readFileSync(join(treeDirectory, "node_modules", ".bin", "tool"), "utf8")).toBe("export {}");
 		const mode = statSync(join(treeDirectory, "launcher.sh")).mode;
-		expect(mode & 0o111).toBeGreaterThan(0);
+		expect(mode & 0o100).toBe(0o100);
 
 		const escaping = buildTar([{ path: "plugin-dir/link.mjs", linkTo: "../../../../../evil.mjs" }]);
 		await expect(extractPluginPackage(await writeArchive(Uint8Array.from(Bun.gzipSync(escaping))))).rejects.toMatchObject({
@@ -127,7 +127,7 @@ describe("plugin package utils", () => {
 });
 
 describe("plugin package utils: checksum comparison", () => {
-	test("compares checksums in constant time and rejects mismatches", () => {
+	test("accepts an identical checksum and rejects a different one", () => {
 		const checksumA = `sha256-${"a".repeat(64)}`;
 		const checksumB = `sha256-${"b".repeat(64)}`;
 		assertChecksumMatches(checksumA, checksumA, pluginFailure);
@@ -155,10 +155,11 @@ describe("plugin package utils: checksum comparison", () => {
 		}
 	});
 
-	test("rejects a non-https download URL before any request is made", async () => {
+	test("refuses a plain-http download URL at the protocol check, before any connection", async () => {
 		await expect(downloadArchive("http://127.0.0.1/package.zip")).rejects.toMatchObject({
 			category: "validation",
 			code: "plugin.download_failed",
+			cause: { code: "download.unsupported_protocol" },
 		});
 	});
 
@@ -190,7 +191,7 @@ describe("plugin package utils: checksum comparison", () => {
 		const extracted = await extractPluginPackage(await writeArchive(tar));
 		deferCleanup(extracted.cleanup);
 
-		expect(extracted.pluginRoot.endsWith("org.example.plain")).toBe(true);
+		expect(basename(extracted.pluginRoot)).toBe("org.example.plain");
 	});
 
 	test("extracts a zip larger than one stream chunk", async () => {
@@ -208,7 +209,7 @@ describe("plugin package utils: checksum comparison", () => {
 		const extracted = await extractPluginPackage(archivePath);
 		deferCleanup(extracted.cleanup);
 
-		expect(readFileSync(join(extracted.pluginRoot, "data.bin")).byteLength).toBe(payload.byteLength);
+		expect(readFileSync(join(extracted.pluginRoot, "data.bin"))).toEqual(Buffer.from(payload));
 	});
 });
 

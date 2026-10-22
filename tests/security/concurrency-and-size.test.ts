@@ -19,6 +19,9 @@ const READ_ROUTES = listApiRoutes().filter(
 	(route) => route.method === "GET" && !route.template.includes("/events") && !route.template.includes("/stream"),
 );
 
+/** The refusals a body the server cannot accept gets: the size limit, the parser and the schema. */
+const REFUSED_BODY_STATUSES = [400, 413, 422];
+
 function pick<T>(items: readonly T[], index: number): T {
 	const item = items[index % items.length];
 	if (item === undefined) throw new Error("empty route table");
@@ -52,16 +55,14 @@ test("a multi-megabyte JSON body is refused as too large or invalid, without a s
 	const huge = JSON.stringify({ email: "a@example.test", password: "x".repeat(6 * 1024 * 1024) });
 	const response = await send("POST", "/v1/auth/login", { rawBody: huge });
 
-	expect([400, 413, 422]).toContain(response.status);
-	expect(response.status).toBeLessThan(500);
+	expect(REFUSED_BODY_STATUSES).toContain(response.status);
 });
 
 test("a deeply nested multi-megabyte array is refused without exhausting memory", async () => {
 	const nested = `${"[".repeat(5000)}${"]".repeat(5000)}`;
 	const response = await send("POST", "/v1/auth/login", { rawBody: nested });
 
-	expect(response.status).toBeGreaterThanOrEqual(400);
-	expect(response.status).toBeLessThan(500);
+	expect(REFUSED_BODY_STATUSES).toContain(response.status);
 });
 
 test("the liveness probe keeps answering under sustained parallel traffic", async () => {

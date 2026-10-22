@@ -154,7 +154,7 @@ describe("ImageProcessingService", () => {
 		await service.processSeason({ metadataId: "m1", seasonId: "s1", imagesUrl: "https://x/poster.jpg", force: true });
 
 		expect(spies.existenceChecks).toEqual([]);
-		expect(spies.downloads).toHaveLength(1);
+		expect(spies.downloads.map((download) => download.url)).toEqual(["https://x/poster.jpg"]);
 	});
 
 	test("processSeason without an image URL is a no-op", async () => {

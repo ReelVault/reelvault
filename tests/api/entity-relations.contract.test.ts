@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { domainErrorsMiddleware } from "@/api/middleware/domain-errors.middleware";
+import { stubMethod } from "../helpers/method-stub.helper";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 const [{ auth }, { mediaFilesRoutes }, { episodesRoutes }, { librariesRoutes }] = await Promise.all([
@@ -15,12 +16,10 @@ const testDatabase = useTestDatabase();
 
 const app = new Elysia().use(domainErrorsMiddleware).use(mediaFilesRoutes).use(episodesRoutes).use(librariesRoutes);
 
-const originalGetSession = auth.api.getSession;
-const originalUserHasPermission = auth.api.userHasPermission;
+const activeStubs: Array<{ restore(): void }> = [];
 
 afterEach(() => {
-	auth.api.getSession = originalGetSession;
-	auth.api.userHasPermission = originalUserHasPermission;
+	for (const stub of activeStubs.splice(0).toReversed()) stub.restore();
 });
 
 const NOW = "CAST(strftime('%s','now') AS INTEGER)";
@@ -51,18 +50,13 @@ const SEED = [
 		('ep-1', 'sk-ep-1', 'sea-1', NULL, 'regular', 1, NULL, 'Pilot', NULL, NULL, ${NOW}, ${NOW})`,
 ];
 
-/** Wraps a fake better-auth session payload so the mock matches auth.api.getSession's shape. */
-function fakeGetSession(body: unknown): typeof auth.api.getSession {
-	return (async () => body) as typeof auth.api.getSession;
-}
-
 async function getJson(path: string): Promise<{ status: number; body: Record<string, unknown> }> {
 	const response = await app.handle(new Request(`http://localhost${path}`, { headers: { authorization: "Bearer test" } }));
 
 	return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
 
-/** The `/admin/media` honesty assertions: relation keys the SDK contract promises must reach the JSON payload. */
+/** Relation keys the SDK contract promises must reach the JSON payload of the media, episode and library routes. */
 describe("entity relations reach API payloads", () => {
 	beforeEach(async () => {
 		const client = testDatabase.client();
@@ -71,20 +65,22 @@ describe("entity relations reach API payloads", () => {
 		await client.run(sql.raw("PRAGMA foreign_keys = OFF"));
 		for (const statement of SEED) await client.run(sql.raw(statement));
 
-		auth.api.getSession = fakeGetSession({
-			user: {
-				id: "user-1",
-				name: "User",
-				email: "user@example.com",
-				emailVerified: true,
-				createdAt: new Date("2026-01-02T03:04:05.000Z"),
-				updatedAt: new Date("2026-01-02T03:04:05.000Z"),
-				role: "user",
-				banned: false,
-			},
-			session: { id: "session-1" },
-		});
-		auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
+		activeStubs.push(
+			stubMethod(auth.api, "getSession", async () => ({
+				user: {
+					id: "user-1",
+					name: "User",
+					email: "user@example.com",
+					emailVerified: true,
+					createdAt: new Date("2026-01-02T03:04:05.000Z"),
+					updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+					role: "user",
+					banned: false,
+				},
+				session: { id: "session-1" },
+			})),
+		);
+		activeStubs.push(stubMethod(auth.api, "userHasPermission", async () => ({ success: true })));
 	});
 
 	test("media-files list items carry library + streams + subtitles relations", async () => {
@@ -93,9 +89,9 @@ describe("entity relations reach API payloads", () => {
 
 		const libraryFile = (body.data as Array<Record<string, unknown>>).find((file) => file.id === "mf-library");
 		expect(libraryFile?.library).toMatchObject({ id: "lib-movies", name: "Filmy", type: "movies" });
-		expect(Array.isArray(libraryFile?.videoStreams) && libraryFile?.videoStreams.length === 1).toBe(true);
-		expect(Array.isArray(libraryFile?.audioStreams) && libraryFile?.audioStreams.length === 1).toBe(true);
-		expect(Array.isArray(libraryFile?.subtitles) && libraryFile?.subtitles.length === 1).toBe(true);
+		expect(libraryFile?.videoStreams).toHaveLength(1);
+		expect(libraryFile?.audioStreams).toHaveLength(1);
+		expect(libraryFile?.subtitles).toHaveLength(1);
 	});
 
 	test("media-file detail carries the same relations", async () => {
@@ -113,16 +109,16 @@ describe("entity relations reach API payloads", () => {
 
 		const episode = (body.data as Array<Record<string, unknown>>).find((row) => row.id === "ep-1");
 		const mediaFiles = episode?.mediaFiles as Array<{ fileName: string }>;
-		expect(mediaFiles.map((file) => file.fileName)).toContain("episode.mkv");
+		expect(mediaFiles.map((file) => file.fileName)).toEqual(["episode.mkv"]);
 	});
 
-	test("library list carries paths; mediaFiles load only when requested via fields", async () => {
+	test("library list carries its paths, and a field projection adds the requested mediaFiles", async () => {
 		const { status, body } = await getJson("/libraries?page=1&limit=10");
 		expect(status).toBe(200);
 
 		const library = (body.data as Array<Record<string, unknown>>).find((row) => row.id === "lib-movies");
 		const paths = library?.paths as Array<{ path: string }>;
-		expect(paths.map((entry) => entry.path)).toContain("/media/filmy");
+		expect(paths.map((entry) => entry.path)).toEqual(["/media/filmy"]);
 
 		// Field projection returns exactly the requested keys, so `id` must ride along.
 		const withFiles = await getJson("/libraries?page=1&limit=10&fields=id,mediaFiles");

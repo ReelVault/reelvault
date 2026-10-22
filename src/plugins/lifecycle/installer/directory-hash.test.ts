@@ -8,9 +8,10 @@ import { calculateDirectoryIntegrity } from "./directory-hash.utils";
 const temporaryDirectories: string[] = [];
 
 /**
- * The sha256 digests of the fixture package, derived by hand from the hashing
- * algorithm (sorted entries, `directory:<path>\0` / `file:<path>\0` markers and
- * the file bytes) — the digests never depend on the host.
+ * The sha256 digests of the fixture package. They were computed outside the
+ * implementation: a SHA-256 over the documented byte stream (entries sorted by
+ * name, a `directory:<path>\0` or `file:<path>\0` marker before each entry, then
+ * the file bytes). The literals pin that format, not what the code prints.
  */
 const BASE_PACKAGE_DIGEST = "sha256-fRJGcxBSmbA0L7vJB9bkHoByuCmuIr0VoFhL+nJ5ceM=";
 const EDITED_PACKAGE_DIGEST = "sha256-7WwYRv/Txkc4HIZfBJPki8fIU0/Kea4iPwrGB/zVQ/Q=";

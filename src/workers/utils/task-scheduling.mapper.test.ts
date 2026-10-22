@@ -3,8 +3,8 @@ import { toTaskSchedulingOptions } from "./task-scheduling.mapper";
 
 describe("toTaskSchedulingOptions", () => {
 	test("returns empty options without an operationId", () => {
-		expect(toTaskSchedulingOptions({})).toEqual({});
-		expect(toTaskSchedulingOptions({ operationId: undefined, taskId: "task-1" })).toEqual({});
+		expect(toTaskSchedulingOptions({})).toStrictEqual({});
+		expect(toTaskSchedulingOptions({ operationId: undefined, taskId: "task-1" })).toStrictEqual({});
 	});
 
 	test("chains the taskId when the operation and task are present", () => {
@@ -14,7 +14,10 @@ describe("toTaskSchedulingOptions", () => {
 		});
 	});
 
-	test("omits dependsOnTaskIds when only the operation is known", () => {
-		expect(toTaskSchedulingOptions({ operationId: "op-1" })).toEqual({ operationId: "op-1", dependsOnTaskIds: undefined });
+	test("leaves dependsOnTaskIds undefined when only the operation is known", () => {
+		const options = toTaskSchedulingOptions({ operationId: "op-1" });
+
+		expect(options).toMatchObject({ operationId: "op-1" });
+		expect(options.dependsOnTaskIds).toBeUndefined();
 	});
 });

@@ -56,17 +56,20 @@ export class PluginEntityTable<T extends { id: string; name: string; version: st
 	}
 
 	register(pluginId: string | undefined, entities: readonly T[]): void {
+		const batchIds = new Set<string>();
 		for (const entity of entities) {
 			if (!(entity.id && entity.name && entity.version)) {
 				throw new DomainError("validation", `Plugin ${this.label} must have id, name and version`, { code: "plugin.entity_invalid" });
 			}
 
-			if (this.entries.has(entity.id)) {
+			if (this.entries.has(entity.id) || batchIds.has(entity.id)) {
 				throw new DomainError("validation", `Plugin ${this.label} ${entity.id} is registered more than once`, {
 					code: "plugin.entity_duplicate",
 					params: { id: entity.id },
 				});
 			}
+
+			batchIds.add(entity.id);
 		}
 
 		for (const entity of entities) this.entries.set(entity.id, { pluginId, entity });

@@ -45,14 +45,10 @@ function makeServerLayout(base: string, version: string): string {
 	return app;
 }
 
-function packArchive(stagedApp: string, kind: "tar" | "zip"): { bytes: Uint8Array; checksum: string } {
+function packArchive(stagedApp: string): { bytes: Uint8Array; checksum: string } {
 	const stagingDir = join(stagedApp, "..");
-	const archivePath = join(stagingDir, kind === "tar" ? "archive.tar.gz" : "archive.zip");
-	if (kind === "tar") {
-		Bun.spawnSync(["tar", "-czf", archivePath, "-C", stagingDir, "ReelVault"]);
-	} else {
-		Bun.spawnSync(["zip", "-qr", archivePath, "ReelVault"], { cwd: stagingDir });
-	}
+	const archivePath = join(stagingDir, "archive.tar.gz");
+	Bun.spawnSync(["tar", "-czf", archivePath, "-C", stagingDir, "ReelVault"]);
 	const bytes = new Uint8Array(readFileSync(archivePath));
 	rmSync(archivePath, { force: true });
 
@@ -76,7 +72,7 @@ const webName = `reelvault-web-${NEW_WEB}.zip`;
 const serverStaged = mkdtempSync(join(tmpdir(), "rv-pipeline-server-"));
 tempDirs.push(serverStaged);
 makeServerLayout(serverStaged, NEW_SERVER);
-const { bytes: serverTarBytes, checksum: serverTarChecksum } = packArchive(join(serverStaged, "ReelVault"), "tar");
+const { bytes: serverTarBytes, checksum: serverTarChecksum } = packArchive(join(serverStaged, "ReelVault"));
 
 const serverName = `ReelVault-Server-${NEW_SERVER}-linux-x64.tar.gz`;
 let serveWrongSums = false;

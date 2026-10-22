@@ -7,6 +7,8 @@ import { useTestDatabase } from "../helpers/test-database.helper";
 
 const testDatabase = useTestDatabase();
 
+const KEY_PREFIX_PATTERN = /^rv_/;
+
 async function seedUser(id: string): Promise<void> {
 	const now = new Date();
 	await testDatabase
@@ -20,8 +22,9 @@ describe("apiKeysService", () => {
 		await seedUser("owner-1");
 		const created = await apiKeysService.create({ name: "CI", scope: "read_only", creatorUserId: "owner-1" });
 
-		expect(created.key.startsWith("rv_")).toBe(true);
-		expect(created.keyPrefix).toBe(created.key.slice(0, 12));
+		expect(created.key).toMatch(KEY_PREFIX_PATTERN);
+		expect(created.keyPrefix).toHaveLength(12);
+		expect(created.key.startsWith(created.keyPrefix)).toBe(true);
 		expect(await apiKeysService.authenticate(created.key)).toMatchObject({ scope: "read_only", user: { id: "owner-1" } });
 
 		const stored = await testDatabase.client().select().from(apiKeys);
@@ -65,7 +68,8 @@ describe("apiKeysService", () => {
 
 		expect(rotated.key).not.toBe(created.key);
 		expect(rotated).toMatchObject({ id: created.id, name: "Rotate me", scope: "full", lastUsedAt: null });
-		expect(rotated.keyPrefix).toBe(rotated.key.slice(0, 12));
+		expect(rotated.keyPrefix).toHaveLength(12);
+		expect(rotated.key.startsWith(rotated.keyPrefix)).toBe(true);
 		expect(rotated.expiresAt).toBe(expiryBefore);
 		expect(await apiKeysService.authenticate(created.key)).toBeUndefined();
 		expect((await apiKeysService.authenticate(rotated.key))?.user.id).toBe("owner-4");

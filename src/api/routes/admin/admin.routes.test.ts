@@ -3,18 +3,16 @@ import { Elysia } from "elysia";
 import { domainErrorsMiddleware } from "@/api/middleware/domain-errors.middleware";
 import { auth } from "@/integrations/better-auth/better-auth.config";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { providerService } from "@/plugins/capabilities/provider.service";
 import { workerJobRepository } from "@/repositories/worker.repository";
 import { workerOperationRepository } from "@/repositories/worker-operation.repository";
-import { adminService } from "@/services/admin/admin.service";
 import { adminAuditService } from "@/services/admin/admin-audit.service";
-import { adminWorkerOperationsService } from "@/services/admin/admin-worker-operations.service";
 import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import { adminRoutes } from "./admin.routes";
 
 // Route wiring runs against the real admin services and the migrated test database.
 // Only the better-auth session lookup is stubbed: it maps the bearer token to a seeded user.
+// Success paths of the services themselves are tested in their own files.
 const db = useTestDatabase();
 const app = new Elysia().use(domainErrorsMiddleware).use(adminRoutes);
 const stubs: MethodStub[] = [];
@@ -131,109 +129,75 @@ test("cancelling an operation through the admin routes cancels its pending jobs"
 	expect(await workerOperationRepository.findById("op-1")).toMatchObject({ status: "cancelled", cancelledItems: 1 });
 });
 
-test("metadata provider reorder endpoint hands the requested order to the provider service", async () => {
+test("the provider order endpoint refuses ids that no installed plugin provides", async () => {
 	await signInAs("admin");
-	let received: string[] | undefined;
-	stubs.push(
-		stubMethod(providerService, "reorderConfigurations", (providerIds: string[]) => {
-			received = [...providerIds];
-
-			return Promise.resolve([
-				{ id: "imdb", name: "IMDb", version: "1.0.0", pluginId: "omdb-plugin", priority: 10, enabled: true },
-				{ id: "tmdb", name: "TMDB", version: "1.0.0", pluginId: "tmdb-plugin", priority: 20, enabled: true },
-			]);
-		}),
-	);
 
 	const response = await app.handle(
 		new Request("http://localhost/admin/providers/order", {
 			method: "PUT",
 			headers: { authorization: "Bearer admin", "content-type": "application/json" },
-			body: JSON.stringify({ providerIds: ["imdb", "tmdb"] }),
+			body: JSON.stringify({ providerIds: ["no-such-provider"] }),
 		}),
 	);
 
-	expect(response.status).toBe(200);
-	expect(received).toEqual(["imdb", "tmdb"]);
-	expect(await response.json()).toMatchObject([{ id: "imdb" }, { id: "tmdb" }]);
+	expect(response.status).toBe(400);
+	expect(await response.json()).toMatchObject({ code: "metadata.providers_unknown" });
 });
 
-test("plugin config endpoints return the schema fields and return the submitted values", async () => {
-	await signInAs("admin");
-	const fields = [
-		{ name: "autoApprove", type: "boolean", label: "Auto Approve", default: true },
-		{ name: "threshold", type: "number", label: "Threshold", default: 2 },
-	];
-	stubs.push(
-		stubMethod(adminService, "pluginConfig", async (id: string) => ({
-			id,
-			name: "Test Plugin",
-			version: "1.0.0",
-			description: "A test plugin",
-			config: { autoApprove: true, threshold: 2 },
-			fields,
-		})),
-		stubMethod(adminService, "updatePluginConfig", async (id: string, updated: Record<string, unknown>) => ({
-			id,
-			name: "Test Plugin",
-			version: "1.0.0",
-			description: "A test plugin",
-			config: updated,
-			fields,
-		})),
-	);
-	const headers = { authorization: "Bearer admin" };
+test("plugin config endpoints refuse a signed-in user who is not an administrator", async () => {
+	await signInAs("user");
 
-	const getRes = await app.handle(new Request("http://localhost/admin/plugins/test-plugin/config", { headers }));
-	expect(getRes.status).toBe(200);
-	expect(await getRes.json()).toMatchObject({ id: "test-plugin", fields });
-
-	const putRes = await app.handle(
-		new Request("http://localhost/admin/plugins/test-plugin/config", {
-			method: "PUT",
-			headers: { ...headers, "content-type": "application/json" },
-			body: JSON.stringify({ autoApprove: false, threshold: 5 }),
-		}),
+	const response = await app.handle(
+		new Request("http://localhost/admin/plugins/test-plugin/config", { headers: { authorization: "Bearer user" } }),
 	);
-	expect(putRes.status).toBe(200);
-	expect(await putRes.json()).toMatchObject({ config: { autoApprove: false, threshold: 5 } });
+
+	expect(response.status).toBe(403);
+	expect(await response.json()).toMatchObject({ code: "auth.admin_required" });
 });
 
-test("admin worker routes pause and resume a schedule, retry failed jobs and report the watchdog", async () => {
+test("plugin config for a plugin that is not installed answers 404 with its code", async () => {
 	await signInAs("admin");
-	stubs.push(
-		stubMethod(adminWorkerOperationsService, "setScheduleEnabled", async (workerId: string, enabled: boolean) => ({
-			workerId,
-			enabled,
-			nextRunAt: enabled ? "2026-10-09T10:00:00.000Z" : null,
-		})),
-		stubMethod(adminWorkerOperationsService, "retryItem", async () => ({ success: true, jobId: "item-2" })),
-		stubMethod(adminWorkerOperationsService, "getWatchdogState", () => ({
-			running: true,
-			consecutiveFailures: 0,
-			restarts: 0,
-			elapsedSinceLastPollMs: 120,
-			lastPollAt: "2026-10-09T10:00:00.000Z",
-			recoveredJobs: 2,
-		})),
-	);
-	const headers = { authorization: "Bearer admin" };
 
-	const pauseRes = await app.handle(
-		new Request("http://localhost/admin/workers/library-scan/enabled", {
+	const response = await app.handle(
+		new Request("http://localhost/admin/plugins/no-such-plugin/config", { headers: { authorization: "Bearer admin" } }),
+	);
+
+	expect(response.status).toBe(404);
+	expect(await response.json()).toMatchObject({ code: "plugin.not_found" });
+});
+
+test("pausing the schedule of a worker that is not registered answers 404", async () => {
+	await signInAs("admin");
+
+	const response = await app.handle(
+		new Request("http://localhost/admin/workers/no-such-worker/enabled", {
 			method: "PUT",
-			headers: { ...headers, "content-type": "application/json" },
+			headers: { authorization: "Bearer admin", "content-type": "application/json" },
 			body: JSON.stringify({ enabled: false }),
 		}),
 	);
-	expect(pauseRes.status).toBe(200);
-	expect(await pauseRes.json()).toEqual({ workerId: "library-scan", enabled: false, nextRunAt: null });
 
-	const retryRes = await app.handle(new Request("http://localhost/admin/workers/jobs/item-1/retry", { method: "POST", headers }));
-	expect(retryRes.status).toBe(200);
-	expect(await retryRes.json()).toEqual({ success: true, jobId: "item-2" });
+	expect(response.status).toBe(404);
+	expect(await response.json()).toMatchObject({ code: "worker.not_found" });
+});
 
-	const watchdogRes = await app.handle(new Request("http://localhost/admin/workers/watchdog", { headers }));
-	expect(watchdogRes.status).toBe(200);
-	expect(await watchdogRes.json()).toMatchObject({ running: true, recoveredJobs: 2 });
+test("retrying a job that has not failed is refused with 409", async () => {
+	await signInAs("admin");
+	await enqueueJob("job-pending", "library-scan");
+
+	const response = await app.handle(
+		new Request("http://localhost/admin/workers/jobs/job-pending/retry", { method: "POST", headers: { authorization: "Bearer admin" } }),
+	);
+
+	expect(response.status).toBe(409);
+	expect(await response.json()).toMatchObject({ code: "worker.item_not_retryable" });
+});
+
+test("the watchdog endpoint reports a worker runtime that has not started", async () => {
+	await signInAs("admin");
+
+	const response = await app.handle(new Request("http://localhost/admin/workers/watchdog", { headers: { authorization: "Bearer admin" } }));
+
+	expect(response.status).toBe(200);
+	expect(await response.json()).toMatchObject({ running: false, consecutiveFailures: 0, restarts: 0, recoveredJobs: 0 });
 });

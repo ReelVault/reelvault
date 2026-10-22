@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { sleep } from "bun";
 import type { FFProbeResult } from "@/integrations/ffprobe/ffprobe.types";
 import { recognitionService } from "@/modules/recognition/recognition.service";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
@@ -8,6 +7,7 @@ import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
+import { waitFor } from "../../../../tests/helpers/wait.helper";
 import { createMediaFileProcessor, type MetadataCheckInput, type MetadataMatch, type MetadataMatcher } from "./media-file.processor";
 
 // The mock replaces the module, so the real implementation is captured before
@@ -169,8 +169,8 @@ describe("mediaFileProcessor.process processed movies", () => {
 		);
 
 		const first = mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv");
-		// Yield once so the first run reaches the probe and holds the in-flight slot.
-		await sleep(0);
+		// Wait until the first run is inside the probe, so it holds the in-flight slot before the second call arrives.
+		await waitFor(() => releaseProbe !== undefined);
 		const second = mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv");
 		releaseProbe?.(null);
 

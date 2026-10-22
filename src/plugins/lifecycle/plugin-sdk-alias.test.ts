@@ -19,7 +19,6 @@ describe("plugin sdk shim", () => {
 			await ensurePluginSdkShim(pluginsDirectory);
 
 			const mod = await import(join(pluginDirectory, "entry.js"));
-			expect(typeof mod.plugin.setup).toBe("function");
 			// The shim must re-export the host's own module, not a copy — otherwise
 			// `instanceof PluginHookRejection` checks inside the host would fail.
 			expect(mod.Rejection).toBe((await import("@reelvault/sdk/plugin")).PluginHookRejection);
@@ -39,7 +38,7 @@ describe("plugin sdk shim", () => {
 
 			const plugin = await import(join(pluginDirectory, "schema.js"));
 			const host = await import("@reelvault/sdk/ui/schema");
-			expect(Object.keys(host).length).toBeGreaterThan(0);
+			expect(plugin.defineSchema).toBe(host.defineSchema);
 			expect(Object.keys(plugin).toSorted()).toEqual(Object.keys(host).toSorted());
 		} finally {
 			await removeTree(pluginsDirectory);

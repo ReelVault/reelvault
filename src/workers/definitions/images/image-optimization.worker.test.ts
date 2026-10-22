@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	for (const stub of activeStubs.splice(0).toReversed()) stub.restore();
 	workerService.registry.unregister(imageOptimizationWorker.id);
 });
 

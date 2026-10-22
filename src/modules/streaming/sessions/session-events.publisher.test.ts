@@ -18,8 +18,8 @@ describe("session lifecycle publisher", () => {
 			startedAt: "2026-09-10T00:00:00.000Z",
 		};
 		publishSessionStarted(event, {
-			publish: (event, payload) => {
-				published.push({ event, payload });
+			publish: (eventName, payload) => {
+				published.push({ event: eventName, payload });
 			},
 		});
 

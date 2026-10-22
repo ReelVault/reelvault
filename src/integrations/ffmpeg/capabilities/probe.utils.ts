@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { serverConfig } from "@/config/server/server.config";
 import { spawnAndCollect } from "@/integrations/ffmpeg/ffmpeg.process-runner";
 
@@ -6,6 +7,26 @@ const versionLineRegex = /^ffmpeg version\s+(.+?)(?:\s+Copyright\b|$)/m;
 const encoderFlagsRegex = /^[A-Za-z.]{6,9}$/;
 const encoderNameRegex = /^[a-z0-9_]+$/;
 const whitespaceRegex = /\s+/;
+
+let cachedDriDevice: string | null | undefined;
+
+/** DRM render node used for vaapi/qsv (or the forced hwaccelDevice), null when none was found. */
+export function getDetectedDriDevice(): string | null {
+	if (cachedDriDevice !== undefined) return cachedDriDevice;
+
+	const configuredDevice = serverConfig.ffmpeg.hwaccelDevice.trim();
+	if (configuredDevice) {
+		cachedDriDevice = configuredDevice;
+	} else if (process.platform === "linux") {
+		if (existsSync("/dev/dri/renderD128")) cachedDriDevice = "/dev/dri/renderD128";
+		else if (existsSync("/dev/dri/card0")) cachedDriDevice = "/dev/dri/card0";
+		else cachedDriDevice = null;
+	} else {
+		cachedDriDevice = null;
+	}
+
+	return cachedDriDevice;
+}
 
 /** Runs the configured FFmpeg binary for a diagnostic probe. */
 export function runFfmpegDiagnostic(args: string[], timeoutMs?: number) {

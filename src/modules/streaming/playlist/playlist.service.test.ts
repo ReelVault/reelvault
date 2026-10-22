@@ -47,12 +47,13 @@ async function writePlaylist(body: string): Promise<void> {
 
 describe("playlist service", () => {
 	test("wraps playlist wait failures as an internal error with the playlist_unavailable code", async () => {
-		const service = createService({ waitForPlaylistError: new Error("timeout waiting for playlist") });
+		const waitError = new Error("timeout waiting for playlist");
+		const service = createService({ waitForPlaylistError: waitError });
 
 		await expect(service.get("session-1")).rejects.toMatchObject({
 			category: "internal",
 			code: "stream.playlist_unavailable",
-			message: "timeout waiting for playlist",
+			cause: waitError,
 		});
 	});
 
@@ -86,6 +87,7 @@ describe("playlist service", () => {
 
 		const text = await (await service.get("session-1")).text();
 
+		expect(text).toContain('#EXT-X-MAP:URI="segments/init.mp4"');
 		expect(text).toContain("segments/seg_0.m4s");
 	});
 

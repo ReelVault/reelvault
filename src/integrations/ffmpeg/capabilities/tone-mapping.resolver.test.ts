@@ -9,6 +9,10 @@ describe("resolveToneMappingMethod", () => {
 		expect(resolveToneMappingMethod(new Set(["scale", "tonemapx", "zscale", "tonemap"]))).toBe("tonemapx");
 	});
 
+	it("uses tonemapx alone on a build that ships no zscale pair", () => {
+		expect(resolveToneMappingMethod(new Set(["scale", "tonemapx"]))).toBe("tonemapx");
+	});
+
 	it("falls back to the zscale and tonemap pair of an upstream build", () => {
 		expect(resolveToneMappingMethod(new Set(["scale", "zscale", "tonemap"]))).toBe("zscale");
 	});

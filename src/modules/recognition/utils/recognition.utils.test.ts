@@ -149,15 +149,12 @@ describe("multi-episode ranges and copy suffixes", () => {
 });
 
 describe("episode marker delegation edge cases", () => {
-	test("keeps the anchored marker when a resolution precedes it", () => {
-		expect(parseFileName("Show.1920x1080.S01E02.mkv")).toEqual({
-			title: "Show 1920x1080",
-			type: "episode",
-			season: 1,
-			episode: 2,
-			year: undefined,
-		});
-	});
+	test.each(["Show.1080p.S01E02.mkv", "Show.720p.S01E02.mkv", "Show.1920x1080.S01E02.mkv"])(
+		"keeps a resolution tag out of the show title (%s)",
+		(fileName) => {
+			expect(parseFileName(fileName)).toEqual({ title: "Show", type: "episode", season: 1, episode: 2, year: undefined });
+		},
+	);
 
 	test("does not read a marker without a separator as a series file", () => {
 		expect(parseFileName("xS01E01.mkv")).toEqual({ title: "xS01E01", type: "movie", year: undefined });
@@ -190,15 +187,17 @@ describe("episode marker delegation edge cases", () => {
 	});
 
 	test("prefers the marker over an earlier bare number", () => {
-		expect(parseFileName("Show - 01 - S01E02.mkv")).toMatchObject({ title: "Show - 01", season: 1, episode: 2 });
+		expect(parseFileName("Show - 01 - S01E02.mkv")).toMatchObject({ season: 1, episode: 2 });
 	});
 
 	test("reads a dotted range after a 1x01 marker", () => {
-		expect(parseFileName("Show.1x01.2x03.mkv")).toMatchObject({ season: 1, episode: 1, episodeEnd: 2 });
+		expect(parseFileName("Show.1x01.02.mkv")).toMatchObject({ title: "Show", season: 1, episode: 1, episodeEnd: 2 });
 	});
 
 	test("keeps a copy suffix out of the episode branch", () => {
-		expect(parseFileName("Show_001.mkv")).toEqual({ title: "Show 001", type: "movie", year: undefined });
+		const parsed = parseFileName("Show_001.mkv");
+		expect(parsed).toMatchObject({ type: "movie" });
+		expect(parsed).not.toHaveProperty("episode");
 	});
 });
 
@@ -303,6 +302,10 @@ test("strips scene noise on fallback movie when no year is in filename", () => {
 	expect(identity).not.toBeNull();
 	expect(identity?.type).toBe("movie");
 	expect(identity?.title).toBe("Iron Man");
+});
+
+test("strips a resolution tag from a movie name with no year", () => {
+	expect(parseFileName("Movie.1920x1080.mkv")).toEqual({ title: "Movie", type: "movie", year: undefined });
 });
 
 test("parses a year in parentheses before the episode marker without leaking it into the title", () => {

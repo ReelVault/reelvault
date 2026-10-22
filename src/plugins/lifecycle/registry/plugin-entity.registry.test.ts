@@ -32,16 +32,24 @@ describe("PluginEntityTable", () => {
 		expect(table.getStatuses()).toEqual([{ id: "tmdb", name: "TMDB", version: "1.0.0", pluginId: "plugin-a" }]);
 	});
 
-	test("assertRegisterable rejects an entity id owned by another plugin", () => {
+	test("assertRegisterable rejects an entity id owned by another plugin and names the owner", () => {
 		table.register("plugin-a", [createProvider("tmdb")]);
 
 		expect(() => table.assertRegisterable([createProvider("tmdb")])).toThrow(
-			expect.objectContaining({ category: "validation", code: "plugin.entity_conflict" }),
+			expect.objectContaining({ category: "validation", code: "plugin.entity_conflict", params: { id: "tmdb", plugin: "plugin-a" } }),
 		);
 		table.assertRegisterable([createProvider("fresh")]);
 	});
 
-	test("getAll returns a stable id-sorted list invalidated on mutation", () => {
+	test("refuses a registration that names the same id twice and registers nothing", () => {
+		expect(() => table.register("plugin-a", [createProvider("tmdb"), createProvider("tmdb")])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.entity_duplicate", params: { id: "tmdb" } }),
+		);
+
+		expect(table.get("tmdb")).toBeUndefined();
+	});
+
+	test("getAll and getStatuses list entities sorted by id and reflect a later registration", () => {
 		table.register("plugin-a", [createProvider("zeta")]);
 		expect(table.getAll().map((provider) => provider.id)).toEqual(["zeta"]);
 
@@ -67,6 +75,7 @@ describe("PluginEntityTable", () => {
 
 		expect(table.get("shared")).toBeUndefined();
 		expect(table.get("a-only")).toBeUndefined();
+		expect(table.get("b-only")).toMatchObject({ id: "b-only" });
 		table.assertRegisterable([createProvider("shared")]);
 	});
 

@@ -66,6 +66,9 @@ export const RESOLUTION_BUCKETS: readonly ResolutionBucket[] = [
 export const EDITION_NOISE =
 	/\b(?:directors?\s+cut|extended(?:\s+cut|\s+edition)?|theatrical(?:\s+cut|\s+version)?|unrated(?:\s+cut|\s+version)?|uncut|remastered|imax(?:\s+edition)?|special\s+edition|final\s+cut|ultimate\s+cut)\b/gi;
 
+/** Resolution tags alone: a series title ends where one begins. "240p" stays out, as it does in SCENE_NOISE. */
+export const RESOLUTION_NOISE = /\b(?:2160p|1080p|1080i|720p|480p|\d{3,4}x\d{3,4})\b.*$/i;
+
 /**
  * Scene-release suffix stripped by the recognition fallback: from the first
  * noise token to the end of the name. Curated from the source/resolution
@@ -74,7 +77,7 @@ export const EDITION_NOISE =
  * "240p") that must keep their title meaning today.
  */
 export const SCENE_NOISE =
-	/\b(?:2160p|1080p|1080i|720p|480p|4k|uhd|bluray|bdrip|brrip|web[-_. ]?dl|webrip|hdrip|dvdrip|remux|h264|h265|x264|x265|hevc|avc|10bit|ddp[57]\.1|truehd|atmos|aac(?:\d\.\d)?|ac3|dts(?:-hd)?|flac|multi|dubbed|lektor|subbed|repack|proper|extended|unrated|directors\.cut)\b.*$/i;
+	/\b(?:2160p|1080p|1080i|720p|480p|\d{3,4}x\d{3,4}|4k|uhd|bluray|bdrip|brrip|web[-_. ]?dl|webrip|hdrip|dvdrip|remux|h264|h265|x264|x265|hevc|avc|10bit|ddp[57]\.1|truehd|atmos|aac(?:\d\.\d)?|ac3|dts(?:-hd)?|flac|multi|dubbed|lektor|subbed|repack|proper|extended|unrated|directors\.cut)\b.*$/i;
 
 /** Folder names that carry no title information for the categorized movie and series-basic strategies. */
 export const GENERIC_FOLDER_NAMES =

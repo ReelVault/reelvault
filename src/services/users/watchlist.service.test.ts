@@ -34,7 +34,7 @@ describe("WatchlistService getAll", () => {
 			expect.objectContaining({
 				profileId: "profile-1",
 				metadataId: "metadata-1",
-				metadata: expect.objectContaining({ id: "metadata-1" }),
+				metadata: expect.objectContaining({ id: "metadata-1", title: "Title metadata-1" }),
 			}),
 		]);
 	});

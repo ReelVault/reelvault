@@ -109,7 +109,7 @@ describe("readJellyfinMovieDocument", () => {
 		expect(childElement?.ratings).toEqual([{ source: "imdb", value: 8.5, voteCount: 12 }]);
 	});
 
-	test("keeps performers in the cast (sortorder) and drops Jellyfin crew actor blocks", async () => {
+	test("keeps performers with their sortorder or list position and drops Jellyfin crew actor blocks", async () => {
 		const document = await readJellyfinMovieDocument({
 			documentPath: "/media/Movie/movie.nfo",
 			content:

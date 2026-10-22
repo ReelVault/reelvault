@@ -1,10 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
+import { mockModuleWithRealExports, restoreModuleMocks } from "../../../tests/helpers/module-mock.helper";
 import { parseEncoderNames } from "./capabilities/probe.utils";
 import { getFfmpegCapabilities, initializeFfmpegCapabilities } from "./ffmpeg.capabilities";
-
-const ENCODER_NAME_REGEX = /^[a-z0-9_]+$/;
-// The version segment of the ffmpeg banner: a release ("7.1") or a nightly ("n9.0.2") build.
-const VERSION_PATTERN = /\d+\.\d+/;
 
 // Shaped after ffmpeg 7.1 output: nvenc/vaapi/amf carry the `D` flag
 // (direct rendering) while qsv does not — the old letter-based regex silently
@@ -28,48 +25,66 @@ const ENCODERS_OUTPUT = [
 	" V....XZ hevc_vaapi    VA-API HEVC encoder (codec hevc)",
 	" V...... libx264    libx264 H.264 (codec h264)",
 ].join("\n");
+const ENCODER_NAMES = ["aac", "h264_nvenc", "h264_qsv", "h264_vaapi", "hevc_amf", "hevc_vaapi", "libx264"];
+
+const VERSION_OUTPUT = ["ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers", "built with gcc 14.2.1"].join("\n");
+const FILTERS_OUTPUT = [
+	"Filters:",
+	"  T.. = Timeline support",
+	"  .S. = Slice threading",
+	"  ..C = Command support",
+	" ... anullsink      A->N       Do absolutely nothing with the input audio.",
+	" ... scale          V->V       Scale the input video size and/or convert the image format.",
+	" ... tonemap        V->V       Conversion of tone mapping.",
+	" ... zscale         V->V       Apply resizing, colorspace and bit depth conversion.",
+].join("\n");
+const HWACCELS_OUTPUT = ["Hardware acceleration methods:", "cuda", "vaapi"].join("\n");
+
+// The four probes that initializeFfmpegCapabilities runs, keyed by the flag each one ends with.
+const PROBE_OUTPUTS: Record<string, string> = {
+	"-version": VERSION_OUTPUT,
+	"-filters": FILTERS_OUTPUT,
+	"-encoders": ENCODERS_OUTPUT,
+	"-hwaccels": HWACCELS_OUTPUT,
+};
+
+// The detected sets depend on the host's ffmpeg build and on the DRM render node,
+// so the probe runner and the device lookup are replaced with fixed output.
+mockModuleWithRealExports("@/integrations/ffmpeg/capabilities/probe.utils", {
+	runFfmpegDiagnostic: (args: string[]) => {
+		const stdout = PROBE_OUTPUTS[args.at(-1) ?? ""];
+		if (stdout === undefined) return Promise.resolve({ exitCode: 1, stdout: "", stderr: "no fixture for this probe", timedOut: false });
+
+		return Promise.resolve({ exitCode: 0, stdout, stderr: "", timedOut: false });
+	},
+	getDetectedDriDevice: () => null,
+});
+
+afterAll(() => {
+	restoreModuleMocks();
+});
 
 describe("FFmpeg Capabilities & HW Transcoding Abstraction", () => {
-	it("parses encoder names from -encoders output including D-flagged lines", () => {
-		const encoders = parseEncoderNames(ENCODERS_OUTPUT);
-		expect(encoders.has("h264_nvenc")).toBe(true);
-		expect(encoders.has("h264_vaapi")).toBe(true);
-		expect(encoders.has("hevc_vaapi")).toBe(true);
-		expect(encoders.has("hevc_amf")).toBe(true);
-		expect(encoders.has("h264_qsv")).toBe(true);
-		expect(encoders.has("aac")).toBe(true);
-		expect(encoders.has("libx264")).toBe(true);
-	});
-
-	it("rejects headers, legend lines, and separators", () => {
-		const encoders = parseEncoderNames(ENCODERS_OUTPUT);
-		expect(encoders.has("Encoders")).toBe(false);
-		expect(encoders.has("Video")).toBe(false);
-		expect(encoders.has("Audio")).toBe(false);
-		expect([...encoders].every((name) => ENCODER_NAME_REGEX.test(name))).toBe(true);
+	it("keeps every encoder line, D-flagged or not, and skips the header, legend and separator", () => {
+		expect(parseEncoderNames(ENCODERS_OUTPUT)).toEqual(new Set(ENCODER_NAMES));
 	});
 
 	it("returns an empty set for empty output", () => {
 		expect(parseEncoderNames("").size).toBe(0);
 	});
 
-	it("detects the installed ffmpeg's version, filters and encoders", async () => {
+	it("reads the version, filters, encoders and accelerators from the probe output", async () => {
 		const caps = await initializeFfmpegCapabilities();
 
-		// The banner of a release ("7.1") or a nightly ("n9.0.2") build: a numeric release, never the fallback sentinels.
-		expect(caps.version).toMatch(VERSION_PATTERN);
-		expect(caps.version.includes("Copyright")).toBe(false);
-		expect(caps.filters.has("scale")).toBe(true);
-		expect(caps.encoders.has("aac")).toBe(true);
+		expect(caps.version).toBe("7.1");
+		expect(caps.filters).toEqual(new Set(["anullsink", "scale", "tonemap", "zscale"]));
+		expect(caps.encoders).toEqual(new Set(ENCODER_NAMES));
+		expect(caps.hwaccels).toEqual(new Set(["cuda", "vaapi"]));
 	});
 
 	it("serves the initialized capabilities from the cache", async () => {
-		await initializeFfmpegCapabilities();
+		const initialized = await initializeFfmpegCapabilities();
 
-		const cached = getFfmpegCapabilities();
-
-		expect(cached.version).toMatch(VERSION_PATTERN);
-		expect(cached.filters.has("scale")).toBe(true);
-		expect(cached.encoders.has("aac")).toBe(true);
+		expect(getFfmpegCapabilities()).toBe(initialized);
 	});
 });

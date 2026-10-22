@@ -66,7 +66,8 @@ describe("AdminService getLogs tail cache", () => {
 		const page = await adminLogsService.getLogs({ fileId: "reelvault.log", limit: 5 });
 
 		expect(page.truncated).toBe(true);
-		expect(page.windowBytes).toBeGreaterThan(0);
+		// The served window is the 2 MiB tail.
+		expect(page.windowBytes).toBe(2_097_152);
 	});
 });
 

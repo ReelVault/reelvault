@@ -12,7 +12,7 @@ describe("FFprobe integration", () => {
 		expect(await proc.exited).toBe(0);
 	});
 
-	test("respects custom ffprobe.path setting", () => {
+	test("reports a missing binary when the configured ffprobe.path names nothing installed", () => {
 		systemSettingsStore.setRuntimeValue("ffprobe.path", "non-existent-ffprobe-binary");
 
 		expect(serverConfig.ffprobe.path).toBe("non-existent-ffprobe-binary");
@@ -21,9 +21,10 @@ describe("FFprobe integration", () => {
 	});
 
 	test("resolves the configured binary through the finder it is given", () => {
+		systemSettingsStore.setRuntimeValue("ffprobe.path", "ffprobe-custom");
 		const path = assertFFProbeAvailable((cmd) => `/custom/bin/${cmd}`);
 
-		expect(path).toBe(`/custom/bin/${serverConfig.ffprobe.path}`);
+		expect(path).toBe("/custom/bin/ffprobe-custom");
 	});
 });
 

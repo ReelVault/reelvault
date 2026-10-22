@@ -13,7 +13,7 @@ describe("recognition service", () => {
 		expect(result?.identity.episode).toBe(1);
 	});
 
-	test("recognizes TV show in categorized folder structure with Polish season folder (Sezon 3 / 05.mkv)", () => {
+	test("recognizes TV show in categorized folder structure with Polish season folder (Sezon 3 / 05 - The Injury.mkv)", () => {
 		const result = recognitionService.recognize("/media/Series/The Office (US)/Sezon 3/05 - The Injury.mkv");
 
 		expect(result).not.toBeNull();
@@ -34,7 +34,7 @@ describe("recognition service", () => {
 		expect(result?.identity.episode).toBe(2);
 	});
 
-	test("recognizes TV show in basic structure (Show Folder / S02E04.mkv)", () => {
+	test("recognizes TV show in basic structure (Breaking Bad (2008) / Breaking.Bad.S02E04.1080p.mkv)", () => {
 		const result = recognitionService.recognize("/media/Series/Breaking Bad (2008)/Breaking.Bad.S02E04.1080p.mkv");
 
 		expect(result).not.toBeNull();
@@ -45,7 +45,7 @@ describe("recognition service", () => {
 		expect(result?.identity.episode).toBe(4);
 	});
 
-	test("recognizes TV show with dots in folder name (Married.with.Children / Season 07 / Episode.mkv)", () => {
+	test("recognizes TV show with dots in folder name (Married.with.Children / Season 07 / S07E22 release name)", () => {
 		const result = recognitionService.recognize(
 			"/mnt/tvseries_1/1987/Married.with.Children/Season 07/Married.with.Children.S07E22.Til.Death.Do.Us.Part.mkv",
 		);
@@ -119,7 +119,7 @@ describe("recognition service: movie in a year-bucket folder", () => {
 });
 
 describe("recognition service: bare episode number", () => {
-	test("does not invent a season for a bare episode number in a basic structure", () => {
+	test("classifies a bare episode number in a basic structure as a movie with no season or episode", () => {
 		const result = recognitionService.recognize("/media/Series/Friends (1994)/Friends - 01.mkv");
 
 		expect(result?.type).toBe("movie");

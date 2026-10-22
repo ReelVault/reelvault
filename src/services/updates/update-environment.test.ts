@@ -11,21 +11,31 @@ afterAll(() => {
 	for (const root of roots.splice(0)) removeTreeSync(root);
 });
 
-/**
- * Copies the real module into a fake archive checkout so `import.meta.dir`
- * inside `resolveInstallRoot` resolves through the same depth the updater
- * sees in a release layout: `<root>/server/src/services/updates`.
- * Regression: resolving two levels up instead of four reported `server/src`
- * as the install root, so archive installs detected as "dev" and the panel
- * refused updates with `update.install_unsupported_install_type`.
- */
-async function detectFromArchiveCheckout(root: string): Promise<string> {
-	const moduleDir = join(root, "server", "src", "application", "updates");
-	mkdirSync(moduleDir, { recursive: true });
+function createRoot(prefix: string): string {
+	const root = mkdtempSync(join(tmpdir(), prefix));
+	roots.push(root);
 
-	// The copied module keeps its own folder, so every "@/utils/..." import is
-	// rewritten to a relative path and the file it points at is copied next to
-	// it. A new dependency on a util therefore does not break this test.
+	return root;
+}
+
+function createBundledRuntime(root: string): void {
+	mkdirSync(join(root, "bun"), { recursive: true });
+}
+
+function createServerManifest(root: string): void {
+	mkdirSync(join(root, "server"), { recursive: true });
+	writeFileSync(join(root, "server", "package.json"), JSON.stringify({ version: "1.0.0" }));
+}
+
+/**
+ * Copies the real module to `<root>/server/src/services/updates`, the depth the updater runs at in a release layout,
+ * and imports the copy. Its `@/utils/...` imports are rewritten to sit next to it, so a new dependency on a util does
+ * not break this test.
+ * Regression: resolving two levels up instead of four reported `server/src` as the install root, so archive installs
+ * detected as "dev" and the panel refused updates with `update.install_unsupported_install_type`.
+ */
+async function importReleaseLayoutModule(root: string): Promise<{ resolveInstallRoot: () => string }> {
+	const moduleDir = join(root, "server", "src", "services", "updates");
 	const utilsDir = join(moduleDir, "utils");
 	mkdirSync(utilsDir, { recursive: true });
 	const source = readFileSync(join(import.meta.dir, "update-environment.utils.ts"), "utf8");
@@ -34,27 +44,47 @@ async function detectFromArchiveCheckout(root: string): Promise<string> {
 
 		return `./utils/${name}.ts`;
 	});
-	writeFileSync(join(moduleDir, "update-environment.utils.ts"), module);
-	writeFileSync(join(root, "server", "package.json"), JSON.stringify({ version: "1.0.0" }));
-	mkdirSync(join(root, "bun"), { recursive: true });
+	const modulePath = join(moduleDir, "update-environment.utils.ts");
+	writeFileSync(modulePath, module);
 
-	const environment: unknown = await import(join(moduleDir, "update-environment.utils.ts"));
-	return (environment as { detectInstallType: (root?: string) => string }).detectInstallType();
+	const environment: unknown = await import(modulePath);
+
+	return environment as { resolveInstallRoot: () => string };
 }
 
-describe("detectInstallType on release-archive layouts", () => {
-	test("detects archive when resolved from the module's real depth", async () => {
-		const root = mkdtempSync(join(tmpdir(), "reelvault-archive-root-"));
-		roots.push(root);
+describe("detectInstallType and resolveInstallRoot", () => {
+	test("resolves the install root four levels above the module", async () => {
+		const root = createRoot("reelvault-archive-root-");
+		const environment = await importReleaseLayoutModule(root);
 
-		expect(await detectFromArchiveCheckout(root)).toBe("archive");
+		expect(environment.resolveInstallRoot()).toBe(root);
 	});
 
-	test("still detects dev checkouts", () => {
-		const repo = mkdtempSync(join(tmpdir(), "reelvault-dev-root-"));
-		roots.push(repo);
-		mkdirSync(join(repo, "src", "application", "updates"), { recursive: true });
+	test("detects archive when the bundled runtime and the server manifest are both present", () => {
+		const root = createRoot("reelvault-archive-root-");
+		createBundledRuntime(root);
+		createServerManifest(root);
 
-		expect(detectInstallType(repo)).toBe("dev");
+		expect(detectInstallType(root, null)).toBe("archive");
+	});
+
+	test.each([
+		{ layout: "only the server manifest", bundledRuntime: false, serverManifest: true },
+		{ layout: "only the bundled runtime", bundledRuntime: true, serverManifest: false },
+		{ layout: "neither marker", bundledRuntime: false, serverManifest: false },
+	])("detects a checkout with $layout as dev", ({ bundledRuntime, serverManifest }) => {
+		const root = createRoot("reelvault-dev-root-");
+		if (bundledRuntime) createBundledRuntime(root);
+		if (serverManifest) createServerManifest(root);
+
+		expect(detectInstallType(root, null)).toBe("dev");
+	});
+
+	test("reports a container install as docker even when the archive layout is present", () => {
+		const root = createRoot("reelvault-archive-root-");
+		createBundledRuntime(root);
+		createServerManifest(root);
+
+		expect(detectInstallType(root, "podman")).toBe("docker");
 	});
 });

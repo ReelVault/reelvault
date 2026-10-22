@@ -54,18 +54,23 @@ describe("consumeStreamBounded", () => {
 		expect(received).toEqual([6]);
 	});
 
-	test("stops before reading when the signal is already aborted", async () => {
+	test("stops before reading when the signal is already aborted, handing over no chunk", async () => {
 		const controller = new AbortController();
-		controller.abort(new Error("cancelled"));
+		const cancellation = new Error("cancelled");
+		controller.abort(cancellation);
+		const received: number[] = [];
 
 		await expect(
 			consumeStreamBounded(bodyOf(new Uint8Array(1)), {
 				maxBytes: 10,
 				signal: controller.signal,
 				overflow: () => new Error("overflow"),
-				onChunk: () => undefined,
+				onChunk: (_chunk, receivedBytes) => {
+					received.push(receivedBytes);
+				},
 			}),
-		).rejects.toThrow("cancelled");
+		).rejects.toBe(cancellation);
+		expect(received).toEqual([]);
 	});
 });
 

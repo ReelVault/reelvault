@@ -84,8 +84,8 @@ test("a restore that names a file outside the backups directory is refused witho
 	for (const fileName of [`../${name}`, `..\\${name}`, `/${name}`]) {
 		const response = await send("POST", "/v1/admin/database/restore", { role: "admin", body: { fileName } });
 
-		expect(response.status).toBeGreaterThanOrEqual(400);
-		expect(response.status).toBeLessThan(500);
+		expect(response.status).toBe(404);
+		expect(await response.json()).toMatchObject({ code: "database.backup_not_found" });
 	}
 	expect(readFileSync(sentinelPath, "utf8")).toBe(SENTINEL_CONTENT);
 });

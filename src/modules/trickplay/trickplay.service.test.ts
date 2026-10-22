@@ -48,7 +48,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	for (const stub of activeStubs.splice(0).toReversed()) stub.restore();
 	systemSettingsStore.deleteRuntimeValues(["trickplay.enabled", "system.artifacts.coreMaxStorageGb"]);
 });
 
@@ -113,6 +113,7 @@ describe("trickplayService.generateForMediaFile", () => {
 		const firstUrl = firstPayload?.split("#xywh=")[0];
 		// Frame 5 is the second row of the first sprite; frame 25 starts the second sprite.
 		expect(cues[5]?.split("\n")[1]).toEndWith("#xywh=0,180,320,180");
+		expect(cues[25]?.split("\n")[1]).toEndWith("#xywh=0,0,320,180");
 		expect(cues[25]?.split("\n")[1]?.split("#xywh=")[0]).not.toBe(firstUrl);
 	});
 
@@ -151,8 +152,8 @@ describe("trickplayService.generateForMediaFile", () => {
 
 		await trickplayService.generateForMediaFile(mediaFileId);
 
-		// 600 s at a 10 s interval is 3 sprite grids; they render side by side.
-		expect(peakInFlight).toBeGreaterThan(1);
+		// 600 s at a 10 s interval is 3 sprite grids; a budget of 2 renders two of them at once.
+		expect(peakInFlight).toBe(2);
 	});
 
 	test("a regeneration replaces the previous sprites rather than adding to them", async () => {
@@ -202,7 +203,8 @@ describe("trickplayService.generateForMediaFile: failures and skips", () => {
 	test("a failed regeneration leaves no sprites or cue track behind", async () => {
 		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
 		await trickplayService.generateForMediaFile(mediaFileId);
-		// The next run's first sprite succeeds and its second fails, so a sprite is already stored when it fails.
+		// The second grid of the next run fails while the first is still rendering. Grids render to temp files,
+		// and the store takes sprites only after every grid has rendered, so the failure stores nothing.
 		failOnCall = ffmpegCommands.length + 2;
 
 		await expect(trickplayService.generateForMediaFile(mediaFileId)).rejects.toMatchObject({

@@ -133,10 +133,12 @@ describe("StaleArtifactCleaner unavailable events", () => {
 
 	test("emits unavailable events concurrently up to the I/O budget", async () => {
 		const client = db.client();
-		const firstId = await insertMovieMediaFile(client, "/media/gone-1.mkv", "movie-gone-1");
-		const libraryId = await libraryIdOf(client, firstId);
-		await insertMovieMediaFile(client, "/media/gone-2.mkv", "movie-gone-2");
-		await insertMovieMediaFile(client, "/media/gone-3.mkv", "movie-gone-3");
+		// Six removals against a budget of three: an unbounded fan-out would peak at six, a sequential one at one.
+		const removedPaths = Array.from({ length: 6 }, (_, index) => `/media/gone-${index + 1}.mkv`);
+		let libraryId = "";
+		for (const [index, path] of removedPaths.entries()) {
+			libraryId = await libraryIdOf(client, await insertMovieMediaFile(client, path, `movie-gone-${index + 1}`));
+		}
 		let inFlight = 0;
 		let maxInFlight = 0;
 
@@ -145,7 +147,7 @@ describe("StaleArtifactCleaner unavailable events", () => {
 			maxInFlight = Math.max(maxInFlight, inFlight);
 			await Bun.sleep(10);
 			inFlight--;
-		}, 3).cleanup(libraryId, ["/media/gone-1.mkv", "/media/gone-2.mkv", "/media/gone-3.mkv"]);
+		}, 3).cleanup(libraryId, removedPaths);
 
 		expect(maxInFlight).toBe(3);
 	});

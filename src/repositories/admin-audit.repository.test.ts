@@ -39,7 +39,7 @@ describe("admin audit redaction", () => {
 		const createdAt = new Date("2026-01-02T03:04:05.000Z");
 		const serialized = JSON.parse(serializeAuditValue({ createdAt }) ?? "null");
 
-		expect(serialized.createdAt).toBe(createdAt.toISOString());
+		expect(serialized.createdAt).toBe("2026-01-02T03:04:05.000Z");
 	});
 });
 

@@ -45,7 +45,7 @@
 		"check-types": "tsc --noEmit --pretty",
 		"check-types:bun": "bun check",
 		"coverage": "bun run scripts/coverage-check.script.ts",
-		"coverage:report": "bun test --coverage",
+		"coverage:report": "bun test --isolate --coverage",
 		"test": "bun test --parallel",
 		"----MISC": "",
 		"prepare": "lefthook install"

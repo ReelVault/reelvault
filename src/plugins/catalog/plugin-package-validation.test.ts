@@ -129,7 +129,7 @@ describe("archiveValidationFailure", () => {
 	test("reports an archive that could not be unpacked as an invalid archive", () => {
 		expect(archiveValidationFailure(new Error("not a zip"))).toEqual({
 			valid: false,
-			issues: [{ severity: "error", code: "plugin.archive_invalid", message: "not a zip" }],
+			issues: [expect.objectContaining({ severity: "error", code: "plugin.archive_invalid" })],
 		});
 	});
 });

@@ -84,7 +84,7 @@ describe("PluginScope registration", () => {
 		expect(delivered).toEqual(["Hello"]);
 	});
 
-	test("rejects entities without id, name, or version", () => {
+	test("rejects an entity with an empty name or version", () => {
 		const broken = { ...createProvider("broken"), name: "" };
 		expect(() => scope.addProvider(broken)).toThrow(expect.objectContaining({ category: "validation", code: "plugin.entity_invalid" }));
 		expect(() => scope.addAnalyzer({ ...broken, id: "analyzer", analyze: () => ({}) })).toThrow(
@@ -125,7 +125,7 @@ describe("PluginScope registration", () => {
 		expect(scope.getJobNames()).toEqual(["refresh"]);
 	});
 
-	test("rejects scheduled tasks without id or name and routes without a duplicate key", () => {
+	test("rejects a scheduled task without an id and a route registered twice", () => {
 		expect(() => scope.addScheduledTask({ id: "", name: "x", description: "x", defaultTriggers: [], run: async () => undefined })).toThrow(
 			expect.objectContaining({ category: "validation", code: "plugin.scheduled_task_invalid" }),
 		);

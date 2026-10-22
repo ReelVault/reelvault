@@ -15,6 +15,7 @@ async function seedRecipients(): Promise<void> {
 	await insertNotifications(client, [
 		{ id: "n-1", userId: "user-1", profileId: "profile-1", type: "system", title: "One", data: {} },
 		{ id: "n-2", userId: "user-1", profileId: "profile-1", type: "system", title: "Two", data: {} },
+		{ id: "n-3", userId: "user-1", profileId: "profile-1", type: "system", title: "Three", data: {} },
 		{ id: "n-other", userId: "user-2", profileId: null, type: "system", title: "Theirs", data: {} },
 	]);
 }
@@ -26,17 +27,25 @@ async function remainingIds(): Promise<string[]> {
 }
 
 describe("NotificationsService.deleteNotifications", () => {
-	test("removes the listed notifications from the caller's own list and reports the count", async () => {
+	test("removes only the listed notifications from the caller's own list and reports the count", async () => {
 		await seedRecipients();
 
 		expect(await notificationsService.deleteNotifications(["n-1", "n-2"], "user-1", "profile-1")).toEqual({ deleted: 2 });
-		expect(await remainingIds()).toEqual(["n-other"]);
+		expect(await remainingIds()).toEqual(["n-3", "n-other"]);
 	});
 
 	test("ignores ids that belong to another user and deletes nothing for them", async () => {
 		await seedRecipients();
 
 		expect(await notificationsService.deleteNotifications(["n-other"], "user-1", "profile-1")).toEqual({ deleted: 0 });
-		expect(await remainingIds()).toEqual(["n-1", "n-2", "n-other"]);
+		expect(await remainingIds()).toEqual(["n-1", "n-2", "n-3", "n-other"]);
+	});
+
+	test("ignores ids that belong to another profile of the same user and deletes nothing for them", async () => {
+		await seedRecipients();
+		await insertProfiles(db.client(), { id: "profile-2", userId: "user-1", name: "Kids" });
+
+		expect(await notificationsService.deleteNotifications(["n-1"], "user-1", "profile-2")).toEqual({ deleted: 0 });
+		expect(await remainingIds()).toEqual(["n-1", "n-2", "n-3", "n-other"]);
 	});
 });

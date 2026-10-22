@@ -10,7 +10,7 @@ const killOnTimeout = (process: Subprocess, boundReap: () => void) => {
 describe("spawnTracked", () => {
 	test("runs a short process to completion without reporting a timeout", async () => {
 		const tracked = spawnTracked({
-			cmd: ["sh", "-c", "exit 0"],
+			cmd: [process.execPath, "-e", "process.exit(0)"],
 			purpose: "probe",
 			timeoutMs: 5_000,
 			onTimeout: killOnTimeout,
@@ -27,7 +27,7 @@ describe("spawnTracked", () => {
 
 	test("kills a process whose timeout fires and reports the timeout", async () => {
 		const tracked = spawnTracked({
-			cmd: ["sleep", "5"],
+			cmd: [process.execPath, "-e", "setTimeout(() => {}, 2_000)"],
 			purpose: "probe",
 			timeoutMs: 50,
 			onTimeout: killOnTimeout,
@@ -37,20 +37,22 @@ describe("spawnTracked", () => {
 		try {
 			await tracked.process.exited;
 			expect(tracked.timedOut()).toBeTrue();
+			// The process ended by a signal; left alone, its sleep would have run to exit code 0.
+			expect(tracked.process.signalCode).not.toBeNull();
 		} finally {
 			tracked.cleanup();
 		}
 	});
 
 	test("calls the spawn and cleanup hooks once, even when cleanup runs twice", async () => {
-		let spawned = false;
+		let spawned = 0;
 		let cleaned = 0;
 		const tracked = spawnTracked({
-			cmd: ["sh", "-c", "exit 0"],
+			cmd: [process.execPath, "-e", "process.exit(0)"],
 			purpose: "diagnostic",
 			onTimeout: killOnTimeout,
 			onSpawn: () => {
-				spawned = true;
+				spawned++;
 			},
 			onCleanup: () => {
 				cleaned++;
@@ -59,7 +61,7 @@ describe("spawnTracked", () => {
 		});
 
 		await tracked.process.exited;
-		expect(spawned).toBeTrue();
+		expect(spawned).toBe(1);
 
 		tracked.cleanup();
 		tracked.cleanup();

@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { pluginHookBus } from "@/system/extensions/plugin.hooks";
+import { isNullish } from "@/utils/type.utils";
 import type { ImageProcessingData } from "@/workers/definitions/images/image-processing.worker";
 import { type MethodStub, stubMethod } from "../../../../../tests/helpers/method-stub.helper";
 import { selectEpisodes, selectMetadata, selectMovies, selectSeasons } from "../../../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../../../tests/helpers/test-database.helper";
 import { MetadataProcess } from "./metadata-process.service";
+import type { MetadataProcessResult } from "./shared.types";
 
 // Imports persist to the migrated test database. Only the external providers, the
 // plugin hook/event buses and the image worker queue are stubbed.
@@ -63,7 +65,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	for (const stub of stubs.splice(0)) stub.restore();
+	for (const stub of stubs.splice(0).toReversed()) stub.restore();
 });
 
 function importer(enqueued: ImageProcessingData[] = []): MetadataProcess {
@@ -78,6 +80,16 @@ async function storedTitles(): Promise<string[]> {
 	const rows = await selectMetadata(db.client());
 
 	return rows.map((row) => row.title).toSorted();
+}
+
+/** The ids of the rows an import stored, read back from the database: the import's result must name them. */
+async function storedRowIds(): Promise<MetadataProcessResult> {
+	const [metadata] = await selectMetadata(db.client());
+	const [movie] = await selectMovies(db.client());
+	const [episode] = await selectEpisodes(db.client());
+	if (isNullish(metadata)) throw new Error("The import stored no metadata row");
+
+	return { metadataId: metadata.id, movieId: movie?.id ?? null, episodeId: episode?.id ?? null };
 }
 
 describe("MetadataProcess provider lookup", () => {
@@ -97,8 +109,8 @@ describe("MetadataProcess provider lookup", () => {
 
 		expect(namedLookups).toEqual(["329"]);
 		expect(titleSearches).toEqual([]);
-		expect(result?.metadataId).toEqual(expect.any(String));
 		expect(await storedTitles()).toEqual(["Jurassic Park"]);
+		expect(result).toEqual(await storedRowIds());
 	});
 
 	test("an id the provider does not know falls back to the title search", async () => {
@@ -111,7 +123,7 @@ describe("MetadataProcess provider lookup", () => {
 		expect(namedLookups).toEqual(["999"]);
 		expect(titleSearches).toEqual(["search"]);
 		expect(await storedTitles()).toEqual(["Raw title"]);
-		expect(result?.metadataId).toEqual(expect.any(String));
+		expect(result).toEqual(await storedRowIds());
 	});
 
 	test("a sidecar identifier resolves the row an earlier import created, without touching providers", async () => {
@@ -167,7 +179,7 @@ describe("MetadataProcess persistence and side effects", () => {
 
 		const result = await importer(enqueued).checkMetadata({ type: "movie", parsed: { type: "movie", title: "Raw title" } });
 
-		expect(result).toEqual({ metadataId: expect.any(String), movieId: expect.any(String), episodeId: null });
+		expect(result).toEqual(await storedRowIds());
 		expect(await storedTitles()).toEqual(["Normalized title"]);
 		expect(await selectMovies(db.client())).toHaveLength(1);
 		expect(rowsAtPublish).toHaveLength(1);
@@ -179,21 +191,20 @@ describe("MetadataProcess persistence and side effects", () => {
 		providerAggregated = null;
 		const enqueued: ImageProcessingData[] = [];
 
-		await expect(
-			importer(enqueued).checkMetadata({
-				type: "movie",
-				parsed: { type: "movie", title: "Backrooms.2026" },
-				sidecar: {
-					identifiers: { imdb: "tt999", tmdb: "42" },
-					title: "Backrooms",
-					year: 2026,
-					releaseDate: "2026-01-15",
-					posterPath: "/media/Backrooms/folder.jpg",
-					genres: ["Horror", "Mystery"],
-				},
-			}),
-		).resolves.toEqual({ metadataId: expect.any(String), movieId: expect.any(String), episodeId: null });
+		const result = await importer(enqueued).checkMetadata({
+			type: "movie",
+			parsed: { type: "movie", title: "Backrooms.2026" },
+			sidecar: {
+				identifiers: { imdb: "tt999", tmdb: "42" },
+				title: "Backrooms",
+				year: 2026,
+				releaseDate: "2026-01-15",
+				posterPath: "/media/Backrooms/folder.jpg",
+				genres: ["Horror", "Mystery"],
+			},
+		});
 
+		expect(result).toEqual(await storedRowIds());
 		expect(await storedTitles()).toEqual(["Backrooms"]);
 		const metadataImages = enqueued.find((image) => image.kind === "metadata");
 		const urls = (metadataImages?.urls ?? []) as Array<{ type: string; url?: string }>;
@@ -206,22 +217,21 @@ describe("MetadataProcess tv imports", () => {
 		providerAggregated = null;
 		const enqueued: ImageProcessingData[] = [];
 
-		await expect(
-			importer(enqueued).checkMetadata({
-				type: "tv_show",
-				parsed: { type: "tv_show", title: "filename", season: 1, episode: 3 },
-				sidecar: {
-					identifiers: { tmdb: "777" },
-					title: "Alien: Earth",
-					year: 2025,
-					seasonName: "Season One",
-					seasonPosterPath: "/media/Alien/season01-poster.jpg",
-					episodeName: "In Space, No One…",
-					episodeThumbnailPath: "/media/Alien/e03-thumb.jpg",
-				},
-			}),
-		).resolves.toEqual({ metadataId: expect.any(String), movieId: null, episodeId: expect.any(String) });
+		const result = await importer(enqueued).checkMetadata({
+			type: "tv_show",
+			parsed: { type: "tv_show", title: "filename", season: 1, episode: 3 },
+			sidecar: {
+				identifiers: { tmdb: "777" },
+				title: "Alien: Earth",
+				year: 2025,
+				seasonName: "Season One",
+				seasonPosterPath: "/media/Alien/season01-poster.jpg",
+				episodeName: "In Space, No One…",
+				episodeThumbnailPath: "/media/Alien/e03-thumb.jpg",
+			},
+		});
 
+		expect(result).toEqual(await storedRowIds());
 		const [season] = await selectSeasons(db.client());
 		const [episode] = await selectEpisodes(db.client());
 		expect(season?.name).toBe("Season One");

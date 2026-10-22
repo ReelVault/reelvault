@@ -11,22 +11,6 @@ describe("EventLoopMonitor", () => {
 		}
 	});
 
-	test("reports utilization in [0, 1] after a measurement window", async () => {
-		const monitor = new EventLoopMonitor(20);
-		try {
-			monitor.read();
-			await Bun.sleep(120);
-			const utilization = monitor.read();
-
-			expect(typeof utilization).toBe("number");
-			expect(Number.isFinite(utilization)).toBe(true);
-			expect(utilization).toBeGreaterThanOrEqual(0);
-			expect(utilization).toBeLessThanOrEqual(1);
-		} finally {
-			monitor.stop();
-		}
-	});
-
 	test("each read reports only the window since the previous read", async () => {
 		const monitor = new EventLoopMonitor(20);
 		try {

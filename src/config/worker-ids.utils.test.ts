@@ -1,29 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalWorkerId, UNCATEGORIZED_WORKER_IDS } from "../config/worker-ids.utils";
-import { loadBuiltInWorkers } from "./built-in.loader";
+import { canonicalWorkerId } from "./worker-ids.utils";
 
 describe("worker id categories", () => {
-	test("every registered worker id is categorized or explicitly uncategorized", async () => {
-		const workers = await loadBuiltInWorkers();
-		const registeredIds = workers.map((worker) => worker.id);
-
-		for (const id of registeredIds) {
-			const categorized = canonicalWorkerId(id) !== undefined;
-			const explicitlyUncategorized = UNCATEGORIZED_WORKER_IDS.has(id);
-
-			expect({ id, covered: categorized || explicitlyUncategorized }).toEqual({ id, covered: true });
-		}
-	});
-
-	test("the uncategorized set contains no orphaned ids", async () => {
-		const workers = await loadBuiltInWorkers();
-		const registeredIds = new Set(workers.map((worker) => worker.id));
-
-		for (const id of UNCATEGORIZED_WORKER_IDS) {
-			expect(registeredIds.has(id)).toBe(true);
-		}
-	});
-
 	test("every resource category resolves from at least one spelling", () => {
 		expect(canonicalWorkerId("image-optimization-all")).toBe("image-processing");
 		expect(canonicalWorkerId("imageProcessing")).toBe("image-processing");

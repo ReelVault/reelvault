@@ -73,9 +73,9 @@ describe("guards", () => {
 
 describe("errorCodeOf", () => {
 	test("a domain error keeps its own code", () => {
-		const error = new DomainError("validation", "name is required");
+		const error = new DomainError("validation", "name is required", { code: "validation.name_required" });
 
-		expect(errorCodeOf(error, "download.failed")).toBe(error.code);
+		expect(errorCodeOf(error, "download.failed")).toBe("validation.name_required");
 	});
 
 	test("any other failure gets the fallback, never its message", () => {

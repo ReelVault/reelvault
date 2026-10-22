@@ -25,6 +25,7 @@ describe("stable keys", () => {
 	});
 
 	test("supports a versioned local fallback namespace", () => {
+		// Values are trimmed and lower-cased like every key component, so "/Movies" keys as "/movies".
 		expect(createLocalStableKey({ namespace: "library-path", value: "/Movies" })).toBe("v1:local:6c6962726172792d70617468:2f6d6f76696573");
 	});
 

@@ -1,6 +1,5 @@
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import Elysia from "elysia";
-import { serverConfig } from "@/config/server/server.config";
 import { InMemoryRateLimiter } from "@/utils/in-memory.limiter";
 import { domainErrorsMiddleware } from "./domain-errors.middleware";
 import { isExemptFromGlobalLimit, rateLimitMiddleware } from "./rate-limit.middleware";
@@ -116,15 +115,11 @@ test("X-RateLimit headers are set on successful responses", async () => {
 
 	const res = await app.handle(new Request("http://localhost/v1/limited"));
 
-	const limit = Number(res.headers.get("X-RateLimit-Limit"));
-	const remaining = Number(res.headers.get("X-RateLimit-Remaining"));
-	const reset = Number(res.headers.get("X-RateLimit-Reset"));
-	expect(limit).toBeGreaterThan(0);
-	expect(remaining).toBeGreaterThanOrEqual(0);
-	expect(remaining).toBeLessThan(limit);
-	expect(reset).toBeGreaterThan(0);
-	// The route's own budget is reported, not the global one that every request also counts against.
-	expect(limit).toBeLessThan(serverConfig.api.rateLimit.globalMax);
+	// The route's own budget is reported (10), not the global one every request also counts against.
+	expect(res.headers.get("X-RateLimit-Limit")).toBe("10");
+	expect(res.headers.get("X-RateLimit-Remaining")).toBe("9");
+	// A fresh window reports its full length in seconds.
+	expect(res.headers.get("X-RateLimit-Reset")).toBe("60");
 });
 
 test("X-RateLimit headers are set on 429 rate limited responses", async () => {
@@ -133,13 +128,19 @@ test("X-RateLimit headers are set on 429 rate limited responses", async () => {
 		.use(rateLimitMiddleware)
 		.get("/limited", () => "ok", { rateLimit: { name: "headers-429-test", max: 1, windowMs: 60_000 } });
 
-	await app.handle(new Request("http://localhost/limited"));
-	const limitedRes = await app.handle(new Request("http://localhost/limited"));
+	// Pinned clock: the reset value is the full window, independent of how long the test takes.
+	setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+	try {
+		await app.handle(new Request("http://localhost/limited"));
+		const limitedRes = await app.handle(new Request("http://localhost/limited"));
 
-	expect(limitedRes.status).toBe(429);
-	expect(limitedRes.headers.get("X-RateLimit-Limit")).toBe("1");
-	expect(limitedRes.headers.get("X-RateLimit-Remaining")).toBe("0");
-	expect(Number(limitedRes.headers.get("X-RateLimit-Reset"))).toBeGreaterThan(0);
+		expect(limitedRes.status).toBe(429);
+		expect(limitedRes.headers.get("X-RateLimit-Limit")).toBe("1");
+		expect(limitedRes.headers.get("X-RateLimit-Remaining")).toBe("0");
+		expect(limitedRes.headers.get("X-RateLimit-Reset")).toBe("60");
+	} finally {
+		setSystemTime();
+	}
 });
 
 test("a bucket whose window is longer than the sweep interval survives a sweep", () => {

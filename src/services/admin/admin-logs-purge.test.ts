@@ -8,7 +8,7 @@ import { adminLogsService } from "@/services/admin/admin-logs.service";
 import { createDirectory, removeTree } from "@/utils/directory.utils";
 import { fileExists, writeFile } from "@/utils/file.utils";
 
-describe("AdminService purgeOldLogs", () => {
+describe("adminLogsService purgeOldLogs", () => {
 	let testLogsDir: string;
 	let originalLogsPath: string;
 

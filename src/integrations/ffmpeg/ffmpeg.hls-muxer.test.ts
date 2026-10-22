@@ -27,7 +27,7 @@ describe("buildStreamMapArgs", () => {
 		expect(buildDecisionStreamMapArgs(decision(3))).toEqual(["-map", "0:v:0", "-map", "0:3?", "-map", "-0:s"]);
 	});
 
-	test("keeps the source subtitles when they are not dropped", () => {
+	test("maps only the video and the audio stream when no option is set", () => {
 		expect(buildStreamMapArgs({})).toEqual(["-map", "0:v:0", "-map", "0:a:0?"]);
 	});
 });

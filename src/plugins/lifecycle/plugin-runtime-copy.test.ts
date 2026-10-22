@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { removeTree } from "@/utils/directory.utils";
@@ -69,15 +69,16 @@ describe("plugin runtime copy", () => {
 		await expect(Bun.file(join(runtimeDir, "vendor", "shared.txt")).text()).resolves.toBe("shared content\n");
 	});
 
-	test("a symlink loop terminates and copies the linked directory once", async () => {
+	test("a symlink back to an ancestor terminates after one extra copy of the package", async () => {
 		const pluginDir = join(pluginsDirectory, "pkg");
 		await writeTree(pluginDir, { "index.mjs": "export default {};\n", "nested/inner.txt": "inner\n" });
-		const realNested = await realpath(join(pluginDir, "nested"));
-		await symlink(realNested, join(pluginDir, "loop"));
+		await symlink(pluginDir, join(pluginDir, "nested", "back"));
 
 		const runtimeDir = await materializePluginRuntime(pluginDir, pluginRuntimeRoot(pluginsDirectory));
 
-		await expect(Bun.file(join(runtimeDir, "loop", "inner.txt")).text()).resolves.toBe("inner\n");
+		// The ancestor is followed once through the link; its second visit through the same link is skipped.
+		await expect(Bun.file(join(runtimeDir, "nested", "back", "nested", "inner.txt")).text()).resolves.toBe("inner\n");
+		expect(existsSync(join(runtimeDir, "nested", "back", "nested", "back"))).toBeFalse();
 	});
 
 	test("clearPluginRuntimes wipes every materialized runtime", async () => {

@@ -9,7 +9,24 @@ afterEach(() => {
 });
 
 describe("plugin access bus", () => {
-	test("returns the first denial and removes policies with their plugin", async () => {
+	test("returns the first denial in registration order and skips policies that allow", async () => {
+		pluginAccessBus.register("org.example.access", { id: "allows", beforeAccess: () => undefined });
+		pluginAccessBus.register("org.example.access", {
+			id: "expired",
+			beforeAccess: () => ({ allowed: false, code: "EXPIRED", message: "Access expired" }),
+		});
+		pluginAccessBus.register("org.example.access", {
+			id: "locked",
+			beforeAccess: () => ({ allowed: false, code: "LOCKED", message: "Account locked" }),
+		});
+
+		await expect(pluginAccessBus.check({ userId: "user-1", resource: "stream", action: "play" })).resolves.toMatchObject({
+			allowed: false,
+			code: "EXPIRED",
+		});
+	});
+
+	test("stops denying once the plugin's policies are removed", async () => {
 		pluginAccessBus.register("org.example.access", {
 			id: "expired",
 			beforeAccess: () => ({ allowed: false, code: "EXPIRED", message: "Access expired" }),

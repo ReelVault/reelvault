@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { RecurringTimer } from "./recurring-timer.utils";
 
 describe("RecurringTimer", () => {
-	test("does not start until start() and a second start does not double the interval", async () => {
+	test("starts on start(), ignores a second start, and stops ticking after stop()", async () => {
 		let calls = 0;
 		const timer = new RecurringTimer(() => {
 			calls++;

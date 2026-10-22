@@ -1,6 +1,6 @@
 import type { AdminFfmpegCapabilities, FfmpegDecodeTest } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
-import { getDetectedDriDevice } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
+import { getDetectedDriDevice } from "@/integrations/ffmpeg/capabilities/probe.utils";
 import { runHwaccelDecodeTest } from "@/integrations/ffmpeg/capabilities/verify.service";
 import {
 	getEffectiveHwaccel,

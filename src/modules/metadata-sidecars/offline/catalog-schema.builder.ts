@@ -37,8 +37,8 @@ export class CatalogSchemaBuilder {
 
 	private readonly dependencies: ServiceDependencies;
 
-	constructor(dependencies: ServiceDependencies = defaultDependencies) {
-		this.dependencies = dependencies;
+	constructor(dependencies: Partial<ServiceDependencies> = {}) {
+		this.dependencies = { ...defaultDependencies, ...dependencies };
 	}
 
 	async createSchema(database: Database): Promise<void> {

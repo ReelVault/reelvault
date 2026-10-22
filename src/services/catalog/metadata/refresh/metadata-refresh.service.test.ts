@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { MetadataCandidate } from "@reelvault/sdk/common";
 import { type MetadataRefreshDependencies, MetadataRefreshService } from "@/services/catalog/metadata/refresh/metadata-refresh.service";
 
 function createDependencies(): MetadataRefreshDependencies {
@@ -22,6 +23,8 @@ function createDependencies(): MetadataRefreshDependencies {
 describe("metadata refresh service: provider fetch and persistence", () => {
 	test("refreshes from a linked provider, runs the hook and publishes after persistence", async () => {
 		const calls: string[] = [];
+		let hookCandidate: MetadataCandidate | undefined;
+		let persisted: { metadataId: string; values: unknown } | undefined;
 		const dependencies = createDependencies();
 		dependencies.fetchProviderDetails = (providerId, _type, externalId) => {
 			calls.push(`fetch:${providerId}`);
@@ -32,29 +35,13 @@ describe("metadata refresh service: provider fetch and persistence", () => {
 		};
 		dependencies.transformMetadata = (candidate) => {
 			calls.push("hook");
-			expect(candidate).toMatchObject({
-				type: "movie",
-				title: " Provider title ",
-				identity: { providerId: "active-provider", externalId: "external-1" },
-			});
+			hookCandidate = candidate;
 
 			return Promise.resolve({ ...candidate, title: "Plugin title" });
 		};
 		dependencies.updateMetadata = (metadataId, values) => {
 			calls.push("update");
-			expect(metadataId).toBe("metadata-1");
-			expect(values).toEqual({
-				title: "Plugin title",
-				originalTitle: undefined,
-				overview: undefined,
-				tagline: undefined,
-				releaseDate: "2024-01-01",
-				status: undefined,
-				budget: undefined,
-				revenue: undefined,
-				popularity: 11,
-				hasMissingTranslation: false,
-			});
+			persisted = { metadataId, values };
 
 			return Promise.resolve();
 		};
@@ -67,6 +54,26 @@ describe("metadata refresh service: provider fetch and persistence", () => {
 			providerId: "active-provider",
 		});
 		expect(calls).toEqual(["fetch:active-provider", "fetch:offline-provider", "hook", "update", "event:metadata-1:refresh-job-1"]);
+		expect(hookCandidate).toMatchObject({
+			type: "movie",
+			title: " Provider title ",
+			identity: { providerId: "active-provider", externalId: "external-1" },
+		});
+		expect(persisted).toEqual({
+			metadataId: "metadata-1",
+			values: {
+				title: "Plugin title",
+				originalTitle: undefined,
+				overview: undefined,
+				tagline: undefined,
+				releaseDate: "2024-01-01",
+				status: undefined,
+				budget: undefined,
+				revenue: undefined,
+				popularity: 11,
+				hasMissingTranslation: false,
+			},
+		});
 	});
 
 	test("keeps current metadata without emitting an event when no linked provider can refresh", async () => {
@@ -94,7 +101,7 @@ describe("metadata refresh service: provider fetch and persistence", () => {
 });
 
 describe("metadata refresh service: provider order and image enqueue", () => {
-	test("prefers the persisted primary provider without changing it on fallback", async () => {
+	test("fetches the persisted primary provider first and reports it when its data is present", async () => {
 		const calls: string[] = [];
 		const dependencies = createDependencies();
 		dependencies.findMetadata = async () => ({
@@ -118,6 +125,33 @@ describe("metadata refresh service: provider order and image enqueue", () => {
 
 		expect(calls).toEqual(["active-provider", "offline-provider"]);
 		expect(result.providerId).toBe("active-provider");
+	});
+
+	test("falls back to another linked provider when the primary has no data and reports that provider", async () => {
+		const dependencies = createDependencies();
+		dependencies.findMetadata = async () => ({
+			id: "metadata-1",
+			type: "movie",
+			primaryProviderId: "active-provider",
+			providers: [
+				{ name: "offline-provider", externalId: "offline-1" },
+				{ name: "active-provider", externalId: "external-1" },
+			],
+		});
+		dependencies.fetchProviderDetails = async (providerId, _type, externalId) =>
+			providerId === "offline-provider" ? { externalId, title: "Fallback title", releaseDate: "2024-01-01" } : undefined;
+		dependencies.transformMetadata = async (candidate) => candidate;
+		let persisted: { metadataId: string; values: unknown } | undefined;
+		dependencies.updateMetadata = (metadataId, values) => {
+			persisted = { metadataId, values };
+
+			return Promise.resolve();
+		};
+
+		const result = await new MetadataRefreshService(dependencies).refresh("metadata-1");
+
+		expect(result.providerId).toBe("offline-provider");
+		expect(persisted).toMatchObject({ metadataId: "metadata-1", values: { title: "Fallback title" } });
 	});
 
 	test("enqueues metadata, person and tv season/episode images when present", async () => {
@@ -217,7 +251,7 @@ describe("metadata refresh service: child image operation", () => {
 });
 
 describe("metadata refresh service: locked fields", () => {
-	test("preserves locked fields and skips locked relation updates during refresh", async () => {
+	test("keeps locked fields out of the metadata update and hands the lock list to relation and credit sync", async () => {
 		const dependencies = createDependencies();
 		let updatedValues: Record<string, unknown> | undefined;
 		let syncedRelationsLocked: readonly string[] | undefined;

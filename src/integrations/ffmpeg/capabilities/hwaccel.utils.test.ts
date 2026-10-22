@@ -9,7 +9,7 @@ import { type DetectedHwaccel, getCandidateHwaccels, hardwareDecodeArgs, resolve
 // the test passes on a desktop and fails on a container.
 const DRI_DEVICE = "/dev/dri/renderD128";
 
-mockModuleWithRealExports("@/integrations/ffmpeg/capabilities/hwaccel.utils", {
+mockModuleWithRealExports("@/integrations/ffmpeg/capabilities/probe.utils", {
 	getDetectedDriDevice: () => DRI_DEVICE,
 });
 

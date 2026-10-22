@@ -11,6 +11,7 @@ export type ApiKeyChanges = Partial<ApiKeyInsert>;
 export interface ApiKeyOwnerRow {
 	id: string;
 	scope: string;
+	expiresAt: Date | null;
 	userId: string;
 	userName: string;
 	userEmail: string;
@@ -69,6 +70,7 @@ export const apiKeysRepository = {
 			.select({
 				id: apiKeys.id,
 				scope: apiKeys.scope,
+				expiresAt: apiKeys.expiresAt,
 				userId: users.id,
 				userName: users.name,
 				userEmail: users.email,

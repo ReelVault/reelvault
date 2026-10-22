@@ -10,7 +10,8 @@ import { interruptedPlaybackSessionRepository } from "@/repositories/interrupted
 import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
 import { removeTreeSync } from "@/utils/directory.utils";
 
-const NOW = Date.now();
+// Fixed, so the timestamps the rows store (second precision) can be written as literals.
+const NOW = Date.parse("2026-01-15T12:00:00.123Z");
 const HOUR = 60 * MINUTE;
 
 const tempDirs: string[] = [];
@@ -118,8 +119,8 @@ describe("interrupted playback sessions", () => {
 			{ id: "wh-1", isFullWatch: true },
 			{ id: "ip-long", isFullWatch: false },
 		]);
-		expect(withMinimum.recentPlays[0]?.watchedAt).toEqual(new Date(Math.floor((NOW - HOUR) / 1000) * 1000));
-		expect(withMinimum.leaderboard[0]?.lastWatchedAt).toEqual(new Date(Math.floor((NOW - HOUR) / 1000) * 1000));
+		expect(withMinimum.recentPlays[0]?.watchedAt).toEqual(new Date("2026-01-15T11:00:00.000Z"));
+		expect(withMinimum.leaderboard[0]?.lastWatchedAt).toEqual(new Date("2026-01-15T11:00:00.000Z"));
 
 		const withoutMinimum = await watchedHistoryRepository.findGlobalAnalytics({ since, minInterruptedSeconds: 0 });
 		expect(withoutMinimum).toMatchObject({ totalPlays: 3, completedPlays: 1 });

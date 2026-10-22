@@ -7,6 +7,7 @@ import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { detach } from "@/utils/promise.utils";
+import { isNullish } from "@/utils/type.utils";
 
 const KEY_TAG = "rv_";
 const KEY_RANDOM_BYTES = 24;
@@ -27,6 +28,7 @@ export interface UpdateApiKeyInput {
 export interface AuthenticatedApiKey {
 	id: string;
 	scope: ApiKeyScope;
+	expiresAt: Date | null;
 	user: {
 		id: string;
 		name: string;
@@ -205,10 +207,12 @@ class ApiKeysService {
 	async authenticate(rawKey: string): Promise<AuthenticatedApiKey | undefined> {
 		// One hash serves both the cache key and the stored-hash lookup.
 		const keyHash = hashKey(rawKey);
+		const now = new Date();
 		const cached = authenticateCache.get(keyHash);
-		if (cached) return cached;
+		// The cache outlives a key's expiry by up to its TTL, so a cached principal counts only until that moment.
+		if (cached && (isNullish(cached.expiresAt) || cached.expiresAt > now)) return cached;
 
-		const row = await apiKeysRepository.findActiveOwnerByHash(keyHash, new Date());
+		const row = await apiKeysRepository.findActiveOwnerByHash(keyHash, now);
 		if (!row) return undefined;
 
 		this.touchLastUsed(row.id);
@@ -216,6 +220,7 @@ class ApiKeysService {
 		const authenticated: AuthenticatedApiKey = {
 			id: row.id,
 			scope: toScope(row.scope),
+			expiresAt: row.expiresAt,
 			user: { id: row.userId, name: row.userName, email: row.userEmail, role: row.userRole },
 		};
 		authenticateCache.set(keyHash, authenticated);

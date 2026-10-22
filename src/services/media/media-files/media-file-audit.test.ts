@@ -32,33 +32,34 @@ describe("auditMediaFileRow", () => {
 		expect(auditMediaFileRow(createRow())).toBeNull();
 	});
 
-	test("flags matches scoring below metadata.minMatchScore as low confidence", () => {
-		const suspect = auditMediaFileRow(createRow({ metadataMatchScore: 0.7 }));
+	test("flags a match just below the review level as low confidence", () => {
+		const suspect = auditMediaFileRow(createRow({ metadataMatchScore: 0.74 }));
 
-		expect(suspect?.reasons).toEqual([{ code: "low_confidence", severity: "low", params: { percent: 70 } }]);
+		expect(suspect?.reasons).toEqual([{ code: "low_confidence", severity: "low", params: { percent: 74 } }]);
 	});
 
-	test("keeps a match at or above the configured threshold clean", () => {
-		expect(auditMediaFileRow(createRow({ metadataMatchScore: 0.8 }))).toBeNull();
+	test("keeps a match at the review level clean", () => {
+		expect(auditMediaFileRow(createRow({ metadataMatchScore: 0.75 }))).toBeNull();
 	});
 
 	test("the acceptance setting does not move the low confidence review level", () => {
-		systemSettingsStore.setRuntimeValue("metadata.minMatchScore", 0.45);
+		systemSettingsStore.setRuntimeValue("metadata.minMatchScore", 0.7);
 
-		expect(auditMediaFileRow(createRow({ metadataMatchScore: 0.7 }))?.reasons).toEqual([
-			{ code: "low_confidence", severity: "low", params: { percent: 70 } },
+		expect(auditMediaFileRow(createRow({ metadataMatchScore: 0.72 }))?.reasons).toEqual([
+			{ code: "low_confidence", severity: "low", params: { percent: 72 } },
 		]);
 	});
 
-	test("reports year mismatches from the assigned release date", () => {
-		const high = auditMediaFileRow(createRow({ metadataReleaseDate: "1969-01-01" }));
-		expect(high?.reasons).toEqual([
-			{ code: "year_mismatch", severity: "high", params: { recognizedYear: 1979, assignedYear: 1969, diff: 10 } },
-		]);
+	test("does not flag a one-year release drift", () => {
+		expect(auditMediaFileRow(createRow({ metadataReleaseDate: "1978-01-01" }))).toBeNull();
+	});
 
-		const medium = auditMediaFileRow(createRow({ metadataReleaseDate: "1981-01-01" }));
-		expect(medium?.reasons).toEqual([
-			{ code: "year_mismatch", severity: "medium", params: { recognizedYear: 1979, assignedYear: 1981, diff: 2 } },
-		]);
+	test.each([
+		{ assignedYear: 1977, diff: 2, severity: "medium" },
+		{ assignedYear: 1976, diff: 3, severity: "high" },
+	] as const)("reports a $diff-year release drift as $severity", ({ assignedYear, diff, severity }) => {
+		const suspect = auditMediaFileRow(createRow({ metadataReleaseDate: `${assignedYear}-01-01` }));
+
+		expect(suspect?.reasons).toEqual([{ code: "year_mismatch", severity, params: { recognizedYear: 1979, assignedYear, diff } }]);
 	});
 });

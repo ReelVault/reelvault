@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { insertResourceMetrics } from "../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { adminResourcesService } from "./admin-resources.service";
@@ -7,12 +7,19 @@ import { adminResourcesService } from "./admin-resources.service";
 const db = useTestDatabase();
 
 const MINUTE = 60_000;
+// The export window is measured from the current time, so the clock is pinned. Stored timestamps have
+// whole-second precision, and both samples sit on whole seconds of this fixed instant.
+const NOW = Date.parse("2026-01-01T12:00:00.000Z");
+
+afterEach(() => {
+	setSystemTime();
+});
 
 describe("AdminResourcesService.exportHistory", () => {
 	test("exports samples inside the window unthinned, quoting separators, and leaves out older samples", async () => {
-		// Stored timestamps have whole-second precision, so both samples are aligned to a second.
-		const sampledAt = new Date(Math.floor((Date.now() - 10 * MINUTE) / 1000) * 1000);
-		const old = new Date(Math.floor((Date.now() - 3 * 60 * MINUTE) / 1000) * 1000);
+		setSystemTime(new Date(NOW));
+		const sampledAt = new Date(NOW - 10 * MINUTE);
+		const old = new Date(NOW - 3 * 60 * MINUTE);
 		await insertResourceMetrics(db.client(), {
 			id: "sample-1",
 			cpuUsedPercent: 12.5,
@@ -28,7 +35,7 @@ describe("AdminResourcesService.exportHistory", () => {
 			pressure: "low",
 			activeStreams: 0,
 			activeWorkers: { scanning: 2, transcode: 1 },
-			retentionUntil: new Date(Date.now() + 60 * MINUTE),
+			retentionUntil: new Date(NOW + 60 * MINUTE),
 			createdAt: sampledAt,
 			updatedAt: sampledAt,
 		});
@@ -46,7 +53,7 @@ describe("AdminResourcesService.exportHistory", () => {
 			diskPercent: 50,
 			pressure: "low",
 			activeWorkers: {},
-			retentionUntil: new Date(Date.now() + 60 * MINUTE),
+			retentionUntil: new Date(NOW + 60 * MINUTE),
 			createdAt: old,
 			updatedAt: old,
 		});
@@ -57,7 +64,7 @@ describe("AdminResourcesService.exportHistory", () => {
 		expect(exported.contentType).toBe("text/csv; charset=utf-8");
 		expect(exported.body.trimEnd().split("\n")).toEqual([
 			"timestamp,cpuPercent,memoryPercent,diskPercent,pressure,activeWorkers",
-			`${sampledAt.toISOString()},12.5,40,61,low,"{""scanning"":2,""transcode"":1}"`,
+			`2026-01-01T11:50:00.000Z,12.5,40,61,low,"{""scanning"":2,""transcode"":1}"`,
 		]);
 	});
 });

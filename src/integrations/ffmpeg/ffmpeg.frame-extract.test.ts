@@ -7,7 +7,7 @@ import {
 } from "./ffmpeg.frame-extract";
 
 describe("frame extraction commands", () => {
-	it("builds a fixed frame extraction command without plugin-supplied arguments", () => {
+	it("builds a WebP frame command that seeks to the requested time and scales to the width", () => {
 		expect(
 			buildFrameExtractionCommand("/library/movie.mkv", {
 				mediaFileId: "file-1",
@@ -96,7 +96,7 @@ describe("frame extraction with hardware decoding", () => {
 });
 
 describe("sprite extraction commands", () => {
-	it("builds a fixed sprite extraction command from bounded frame times", () => {
+	it("builds a sprite command with one seek input per frame time", () => {
 		expect(
 			buildSpriteExtractionCommand("/library/movie.mkv", {
 				mediaFileId: "file-1",

@@ -67,7 +67,7 @@ describe("FileScannerService.scanWithStats", () => {
 		if (!entry) throw new Error("Expected one scanned entry");
 
 		expect(entry.filePath).toBe(target);
-		expect(entry.size).toBeGreaterThan(0);
+		expect(entry.size).toBe(1);
 		expect(entry.mtimeMs).toBe(1_700_000_000_000);
 	});
 

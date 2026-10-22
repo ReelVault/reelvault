@@ -18,7 +18,7 @@ describe("session request mapper", () => {
 		});
 	});
 
-	test("parseCapabilities falls back to browser defaults for empty lists", () => {
+	test("parseCapabilities falls back to browser codecs for empty lists and keeps the bitrate cap", () => {
 		const capabilities = parseCapabilities({});
 		expect(capabilities.videoCodecs).toEqual(DEFAULT_BROWSER_CAPABILITIES.videoCodecs);
 		expect(capabilities.audioCodecs).toEqual(DEFAULT_BROWSER_CAPABILITIES.audioCodecs);
@@ -59,9 +59,9 @@ describe("session request mapper", () => {
 		const request: CreatePlaybackSession = {
 			mediaFileId: "file-1",
 			videoCodecs: ["h265"],
-			hdrTransfers: ["smpte2084"],
+			hdrTransfers: ["smpte2084", "arib-std-b67"],
 		};
-		expect(toPlaybackSessionInput(request).hdrTransfers).toBe("smpte2084");
+		expect(toPlaybackSessionInput(request).hdrTransfers).toBe("smpte2084,arib-std-b67");
 		expect(toPlaybackSessionInput({ mediaFileId: "file-1", hdrTransfers: null }).hdrTransfers).toBeUndefined();
 	});
 });

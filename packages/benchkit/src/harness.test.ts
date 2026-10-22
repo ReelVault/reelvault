@@ -11,7 +11,7 @@ function startServer(): ReturnType<typeof Bun.serve> {
 }
 
 describe("runRequestScenario", () => {
-	test("aggregates post-warmup success latencies under the given name", async () => {
+	test("aggregates the successful requests of a scenario under the given name", async () => {
 		const server = startServer();
 		try {
 			const result = await runRequestScenario({

@@ -28,7 +28,7 @@ describe("process manager", () => {
 		await $`rm -rf ${root}`.quiet();
 	});
 
-	test("startSession rejects at the global session limit before touching processes", async () => {
+	test("rejects a new session at the global session limit", async () => {
 		const store = createStore();
 		store.register({
 			id: "occupied",

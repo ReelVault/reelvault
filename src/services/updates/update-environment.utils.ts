@@ -76,9 +76,13 @@ export function detectRootless(container: ContainerRuntime | null): boolean {
 	return typeof process.getuid === "function" && process.getuid() !== 0;
 }
 
-export function detectInstallType(root = resolveInstallRoot()): UpdateInstallType {
+/** `container` defaults to the host's runtime; tests pass it so the result does not depend on the machine running them. */
+export function detectInstallType(
+	root = resolveInstallRoot(),
+	container: ContainerRuntime | null = detectContainerRuntime(),
+): UpdateInstallType {
 	// Container installs (Docker or Podman) ship as images: the panel cannot replace the files in place.
-	if (detectContainerRuntime()) return "docker";
+	if (container) return "docker";
 	if (existsSync(join(root, "bun")) && existsSync(join(root, "server", "package.json"))) return "archive";
 
 	return "dev";

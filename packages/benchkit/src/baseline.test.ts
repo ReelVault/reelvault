@@ -18,9 +18,9 @@ function taskEntry(file: string, name: string, metrics: TaskMetrics): TaskBaseli
 }
 
 describe("mannWhitneyZ", () => {
-	test("identical distributions give a small z", () => {
+	test("identical distributions give a z of exactly zero", () => {
 		const samples = Array.from({ length: 40 }, (_, i) => 10 + (i % 3) * 0.01);
-		expect(Math.abs(mannWhitneyZ(samples, samples))).toBeLessThan(0.3);
+		expect(mannWhitneyZ(samples, samples)).toBe(0);
 	});
 
 	test("clearly shifted distributions give a large |z|", () => {

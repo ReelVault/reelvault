@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { type DetectedHwaccel, hardwareDecodeArgs } from "./capabilities/hwaccel.utils";
+import type { DetectedHwaccel } from "./capabilities/hwaccel.utils";
 import type { ToneMapConfig } from "./capabilities/tone-mapping.resolver";
 import { buildHwaccelInputArgs, buildToneMapFilterChain, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "./ffmpeg.transcode-args";
 
-const VAAPI_TONEMAP_UPLOAD_PATTERN = /^tonemapx=.*,format=nv12,hwupload$/;
-const LIBX264_HEIGHT_CAP_PATTERN = /trunc\(min\(max\(iw\/a\\,ih\)\\,min\(\d+\/a\\,\d+\)\)/;
+const RENDER_NODE = "/dev/dri/renderD128";
+const TONEMAPX_CHAIN = "tonemapx=t=bt709:p=bt709:m=bt709:tonemap=bt2390:format=yuv420p";
+const ZSCALE_CHAIN =
+	"setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc,zscale=t=linear:npl=100,tonemap=bt2390:desat=0,zscale=p=bt709:t=bt709:m=bt709:r=tv,format=yuv420p";
 
 const config: TranscodeConfig = {
 	maxSessions: 5,
@@ -19,26 +24,12 @@ const config: TranscodeConfig = {
 
 const hw = (type: DetectedHwaccel["type"]): DetectedHwaccel => ({
 	type,
-	device: "/dev/dri/renderD128",
+	device: RENDER_NODE,
 	h264Encoder: "h264",
 	hevcEncoder: "hevc",
 });
 
 const toneMap = (method: ToneMapConfig["method"]): ToneMapConfig => ({ method, algorithm: "bt2390" });
-
-const spies: Array<{ mockRestore(): void }> = [];
-
-// The software encoder's preset, resolution cap and x264 lookahead all scale
-// with the measured CPU speed, so the factor is pinned here. A slow CI runner
-// would otherwise see a different preset, a smaller cap and a shorter
-// lookahead, and the argument assertions would depend on the machine.
-beforeEach(() => {
-	spies.push(spyOn(systemResourcesService, "getSpeedFactor").mockReturnValue(1));
-});
-
-afterEach(() => {
-	for (const spy of spies.splice(0)) spy.mockRestore();
-});
 
 const sdrDecision: PlaybackDecision = {
 	mode: "transcode",
@@ -58,21 +49,89 @@ const hdrDecision: PlaybackDecision = {
 	reason: "video:h265 HDR10 → H.264, tone-mapped to SDR; test",
 };
 
+/** The value that follows a flag, or undefined when the flag is absent. */
+function flagValue(args: string[], flag: string): string | undefined {
+	const index = args.indexOf(flag);
+
+	return index === -1 ? undefined : args[index + 1];
+}
+
+// The software encoder's preset, resolution cap and x264 lookahead all scale with
+// the measured CPU speed. The factor is pinned to 1 for every test, and a test that
+// needs another speed sets it here. A slow CI runner would otherwise see a different
+// preset and cap, and the argument assertions would depend on the machine.
+const speed = { factor: 1 };
+const spies: Array<{ mockRestore(): void }> = [];
+
+beforeEach(() => {
+	spies.push(spyOn(systemResourcesService, "getSpeedFactor").mockImplementation(() => speed.factor));
+});
+
+afterEach(() => {
+	speed.factor = 1;
+	systemSettingsStore.clearRuntimeValues();
+	for (const spy of spies.splice(0)) spy.mockRestore();
+});
+
+/** Runs a command and returns its stdout. A non-zero exit fails the test with the tool's stderr. */
+async function runCommand(command: string[]): Promise<string> {
+	const child = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" });
+	const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+	if (code !== 0) throw new Error(`${command[0]} exited with ${code}: ${stderr}`);
+
+	return stdout;
+}
+
+/** Encodes one frame of a generated source through the video filter in `args`, and reads back the frame size. */
+async function encodedFrameSize(sourceSize: string, args: string[]): Promise<string> {
+	const directory = await mkdtemp(join(tmpdir(), "reelvault-scale-"));
+	try {
+		const output = join(directory, "frame.png");
+		await runCommand([
+			"ffmpeg",
+			"-v",
+			"error",
+			"-f",
+			"lavfi",
+			"-i",
+			`testsrc=size=${sourceSize}:rate=1:duration=1`,
+			"-frames:v",
+			"1",
+			"-vf",
+			flagValue(args, "-vf") ?? "",
+			output,
+		]);
+
+		return (
+			await runCommand([
+				"ffprobe",
+				"-v",
+				"error",
+				"-select_streams",
+				"v:0",
+				"-show_entries",
+				"stream=width,height",
+				"-of",
+				"csv=s=x:p=0",
+				output,
+			])
+		).trim();
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}
+
 describe("buildToneMapFilterChain", () => {
 	test("returns null for non-HDR decisions", () => {
 		expect(buildToneMapFilterChain(sdrDecision, toneMap("tonemapx"))).toBeNull();
 	});
 
 	test("uses tonemapx when available", () => {
-		const chain = buildToneMapFilterChain(hdrDecision, toneMap("tonemapx"));
-		expect(chain).toContain("tonemapx=t=bt709:p=bt709:m=bt709:tonemap=bt2390:format=yuv420p");
+		expect(buildToneMapFilterChain(hdrDecision, toneMap("tonemapx"))).toBe(TONEMAPX_CHAIN);
 	});
 
 	test("zscale chain declares the incoming PQ transfer before conversion", () => {
-		const chain = buildToneMapFilterChain(hdrDecision, toneMap("zscale"));
-		expect(chain).toContain("setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc");
-		expect(chain).toContain("zscale=t=linear:npl=100,tonemap=bt2390");
-		expect(chain?.endsWith("format=yuv420p")).toBe(true);
+		expect(buildToneMapFilterChain(hdrDecision, toneMap("zscale"))).toBe(ZSCALE_CHAIN);
 	});
 
 	test("returns null when no usable filter exists", () => {
@@ -81,83 +140,108 @@ describe("buildToneMapFilterChain", () => {
 });
 
 describe("buildHwaccelInputArgs", () => {
-	test("drops -hwaccel_output_format for tone-mapped sessions (filters need frames in RAM)", () => {
-		const withTonemap = buildHwaccelInputArgs(hdrDecision, hw("nvenc"), toneMap("tonemapx"));
-		const withoutTonemap = buildHwaccelInputArgs(sdrDecision, hw("nvenc"), toneMap("tonemapx"));
-
-		expect(withTonemap).not.toContain("-hwaccel_output_format");
-		expect(withTonemap).toContain("-hwaccel");
-		expect(withoutTonemap).toContain("-hwaccel_output_format");
+	test.each([
+		["nvenc", ["-hwaccel", "cuda", "-hwaccel_device", RENDER_NODE]],
+		["vaapi", ["-hwaccel", "vaapi", "-vaapi_device", RENDER_NODE]],
+		["qsv", ["-hwaccel", "qsv", "-hwaccel_device", RENDER_NODE]],
+	] as const)("decodes a tone-mapped %s session into system memory, where the software filter can read it", (type, expected) => {
+		expect(buildHwaccelInputArgs(hdrDecision, hw(type), toneMap("tonemapx"))).toEqual([...expected]);
 	});
 
-	test("keeps the zero-copy path when HDR but no tone-map filter is available", () => {
-		const args = buildHwaccelInputArgs(hdrDecision, hw("nvenc"), toneMap("none"));
-		expect(args).toContain("-hwaccel_output_format");
+	test.each([
+		["nvenc", ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-hwaccel_device", RENDER_NODE]],
+		["vaapi", ["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-vaapi_device", RENDER_NODE]],
+		["qsv", ["-hwaccel", "qsv", "-hwaccel_output_format", "qsv", "-hwaccel_device", RENDER_NODE]],
+	] as const)("keeps the decoded frames of an SDR %s session on the GPU", (type, expected) => {
+		expect(buildHwaccelInputArgs(sdrDecision, hw(type), toneMap("tonemapx"))).toEqual([...expected]);
 	});
 
-	test("keeps zero-copy path for SDR VAAPI sessions", () => {
-		const args = buildHwaccelInputArgs(sdrDecision, hw("vaapi"), toneMap("tonemapx"));
-		expect(args).toContain("-hwaccel_output_format");
-		expect(args).toContain("-vaapi_device");
+	test("keeps the GPU path when HDR has no tone-map filter", () => {
+		expect(buildHwaccelInputArgs(hdrDecision, hw("nvenc"), toneMap("none"))).toEqual([
+			"-hwaccel",
+			"cuda",
+			"-hwaccel_output_format",
+			"cuda",
+			"-hwaccel_device",
+			RENDER_NODE,
+		]);
 	});
 
-	test("decode-only args are byte-identical to hardwareDecodeArgs for tone-mapped sessions", () => {
-		for (const type of ["nvenc", "vaapi", "qsv"] as const) {
-			const candidate = hw(type);
+	test("allows a software decode fallback on VideoToolbox when its session limit is hit", () => {
+		expect(buildHwaccelInputArgs(sdrDecision, hw("videotoolbox"), toneMap("none"))).toEqual(["-hwaccel", "videotoolbox", "-allow_sw", "1"]);
+	});
 
-			expect(buildHwaccelInputArgs(hdrDecision, candidate, toneMap("tonemapx"))).toEqual(hardwareDecodeArgs(candidate));
-		}
+	test("adds no decode flags for the software encoder", () => {
+		expect(buildHwaccelInputArgs(sdrDecision, hw("none"), toneMap("tonemapx"))).toEqual([]);
 	});
 });
 
 describe("buildTranscodeVideoArgs", () => {
-	test("SDR nvenc args carry no -vf (unchanged baseline)", () => {
-		const args = buildTranscodeVideoArgs(sdrDecision, config, hw("nvenc"), toneMap("tonemapx"));
-		expect(args).not.toContain("-vf");
+	test("SDR NVENC encodes with constant-quality VBR and a GOP tied to the HLS segments", () => {
+		expect(buildTranscodeVideoArgs(sdrDecision, config, hw("nvenc"), toneMap("tonemapx"))).toEqual([
+			"-c:v",
+			"h264_nvenc",
+			"-preset",
+			"p4",
+			"-tune",
+			"ll",
+			"-cq:v",
+			"23",
+			"-pix_fmt",
+			"yuv420p",
+			"-g",
+			"144",
+			"-keyint_min",
+			"1",
+			"-force_key_frames",
+			"expr:gte(t,n_forced*6)",
+		]);
 	});
 
-	test("HDR nvenc args prepend the tone-map chain", () => {
+	test("HDR NVENC prepends the tone-map chain to the filter graph", () => {
 		const args = buildTranscodeVideoArgs(hdrDecision, config, hw("nvenc"), toneMap("tonemapx"));
-		const vfIndex = args.indexOf("-vf");
-		expect(vfIndex).toBeGreaterThan(-1);
-		expect(args[vfIndex + 1]).toContain("tonemapx");
+
+		expect(flagValue(args, "-vf")).toBe(TONEMAPX_CHAIN);
 	});
 
-	test("HDR vaapi args append hwupload after the tone-map chain", () => {
+	test("HDR VAAPI uploads the tone-mapped frames to a GPU surface", () => {
 		const args = buildTranscodeVideoArgs(hdrDecision, config, hw("vaapi"), toneMap("tonemapx"));
-		const vfIndex = args.indexOf("-vf");
-		expect(args[vfIndex + 1]).toMatch(VAAPI_TONEMAP_UPLOAD_PATTERN);
+
+		expect(flagValue(args, "-vf")).toBe(`${TONEMAPX_CHAIN},format=nv12,hwupload`);
 	});
 
-	test("HDR libx264 args prepend the chain before the BT.709 tagging", () => {
+	test("HDR libx264 prepends the zscale chain before the BT.709 tagging", () => {
 		const args = buildTranscodeVideoArgs(hdrDecision, config, hw("none"), toneMap("zscale"));
-		const vfIndex = args.indexOf("-vf");
-		expect(args[vfIndex + 1]).toContain("zscale=t=linear:npl=100");
-		expect(args[vfIndex + 1]).toContain("setparams=color_primaries=bt709");
-		expect(args[vfIndex + 1]).toContain("format=yuv420p");
+
+		expect(flagValue(args, "-vf")?.split(",scale=")[0]).toBe(
+			`${ZSCALE_CHAIN},setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
+		);
 	});
 
-	test("libx264 SDR args are byte-identical with tone-mapping unavailable", () => {
+	test("SDR libx264 starts its filter chain with the BT.709 tagging and no tone-map", () => {
 		const args = buildTranscodeVideoArgs(sdrDecision, config, hw("none"), toneMap("none"));
-		const vfIndex = args.indexOf("-vf");
-		expect(args[vfIndex + 1]).toStartWith("setparams=color_primaries=bt709");
-		expect(args).not.toContain("tonemapx");
+
+		expect(flagValue(args, "-vf")?.split(",scale=")[0]).toBe("setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709");
 	});
 
-	test("libx264 caps the height against the source aspect ratio", () => {
+	test.each([
+		["3840x2160", 1, "1920x1080"],
+		["3840x2160", 0.5, "1280x720"],
+		["1080x1920", 1, "606x1080"],
+	] as const)("a %s source at speed factor %s is scaled to %s", async (source, factor, expected) => {
+		speed.factor = factor;
 		const args = buildTranscodeVideoArgs(sdrDecision, config, hw("none"), toneMap("none"));
-		const vf = args[args.indexOf("-vf") + 1] ?? "";
 
-		// The height branch must be min(widthCap / a, heightCap). Dividing by the
-		// height cap instead collapses to a constant and disables the cap entirely.
-		expect(vf).toMatch(LIBX264_HEIGHT_CAP_PATTERN);
+		expect(await encodedFrameSize(source, args)).toBe(expected);
 	});
+});
 
+describe("buildTranscodeVideoArgs encoder and rate settings", () => {
 	test("libx264 sizes the GOP from the source frame rate", () => {
 		const gopOf = (sourceFps?: number) => {
 			const args = buildTranscodeVideoArgs({ ...sdrDecision, sourceFps }, config, hw("none"), toneMap("none"));
 
-			return args[args.indexOf("-g") + 1];
+			return flagValue(args, "-g");
 		};
 
 		expect(gopOf()).toBe("144"); // no fps → 24 fps assumed → one 6 s segment
@@ -173,17 +257,16 @@ describe("buildTranscodeVideoArgs", () => {
 		["qsv", "h264_qsv"],
 		["videotoolbox", "h264_videotoolbox"],
 	] as const)("selects the %s hardware H.264 encoder", (type, encoder) => {
-		const args = buildTranscodeVideoArgs(sdrDecision, config, hw(type), toneMap("none"));
-
-		expect(args).toContain(encoder);
+		expect(flagValue(buildTranscodeVideoArgs(sdrDecision, config, hw(type), toneMap("none")), "-c:v")).toBe(encoder);
 	});
 
-	test("uses compatibility-focused H.264 settings and segment-aligned keyframes", () => {
+	test("libx264 uses the High profile, 4:2:0 pixels and segment-aligned forced keyframes", () => {
 		const args = buildTranscodeVideoArgs({ ...sdrDecision, videoBitrateKbps: 3616 }, config, hw("none"), toneMap("none"));
 
-		expect(args).toEqual(
-			expect.arrayContaining(["libx264", "veryfast", "-pix_fmt", "yuv420p", "-force_key_frames", "expr:gte(t,n_forced*6)"]),
-		);
+		expect(flagValue(args, "-c:v")).toBe("libx264");
+		expect(flagValue(args, "-profile:v")).toBe("high");
+		expect(flagValue(args, "-pix_fmt")).toBe("yuv420p");
+		expect(flagValue(args, "-force_key_frames")).toBe("expr:gte(t,n_forced*6)");
 	});
 
 	test("applies the configured x264 preset and CRF in a software transcode", () => {
@@ -192,23 +275,37 @@ describe("buildTranscodeVideoArgs", () => {
 
 		const args = buildTranscodeVideoArgs(sdrDecision, config, hw("none"), toneMap("none"));
 
-		expect(args).toContain("ultrafast");
-		expect(args).toEqual(expect.arrayContaining(["-crf", "28"]));
-		expect(args).toEqual(expect.arrayContaining(["-x264opts:0", "subme=0:me_range=16:rc_lookahead=10:me=hex:open_gop=0"]));
+		expect(flagValue(args, "-preset")).toBe("ultrafast");
+		expect(flagValue(args, "-crf")).toBe("28");
+		expect(flagValue(args, "-x264opts:0")).toBe("subme=0:me_range=16:rc_lookahead=10:me=hex:open_gop=0");
+	});
+
+	test.each([
+		["veryfast", 1],
+		["superfast", 0.35],
+		["ultrafast", 0.2],
+	] as const)("the auto preset is %s on a host at speed factor %s", (preset, factor) => {
+		systemSettingsStore.setRuntimeValue("ffmpeg.preset", "auto");
+		speed.factor = factor;
+
+		expect(flagValue(buildTranscodeVideoArgs(sdrDecision, config, hw("none"), toneMap("none")), "-preset")).toBe(preset);
+	});
+
+	test("an explicit preset ignores the measured speed", () => {
+		systemSettingsStore.setRuntimeValue("ffmpeg.preset", "medium");
+		speed.factor = 0.2;
+
+		expect(flagValue(buildTranscodeVideoArgs(sdrDecision, config, hw("none"), toneMap("none")), "-preset")).toBe("medium");
 	});
 });
 
 describe("transcoded audio arguments", () => {
 	const audioDecision: PlaybackDecision = { ...sdrDecision, audioTranscode: true, audioChannels: 6 };
 
-	afterEach(() => {
-		systemSettingsStore.clearRuntimeValues();
-	});
-
 	test("normalizes the transcoded audio timestamps after a seek", () => {
 		const args = buildTranscodeAudioArgs({ ...sdrDecision, audioTranscode: true });
 
-		expect(args).toContain("aresample=async=1:first_pts=0");
+		expect(flagValue(args, "-af")).toBe("aresample=async=1:first_pts=0");
 	});
 
 	test("uses the configured audio bitrate and keeps the source channel count by default", () => {
@@ -216,7 +313,7 @@ describe("transcoded audio arguments", () => {
 
 		const args = buildTranscodeAudioArgs(audioDecision);
 
-		expect(args).toContain("256k");
+		expect(flagValue(args, "-b:a")).toBe("256k");
 		expect(args.slice(args.indexOf("-ac"))).toEqual(["-ac", "6"]);
 	});
 

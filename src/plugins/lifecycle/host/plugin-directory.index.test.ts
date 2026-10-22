@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTree } from "@/utils/directory.utils";
@@ -46,41 +46,45 @@ describe("PluginDirectoryIndex", () => {
 		expect(index.get("org.reelvault.x")).toBeUndefined();
 	});
 
-	test("refresh indexes plugin manifests and skips non-package directories", async () => {
+	test("refresh indexes plugin manifests and skips support and stray directories", async () => {
 		const pluginsDirectory = await createPluginsRoot();
 		await writePlugin(pluginsDirectory, "pkg-a", "org.reelvault.a");
 		await writePlugin(pluginsDirectory, "pkg-b", "org.reelvault.b");
-		await mkdir(join(pluginsDirectory, "node_modules"), { recursive: true });
-		await mkdir(join(pluginsDirectory, ".runtime"), { recursive: true });
-		await mkdir(join(pluginsDirectory, "not-a-plugin"), { recursive: true });
+		await writePlugin(pluginsDirectory, "node_modules", "org.reelvault.shim");
+		await writePlugin(pluginsDirectory, ".runtime", "org.reelvault.runtime");
+		await mkdir(join(pluginsDirectory, "stray"), { recursive: true });
 
 		const index = new PluginDirectoryIndex();
 		await index.refresh(pluginsDirectory);
 
 		expect(index.get("org.reelvault.a")).toBe("pkg-a");
 		expect(index.get("org.reelvault.b")).toBe("pkg-b");
-		expect(index.get("not-a-plugin")).toBeUndefined();
+		expect(index.get("org.reelvault.shim")).toBeUndefined();
+		expect(index.get("org.reelvault.runtime")).toBeUndefined();
 	});
 
-	test("refresh keeps already-known directories untouched", async () => {
+	test("refresh does not re-read the manifest of a directory it already indexed", async () => {
 		const pluginsDirectory = await createPluginsRoot();
 		await writePlugin(pluginsDirectory, "pkg-a", "org.reelvault.a");
 		const index = new PluginDirectoryIndex();
-		index.set("org.reelvault.a", "pkg-a");
-		await rm(join(pluginsDirectory, "pkg-a", "plugin.json"));
+		await index.refresh(pluginsDirectory);
+		await writePlugin(pluginsDirectory, "pkg-a", "org.reelvault.changed");
 
 		await index.refresh(pluginsDirectory);
 
 		expect(index.get("org.reelvault.a")).toBe("pkg-a");
+		expect(index.get("org.reelvault.changed")).toBeUndefined();
 	});
 
-	test("resolve returns a live indexed entry without rescanning", async () => {
+	test("resolve returns a live indexed entry without rescanning the plugins root", async () => {
 		const pluginsDirectory = await createPluginsRoot();
 		await writePlugin(pluginsDirectory, "pkg-a", "org.reelvault.a");
+		await writePlugin(pluginsDirectory, "pkg-b", "org.reelvault.b");
 		const index = new PluginDirectoryIndex();
 		index.set("org.reelvault.a", "pkg-a");
 
 		await expect(index.resolve("org.reelvault.a", pluginsDirectory)).resolves.toBe("pkg-a");
+		expect(index.get("org.reelvault.b")).toBeUndefined();
 	});
 
 	test("resolve drops a stale entry and finds nothing when the package is gone", async () => {

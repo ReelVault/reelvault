@@ -91,6 +91,17 @@ describe("applyMetadataCandidate", () => {
 		);
 	});
 
+	test("rejects a candidate whose identity names another entity type", () => {
+		expect(() =>
+			applyMetadataCandidate(
+				"movie",
+				"tmdb",
+				providerResult(),
+				candidate({ identity: { providerId: "tmdb", entityType: "tv_show", externalId: "42" } }),
+			),
+		).toThrow(expect.objectContaining({ category: "validation", code: "metadata.invalid_candidate" }));
+	});
+
 	test("rejects candidates without a title or with empty artwork URLs", () => {
 		expect(() => applyMetadataCandidate("movie", "tmdb", providerResult(), candidate({ title: "   " }))).toThrow(
 			expect.objectContaining({ category: "validation", code: "metadata.invalid_candidate" }),

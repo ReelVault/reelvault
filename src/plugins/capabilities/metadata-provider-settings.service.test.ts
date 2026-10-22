@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { MetadataProvider, PluginManifest, PluginRuntime, ReelVaultPlugin } from "@reelvault/sdk/plugin";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
@@ -48,10 +48,14 @@ async function orderedIds(): Promise<string[]> {
 	return (await metadataProviderSettingsService.getOrderedProviders()).map((provider) => provider.id);
 }
 
-afterEach(() => {
+// The order cache and the plugin registry are process-wide: a provider or a cached order from another file must not leak in.
+function resetProviderState(): void {
 	metadataProviderSettingsService.invalidateCache();
 	pluginRegistry.clear();
-});
+}
+
+beforeEach(resetProviderState);
+afterEach(resetProviderState);
 
 test("the per-library override cache is bounded: a cached override is served until 200 other libraries push it out", async () => {
 	const [library] = await db

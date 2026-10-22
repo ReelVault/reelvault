@@ -40,7 +40,7 @@ describe("KodiFormatAdapter", () => {
 		for (const directory of directories.splice(0)) await removeTree(directory);
 	});
 
-	test("writes a standard movie.nfo that the Jellyfin reader reads back without loss", async () => {
+	test("writes a standard movie.nfo that the Jellyfin reader reads back with its titles, dates, text, identifiers, cast, genres and ratings", async () => {
 		const directory = await tempDirectory();
 
 		const result = await adapter.write({ documentPath: join(directory, "movie.nfo"), document: snapshot() });
@@ -49,11 +49,19 @@ describe("KodiFormatAdapter", () => {
 		expect(await readdir(directory)).toEqual(["movie.nfo"]);
 
 		const document = await readJellyfinMovieDocument({ documentPath: join(directory, "movie.nfo") });
-		expect(document?.identifiers).toEqual({ imdb: "tt26657236", tmdb: "1083381" });
-		expect(document?.title).toBe("Backrooms. Bez wyjścia <&>");
-		expect(document?.ratings).toEqual([{ source: "tmdb", value: 7.1 }]);
-		expect(document?.cast).toEqual([{ name: "Kayla Foster", character: "Dźwiękowiec", order: 0 }]);
-		expect(document?.genres).toEqual(["Horror", "Sci-Fi"]);
+		expect(document).toMatchObject({
+			title: "Backrooms. Bez wyjścia <&>",
+			originalTitle: "Backrooms",
+			releaseDate: "2026-05-27",
+			year: 2026,
+			overview: "Clark natrafia na przejście do plątaniny korytarzy.",
+			tagline: "Zobacz, jak daleko to zajdzie.",
+			status: "Released",
+			identifiers: { imdb: "tt26657236", tmdb: "1083381" },
+			genres: ["Horror", "Sci-Fi"],
+			cast: [{ name: "Kayla Foster", character: "Dźwiękowiec", order: 0 }],
+			ratings: [{ source: "tmdb", value: 7.1 }],
+		});
 	});
 
 	test("writes an <episodedetails> document the Jellyfin reader reads back as an episode", async () => {

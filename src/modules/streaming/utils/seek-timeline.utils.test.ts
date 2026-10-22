@@ -9,7 +9,7 @@ describe("seek timeline utils", () => {
 		expect(timelineStart).toBe(120);
 	});
 
-	test("direct-stream aligns to the nearest keyframe before the offset", async () => {
+	test("direct-stream restarts at the keyframe the probe finds before the offset", async () => {
 		const timelineStart = await resolveSeekTimelineStart("direct-stream", "/media/f.mkv", 120, async () => 118.5);
 
 		expect(timelineStart).toBe(118.5);

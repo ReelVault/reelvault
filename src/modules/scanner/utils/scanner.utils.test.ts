@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { filterPathsWithinRoots, isMassRemoval } from "./scanner.utils";
 
 describe("filterPathsWithinRoots", () => {
-	it("does not remove files from library roots that were not scanned", () => {
+	it("keeps only paths inside the scanned roots and rejects a sibling folder that shares the name prefix", () => {
 		expect(
 			filterPathsWithinRoots(
 				["/library/movies/one.mkv", "/library/shows/episode.mkv", "/library/movies-extra/other.mkv"],
@@ -23,7 +23,7 @@ describe("isMassRemoval", () => {
 		expect(isMassRemoval(10, 5, 6)).toBeTrue();
 	});
 
-	it("allows normal incremental removals", () => {
+	it("allows a small incremental removal and flags neither an empty library nor an empty candidate list", () => {
 		expect(isMassRemoval(500, 12, 495)).toBeFalse();
 		expect(isMassRemoval(0, 0, 0)).toBeFalse();
 		expect(isMassRemoval(500, 0, 500)).toBeFalse();

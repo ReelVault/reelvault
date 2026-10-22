@@ -2,6 +2,7 @@ import type { PluginConfigDetails } from "@reelvault/sdk/common";
 import type { PluginConfigField } from "@reelvault/sdk/plugin";
 import { loadPluginManifest } from "@/plugins/lifecycle/plugin.manifest";
 import type { PluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { directoryExists } from "@/utils/directory.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { inferFieldsFromConfig, isBlankConfigValue, markSecretPresence, redactSecretValues, withoutKeys } from "./config-fields.utils";
 import { reloadPlugin } from "./lifecycle.service";
@@ -25,6 +26,10 @@ function invalidConfigError(message: string, field: string | undefined): DomainE
 
 export async function getPluginConfigDetails(state: PluginManagerState, pluginId: string): Promise<PluginConfigDetails> {
 	const pluginDir = await pluginDirectoryOf(state, pluginId);
+	// A plugin id with no package on disk is not installed; it must not read as a broken package.
+	if (!(await directoryExists(pluginDir))) {
+		throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
+	}
 	const manifest = await loadPluginManifest(pluginDir);
 	const config = await state.config.load(pluginDir);
 	// The config schema travels with the loaded plugin module (`defineConfig`);

@@ -4,7 +4,7 @@ import { getFileNameWithoutExt } from "@/utils/path.utils";
 import { episodeThumbFileName, TITLE_BACKDROP_NAMES, TITLE_POSTER_NAMES, UNSUPPORTED_ARTWORK_REGEX } from "./artwork.constants";
 import type { IgnoredLocalAsset } from "./local-media.utils";
 
-const NUMBERED_BACKDROP_REGEX = /^backdrop\d+\.jpg$/;
+const NUMBERED_BACKDROP_REGEX = /^backdrop(\d+)\.jpg$/;
 
 export function indexByLowerCaseName(paths: readonly string[]): Map<string, string> {
 	const map = new Map<string, string>();
@@ -55,9 +55,19 @@ function findArtwork(
 
 	if (!allowNumberedBackdrops) return undefined;
 
+	return lowestNumberedBackdrop(files);
+}
+
+/** The lowest-numbered `backdropN.jpg`, so the pick does not depend on the order the directory lists files in. */
+function lowestNumberedBackdrop(files: ReadonlyMap<string, string>): SidecarArtworkReference | undefined {
+	let lowest: { backdropNumber: number; path: string } | undefined;
 	for (const [name, path] of files) {
-		if (NUMBERED_BACKDROP_REGEX.test(name)) return { path };
+		const match = NUMBERED_BACKDROP_REGEX.exec(name);
+		if (!match) continue;
+
+		const backdropNumber = Number(match[1]);
+		if (!lowest || backdropNumber < lowest.backdropNumber) lowest = { backdropNumber, path };
 	}
 
-	return undefined;
+	return lowest ? { path: lowest.path } : undefined;
 }

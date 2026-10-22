@@ -16,12 +16,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	for (const stub of activeStubs.splice(0)) stub.restore();
+	for (const stub of activeStubs.splice(0).toReversed()) stub.restore();
 	workerService.registry.unregister(imageProcessingWorker.id);
 });
 
 describe("image-processing worker", () => {
-	test("processes image targets through one task per entity type", async () => {
+	test("routes each image target to the processor for its entity type", async () => {
 		const calls: string[] = [];
 		activeStubs.push(
 			stubMethod(imageProcessingService, "processMetadata", () => {

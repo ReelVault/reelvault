@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, setDefaultTimeout } from "bun:test";
+import { afterAll, beforeAll, beforeEach, setDefaultTimeout } from "bun:test";
 import { clearRateLimitBuckets } from "@/api/middleware/rate-limit.middleware";
 import { apiRouter } from "@/api/routes/api.routes";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
@@ -135,5 +135,9 @@ export function prepareSecuritySuite(): void {
 	beforeEach(() => {
 		clearRateLimitBuckets();
 		invalidateSessionCache();
+	});
+	// The last case of a suite leaves its budgets spent. The next file in the same run starts clean.
+	afterAll(() => {
+		clearRateLimitBuckets();
 	});
 }

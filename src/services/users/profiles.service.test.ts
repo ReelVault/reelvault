@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { env } from "@/config/env.config";
 import { hashProfilePin } from "@/utils/crypto.utils";
+import { verifyProfileUnlock } from "@/utils/profile-unlock.utils";
 import { insertProfiles, insertUsers, type ProfileInsert, type ProfileRow, selectProfiles } from "../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
-import { clearWrongPins, PIN_ATTEMPT_LIMIT } from "./profile-pin-attempts.limiter";
+import { clearWrongPins } from "./profile-pin-attempts.limiter";
 import { profilesService } from "./profiles.service";
 
 // Profiles are real rows. The PIN attempt counter is process-wide, so the key these tests use is cleared after each one.
@@ -65,7 +67,7 @@ describe("profilesService.switch", () => {
 		await expect(profilesService.switch({ profileId: "profile-kids", pin: "0000" }, "user-1")).rejects.toMatchObject({
 			category: "forbidden",
 			code: "profile.pin_invalid",
-			params: { attemptsRemaining: PIN_ATTEMPT_LIMIT - 1 },
+			params: { attemptsRemaining: 9 },
 		});
 	});
 
@@ -75,7 +77,7 @@ describe("profilesService.switch", () => {
 		const opened = await profilesService.switch({ profileId: "profile-kids", pin: "2468" }, "user-1");
 
 		expect(opened).toMatchObject({ success: true, profileId: "profile-kids" });
-		expect(opened.unlockToken).toEqual(expect.any(String));
+		expect(verifyProfileUnlock(opened.unlockToken ?? undefined, env.BETTER_AUTH_SECRET)).toMatchObject({ profileId: "profile-kids" });
 	});
 
 	test("refuses a profile that belongs to another account", async () => {

@@ -109,12 +109,13 @@ describe("session store", () => {
 	});
 
 	test("touch refreshes client liveness, but not for ending sessions", () => {
+		dateStub = stubMethod(Date, "now", () => 42_000);
 		const store = new SessionStore();
 		const session = store.register(registration("s1"));
 		session.lastActivity = 0;
 
 		store.touch("s1");
-		expect(session.lastActivity).toBeGreaterThan(0);
+		expect(session.lastActivity).toBe(42_000);
 
 		store.claimRelease("s1");
 		session.lastActivity = 0;
@@ -200,6 +201,7 @@ describe("session store: access to ending sessions", () => {
 		// First 5 sessions must be evicted by FIFO bound (1_000 cap)
 		expect(store.getTerminatedSession("session-0")).toBeUndefined();
 		expect(store.getTerminatedSession("session-4")).toBeUndefined();
+		expect(store.getTerminatedSession("session-5")?.reason).toBe("timeout");
 		expect(store.isProfileTerminatedRecently("profile-0", "file-0", 60_000)).toBeNull();
 		expect(store.isProfileTerminatedRecently("profile-1004", "file-1004", 60_000)).toEqual({ reason: "timeout" });
 	});

@@ -28,11 +28,34 @@ async function unreadIds(): Promise<string[]> {
 		.toSorted();
 }
 
-describe("NotificationsService.updateStatus mark-all scope", () => {
+describe("NotificationsService.updateStatus for all notifications", () => {
 	test("marks only the given type as read when a type is sent", async () => {
 		await seedNotifications();
 
 		expect(await notificationsService.updateStatus({ all: true, type: "new_episode" }, "user-1", "profile-1")).toEqual({ success: true });
 		expect(await unreadIds()).toEqual(["n-other", "n-system"]);
+	});
+
+	test("marks every notification of the recipient read when no type is sent", async () => {
+		await seedNotifications();
+
+		expect(await notificationsService.updateStatus({ all: true }, "user-1", "profile-1")).toEqual({ success: true });
+		expect(await unreadIds()).toEqual(["n-other"]);
+	});
+
+	test("marks the recipient's read notifications unread again when read is false", async () => {
+		await seedNotifications();
+		await insertNotifications(db.client(), {
+			id: "n-read",
+			userId: "user-1",
+			profileId: "profile-1",
+			type: "system",
+			title: "Read",
+			data: {},
+			readAt: new Date(),
+		});
+
+		expect(await notificationsService.updateStatus({ all: true, read: false }, "user-1", "profile-1")).toEqual({ success: true });
+		expect(await unreadIds()).toEqual(["n-episode", "n-other", "n-read", "n-system"]);
 	});
 });

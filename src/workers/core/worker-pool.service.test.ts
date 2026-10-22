@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { WorkerDefinition } from "@reelvault/sdk/common";
 import { eq } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { type WorkerItem, workerJobRepository } from "@/repositories/worker.repository";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { waitFor } from "../../../tests/helpers/wait.helper";
 import { WorkerExecutionPoolService } from "./worker-pool.service";
 
 // Jobs, schedule stats and admin notifications run against the migrated test database. Every job goes
@@ -25,6 +26,7 @@ beforeEach(() => {
 
 afterEach(async () => {
 	await pool.drain();
+	setSystemTime();
 });
 
 /** A handler that settles only when its abort signal fires, rejecting with the abort reason. */
@@ -83,14 +85,15 @@ async function seedAdmin(): Promise<void> {
 		.values({ id: "admin-1", name: "Admin", email: "admin@example.com", emailVerified: true, role: "admin" });
 }
 
+async function adminNotifications() {
+	return await db.client().select().from(schema.notifications);
+}
+
 /** The admin notice is written after the outcome, in a detached task. Waiting for it keeps that write inside the test. */
 async function waitForNotifications() {
-	for (let attempt = 0; attempt < 200; attempt++) {
-		const rows = await db.client().select().from(schema.notifications);
-		if (rows.length > 0) return rows;
-		await Bun.sleep(5);
-	}
-	throw new Error("The admin notification never arrived");
+	await waitFor(async () => (await adminNotifications()).length > 0);
+
+	return await adminNotifications();
 }
 
 describe("worker execution pool: outcomes", () => {
@@ -115,9 +118,9 @@ describe("worker execution pool: outcomes", () => {
 	});
 
 	test("retries a failed job after its backoff while attempts remain", async () => {
+		setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 		await insertPendingJob(3);
 		const item = await claimJob();
-		const before = Date.now();
 
 		pool.start(
 			makeDefinition(() => {
@@ -129,8 +132,8 @@ describe("worker execution pool: outcomes", () => {
 
 		const row = await jobRow();
 		expect(row).toMatchObject({ status: "pending", error: "boom", attempts: 1 });
-		// runAt is stored at whole-second precision, so the bound leaves a second of slack below the backoff.
-		expect(row?.runAt.getTime()).toBeGreaterThanOrEqual(before + BACKOFF_DELAY_MS - 1000);
+		// The first retry waits one base backoff after the failure. The clock is pinned, so the retry time is exact.
+		expect(row?.runAt).toEqual(new Date("2026-01-01T00:00:05.000Z"));
 	});
 
 	test("fails a job permanently, records the failed run, and notifies administrators once attempts are exhausted", async () => {
@@ -191,8 +194,7 @@ describe("worker execution pool: aborts and timeouts", () => {
 		expect(pool.totalRunningCount).toBe(0);
 	});
 
-	// F7: a timeout is a failed attempt, not a user cancellation — retry while
-	// attempts remain, never cancel the job.
+	// A timeout is a failed attempt, not a user cancellation: retry while attempts remain, never cancel the job.
 	test("retries a timed-out job instead of cancelling it", async () => {
 		await insertPendingJob(3);
 		pool.start(makeDefinition(abortableHandler, 5), await claimJob());
@@ -217,9 +219,13 @@ describe("worker execution pool: aborts and timeouts", () => {
 describe("worker execution pool: drain", () => {
 	test("drain returns at its bound while a handler is still running, and waits for it afterwards", async () => {
 		await insertPendingJob(3);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
 		pool.start(
 			makeDefinition(async () => {
-				await Bun.sleep(200);
+				await gate;
 
 				return { ok: true };
 			}),
@@ -229,6 +235,7 @@ describe("worker execution pool: drain", () => {
 		await pool.drain(20);
 		expect(pool.totalRunningCount).toBe(1);
 
+		release();
 		await pool.drain();
 		expect(await jobRow()).toMatchObject({ status: "completed" });
 	});
