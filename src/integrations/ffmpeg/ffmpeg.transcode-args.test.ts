@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { type DetectedHwaccel, hardwareDecodeArgs } from "./capabilities/hwaccel.utils";
 import type { ToneMapConfig } from "./capabilities/tone-mapping.resolver";
@@ -24,6 +25,20 @@ const hw = (type: DetectedHwaccel["type"]): DetectedHwaccel => ({
 });
 
 const toneMap = (method: ToneMapConfig["method"]): ToneMapConfig => ({ method, algorithm: "bt2390" });
+
+const spies: Array<{ mockRestore(): void }> = [];
+
+// The software encoder's preset, resolution cap and x264 lookahead all scale
+// with the measured CPU speed, so the factor is pinned here. A slow CI runner
+// would otherwise see a different preset, a smaller cap and a shorter
+// lookahead, and the argument assertions would depend on the machine.
+beforeEach(() => {
+	spies.push(spyOn(systemResourcesService, "getSpeedFactor").mockReturnValue(1));
+});
+
+afterEach(() => {
+	for (const spy of spies.splice(0)) spy.mockRestore();
+});
 
 const sdrDecision: PlaybackDecision = {
 	mode: "transcode",

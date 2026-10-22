@@ -8,12 +8,12 @@ import { verifyHwaccelCandidates } from "./verify.service";
 // outcome: a build without NVENC fails the encode even on a machine that has
 // the GPU. The probe is therefore replaced, so the expectations hold on every
 // build and every machine.
-const probeCalls: string[][] = [];
+const probeCalls: Array<{ args: string[]; timeoutMs: number | undefined }> = [];
 let probeExitCode = 0;
 
 mockModuleWithRealExports("@/integrations/ffmpeg/capabilities/probe.utils", {
-	runFfmpegDiagnostic: (args: string[]) => {
-		probeCalls.push(args);
+	runFfmpegDiagnostic: (args: string[], timeoutMs?: number) => {
+		probeCalls.push({ args, timeoutMs });
 		return Promise.resolve({ exitCode: probeExitCode, stdout: new Uint8Array(), stderr: probeExitCode === 0 ? "" : "no such device" });
 	},
 });
@@ -79,10 +79,18 @@ describe("verifyHwaccelCandidates", () => {
 		expect(result.verification?.encoder).toBe("h264_nvenc");
 	});
 
+	// The probe runs before the port binds, so a driver that hangs must not keep
+	// the server from starting.
+	it("gives the hardware test encode a short fixed budget", async () => {
+		await verifyHwaccelCandidates([NVENC]);
+
+		expect(probeCalls[0]?.timeoutMs).toBe(5_000);
+	});
+
 	it("encodes with the candidate's own encoder and the device flag it needs", async () => {
 		await verifyHwaccelCandidates([VAAPI]);
 
-		const args = probeCalls[0] ?? [];
+		const args = probeCalls[0]?.args ?? [];
 		expect(args).toContain("h264_vaapi");
 		expect(args).toContain("-frames:v");
 		expect(args[args.indexOf("-frames:v") + 1]).toBe("2");

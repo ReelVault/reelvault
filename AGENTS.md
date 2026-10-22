@@ -99,6 +99,8 @@ const args = buildTranscodeVideoArgs(decision, config, hw("nvenc"), toneMap("non
 
 When the production code reads the host itself, the test replaces the module (`mockModuleWithRealExports`). A test may not call a probe of the detected capabilities — `getEffectiveHwaccel`, `getFfmpegCapabilities`, `resolveEffectiveHwaccel`, `getDetectedDriDevice` — except in the test that owns the module declaring them.
 
+**The subject reads the host too.** A test that exercises a *detection* inherits every host read inside the subject, even the ones it never touches: a DRM-backed accelerator needs a `/dev/dri` node, the software encoder's preset and x264 lookahead scale with the measured CPU speed. Pin those inputs — mock the probe the subject calls, or stub the speed factor.
+
 **The build.** The suite runs against whatever ffmpeg the machine has: upstream ffmpeg, jellyfin-ffmpeg, or a minimal build. They advertise different filters and encoders, so a test that asserts on the *detected* set asserts on the build. Test those decisions with literal sets instead — a fixture, never the probe's output.
 
 **The clock.** A test that measures elapsed time may only compare it against a bound the test itself pins. A bound taken from the host's speed factor or a hard-coded millisecond count is a race against the runner.

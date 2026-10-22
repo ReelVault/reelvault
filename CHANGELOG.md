@@ -652,7 +652,8 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed playback buffer checks** — seeking no longer reports data as buffered while a restart is clearing that buffer.
 - **Improved FFmpeg process cleanup** — cancelled downloads now force-stop processes that ignore `SIGTERM`. FFmpeg and FFprobe waits are also bounded when a process cannot exit.
 - **Corrected HLS keyframe intervals** — GOP sizing now accounts for the source frame rate instead of applying an overly restrictive limit.
-- **Corrected encoder diagnostics** — logs now report software encoding after a hardware-encoder fallback.
+- **Corrected encoder diagnostics** — logs now report software encoding after a hardware-encoder fallback. The transcode log now names the accelerator and encoder that actually encode the stream, not the configured setting, which said nothing about what was used.
+- **Bounded the hardware probe at startup** — the test encode that proves a hardware encoder works now has a short fixed budget, so a driver that hangs instead of failing can no longer keep the server from binding its port.
 - **Fixed keyframe caching** — cached probes no longer return a keyframe from after the requested position.
 
 #### Libraries, scanning & metadata

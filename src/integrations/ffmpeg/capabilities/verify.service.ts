@@ -27,10 +27,21 @@ export interface DecodeTestResult {
 	detail: string | null;
 }
 
-// A 2-frame test encode on a slow single core flirts with a fixed 15 s
-// budget — scale with measured CPU speed so GPU-less weak boxes don't get
-// false "no hwaccel" results.
-function testTimeoutMs() {
+/**
+ * Budget for the test encode that proves a hardware encoder works.
+ *
+ * The probe runs before the port binds, so a driver that hangs instead of
+ * failing would keep the server from starting at all. The encode is two
+ * 256x144 frames on the GPU — milliseconds of work — so the budget is short
+ * and fixed: the CPU speed does not matter here, a hung driver does.
+ */
+const HW_VERIFY_TIMEOUT_MS = 5_000;
+
+/**
+ * Budget for the software step of the on-demand decode test. It runs on the
+ * CPU, so it scales with the measured speed like the other CPU-bound timeouts.
+ */
+function decodeTestTimeoutMs() {
 	return systemResourcesService.scaledTimeoutMs(15_000);
 }
 
@@ -132,7 +143,7 @@ function buildTestEncodeArgs(hw: DetectedHwaccel): string[] {
 }
 
 async function runTestEncode(hw: DetectedHwaccel): Promise<DecodeTestResult> {
-	const { exitCode, stderr } = await runFfmpegDiagnostic(buildTestEncodeArgs(hw), testTimeoutMs());
+	const { exitCode, stderr } = await runFfmpegDiagnostic(buildTestEncodeArgs(hw), HW_VERIFY_TIMEOUT_MS);
 	if (exitCode === 0) return { ok: true, code: null, detail: null };
 
 	return { ok: false, code: "ffmpeg.hwaccel.verify_failed", detail: stderr.trim() || `FFmpeg exited with code ${exitCode}` };
@@ -173,7 +184,7 @@ export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeT
 				"-y",
 				probePath,
 			],
-			testTimeoutMs(),
+			decodeTestTimeoutMs(),
 		);
 		if (generate.exitCode !== 0) {
 			return {
@@ -185,7 +196,7 @@ export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeT
 
 		const decode = await runFfmpegDiagnostic(
 			[...FFMPEG_QUIET_ARGS, ...hardwareDecodeArgs(hw), "-i", probePath, "-frames:v", "2", "-f", "null", "-"],
-			testTimeoutMs(),
+			decodeTestTimeoutMs(),
 		);
 		if (decode.exitCode === 0) return { ok: true, code: null, detail: null };
 

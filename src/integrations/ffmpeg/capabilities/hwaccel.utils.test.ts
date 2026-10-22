@@ -1,6 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";
 import { type DetectedHwaccel, getCandidateHwaccels, hardwareDecodeArgs, resolveEffectiveHwaccel, withDevice } from "./hwaccel.utils";
+
+// A DRM render node is a property of the machine, not of the ffmpeg build. The
+// vaapi and qsv candidates need one on Linux, so the probe is replaced —
+// otherwise the candidate list depends on whether the runner has /dev/dri, and
+// the test passes on a desktop and fails on a container.
+const DRI_DEVICE = "/dev/dri/renderD128";
+
+mockModuleWithRealExports("@/integrations/ffmpeg/capabilities/hwaccel.utils", {
+	getDetectedDriDevice: () => DRI_DEVICE,
+});
 
 // The encoder and accelerator sets are literals, so the expectations hold on
 // every ffmpeg build: a machine with NVENC, a CI runner with a plain apt
@@ -8,7 +19,9 @@ import { type DetectedHwaccel, getCandidateHwaccels, hardwareDecodeArgs, resolve
 const NVENC_ENCODERS = new Set(["libx264", "libx265", "h264_nvenc", "hevc_nvenc", "aac"]);
 const VAAPI_ENCODERS = new Set(["libx264", "libx265", "h264_vaapi", "hevc_vaapi", "aac"]);
 const QSV_ENCODERS = new Set(["libx264", "libx265", "h264_qsv", "hevc_qsv", "aac"]);
+const AMF_ENCODERS = new Set(["libx264", "libx265", "h264_amf", "hevc_amf", "aac"]);
 const SOFTWARE_ENCODERS = new Set(["libx264", "libx265", "aac"]);
+const SOFTWARE: DetectedHwaccel = { type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" };
 
 beforeEach(() => {
 	systemSettingsStore.clearRuntimeValues();
@@ -18,13 +31,15 @@ afterEach(() => {
 	systemSettingsStore.clearRuntimeValues();
 });
 
+afterAll(() => {
+	restoreModuleMocks();
+});
+
 describe("getCandidateHwaccels", () => {
 	it("returns the software encoder when the configuration says so", () => {
 		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "none");
 
-		expect(getCandidateHwaccels(NVENC_ENCODERS, new Set(["cuda"]))).toEqual([
-			{ type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" },
-		]);
+		expect(getCandidateHwaccels(NVENC_ENCODERS, new Set(["cuda"]))).toEqual([SOFTWARE]);
 	});
 
 	it("honours the configured accelerator over the advertised ones", () => {
@@ -40,9 +55,16 @@ describe("getCandidateHwaccels", () => {
 
 	it("takes the device from the configuration", () => {
 		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "nvenc");
-		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccelDevice", "/dev/dri/renderD128");
+		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccelDevice", "/dev/nvidia0");
 
-		expect(getCandidateHwaccels(NVENC_ENCODERS, new Set(["cuda"]))[0]?.device).toBe("/dev/dri/renderD128");
+		expect(getCandidateHwaccels(NVENC_ENCODERS, new Set(["cuda"]))[0]?.device).toBe("/dev/nvidia0");
+	});
+
+	// The DRM render node is what the vaapi and qsv candidates decode through.
+	it("takes the DRM device of the host for the vaapi and qsv candidates", () => {
+		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "vaapi");
+
+		expect(getCandidateHwaccels(VAAPI_ENCODERS, new Set(["vaapi"]))[0]?.device).toBe(DRI_DEVICE);
 	});
 
 	it("picks the first advertised accelerator in auto mode", () => {
@@ -53,13 +75,15 @@ describe("getCandidateHwaccels", () => {
 		expect(candidates[0]?.type).toBe("nvenc");
 	});
 
+	// The build does not advertise the preferred accelerator, so the next one it
+	// does advertise is used.
 	it("falls back to the next advertised accelerator when the first is missing from the build", () => {
 		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "auto");
 
-		const candidates = getCandidateHwaccels(VAAPI_ENCODERS, new Set(["vaapi"]));
+		const candidates = getCandidateHwaccels(AMF_ENCODERS, new Set(["d3d11va"]));
 
-		expect(candidates[0]?.type).toBe("vaapi");
-		expect(candidates[0]?.h264Encoder).toBe("h264_vaapi");
+		expect(candidates[0]?.type).toBe("amf");
+		expect(candidates[0]?.h264Encoder).toBe("h264_amf");
 	});
 
 	// A build that advertises the encoder but cannot run it is caught by the
@@ -100,12 +124,7 @@ describe("resolveEffectiveHwaccel", () => {
 	it("returns the software encoder when the build advertises no accelerator", () => {
 		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "auto");
 
-		expect(resolveEffectiveHwaccel(SOFTWARE_ENCODERS, new Set())).toEqual({
-			type: "none",
-			device: null,
-			h264Encoder: "libx264",
-			hevcEncoder: "libx265",
-		});
+		expect(resolveEffectiveHwaccel(SOFTWARE_ENCODERS, new Set())).toEqual(SOFTWARE);
 	});
 
 	it("returns the configured accelerator when the configuration pins one", () => {

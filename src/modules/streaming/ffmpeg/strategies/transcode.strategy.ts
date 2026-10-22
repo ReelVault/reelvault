@@ -23,8 +23,6 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 
 		if (decision.audioTranscode) this.logger.debug("Transcoding audio", { sessionId });
 
-		if (decision.videoTranscode) this.logger.debug("Transcoding video", { sessionId, hwaccel: serverConfig.ffmpeg.hwaccel });
-
 		this.logger.debug(`Starting ${decision.mode} at ${startTime}s (seg ${startNumber})`, { sessionId, startTime, startNumber });
 
 		// Reserve the streaming slot before reading the count so concurrent starts
@@ -37,6 +35,15 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 			const activeTranscodes = ffmpegProcessTracker.countByPurpose("streaming");
 			const threads = resolveStreamingThreads(configuredThreads, activeTranscodes);
 			const hw = decision.videoTranscode && !decision.forceSoftware ? getEffectiveHwaccel() : undefined;
+			if (decision.videoTranscode) {
+				// The configured setting ("auto", "none") says nothing about what
+				// encodes the stream — the effective accelerator and its encoder do.
+				this.logger.debug("Transcoding video", {
+					sessionId,
+					accelerator: hw?.type ?? "none",
+					encoder: hw?.h264Encoder ?? "libx264",
+				});
+			}
 			// Resolve once and share between the input (zero-copy decision) and output
 			// (filter chain) builders so both agree on whether tone-mapping will run.
 			const toneMap = resolveToneMapConfig();

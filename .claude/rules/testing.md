@@ -108,6 +108,8 @@ mockModuleWithRealExports("@/integrations/ffmpeg/ffmpeg.capabilities", {
 
 A test may not call a probe that reads the detected capabilities — `getEffectiveHwaccel`, `getFfmpegCapabilities`, `resolveEffectiveHwaccel`, `getDetectedDriDevice`. The one exception is the test that owns the module declaring them.
 
+**The subject reads the host too.** A test that exercises a *detection* inherits every host read inside the subject, even the ones the test never touches. The auto-detection of a DRM-backed accelerator needs a `/dev/dri` node; the software encoder's preset, resolution cap and x264 lookahead scale with the measured CPU speed. Pin those inputs — mock the probe the subject calls, or stub the speed factor — or the test passes on a desktop and fails on a CI runner.
+
 **The build.** The suite runs against whatever ffmpeg the machine has: upstream ffmpeg, jellyfin-ffmpeg, or a minimal build. They differ in the filters and encoders they advertise, so a test that asserts on the *detected* set is asserting on the build. The decisions that depend on the build are tested with literal sets instead:
 
 ```ts

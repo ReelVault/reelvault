@@ -188,10 +188,16 @@ function selectMutants(mutants: Mutant[], limit: number): Mutant[] {
 	return chosen;
 }
 
-/** The source with one mutant applied. */
+/**
+ * The source with one mutant applied.
+ *
+ * The mutation site is located on the masked source, but the splice is done on
+ * the original: the mask only hides string literals from the mutation patterns,
+ * and splicing it would blank every literal in the file instead of changing
+ * one spot. The mask keeps the length, so the indices line up.
+ */
 function applyMutant(source: string, mutant: Mutant): string {
-	const masked = maskLiterals(source);
-	return masked.slice(0, mutant.index) + mutant.after + masked.slice(mutant.index + mutant.before.length);
+	return source.slice(0, mutant.index) + mutant.after + source.slice(mutant.index + mutant.before.length);
 }
 
 /** Runs a test file and reports whether it passed. */
@@ -218,6 +224,25 @@ function runTest(file: string): Promise<{ passed: boolean; timedOut: boolean }> 
 	});
 }
 
+/**
+ * The files that currently hold a mutant. An interrupted run must not leave a
+ * mutated source file behind, so the originals are restored on the way out.
+ */
+const pending = new Map<string, string>();
+
+function restorePending(): void {
+	for (const [file, original] of pending) writeFileSync(file, original);
+	pending.clear();
+}
+
+process.on("exit", restorePending);
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+	process.on(signal, () => {
+		restorePending();
+		process.exit(1);
+	});
+}
+
 /** The mutation report for one test file. */
 interface Report {
 	file: string;
@@ -240,11 +265,13 @@ async function measure(flags: { files: string | undefined; maxMutants: number })
 			const subjectSource = readFileSync(subject, "utf8");
 			const mutants = selectMutants(readMutants(subjectSource), flags.maxMutants);
 			for (const mutant of mutants) {
+				pending.set(subject, subjectSource);
 				writeFileSync(subject, applyMutant(subjectSource, mutant));
 				let outcome = { passed: true, timedOut: false };
 				try {
 					outcome = await runTest(testFile);
 				} finally {
+					pending.delete(subject);
 					writeFileSync(subject, subjectSource);
 				}
 				kills.push({ kind: mutant.kind, before: mutant.before, killed: !outcome.passed, timedOut: outcome.timedOut });
