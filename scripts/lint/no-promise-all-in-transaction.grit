@@ -1,0 +1,23 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A rejected Promise.all does not wait for its other members. Inside a transaction, a
+// sibling write still in flight when the rollback runs commits after it, outside the
+// transaction. Statements in a transaction are therefore awaited one after another.
+//
+// Flags Promise.all inside a function that takes the transaction (a parameter named tx,
+// runTx or targetTx, or typed DatabaseTransaction) and inside a callback passed to a
+// transaction opener (transaction, runInTransaction, runTransaction, unitOfWorkRepository.run).
+//
+//     await databaseFactory.transaction(async (tx) => {
+//         await Promise.all([insertA(tx), insertB(tx)]);
+//     });
+`Promise.all($_)` as $all where {
+	or {
+		$all <: within JsArrowFunctionExpression(parameters=r"(?s).*\b(?:tx|\w+Tx|DatabaseTransaction)\b.*"),
+		$all <: within JsFunctionExpression(parameters=r"(?s).*\b(?:tx|\w+Tx|DatabaseTransaction)\b.*"),
+		$all <: within JsFunctionDeclaration(parameters=r"(?s).*\b(?:tx|\w+Tx|DatabaseTransaction)\b.*"),
+		$all <: within JsCallExpression(callee=r"(?s).*\b(?:transaction|runInTransaction|runTransaction|unitOfWorkRepository\.run)")
+	},
+	register_diagnostic(span=$all, message="Promise.all inside a transaction: await the statements one after another, so a failed write cannot leave a sibling committed after the rollback.")
+}

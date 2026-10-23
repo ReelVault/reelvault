@@ -30,6 +30,10 @@
 		{
 			"path": "./scripts/lint/no-lost-error-cause.grit",
 			"includes": ["**/src/**", "!**/packages/**"]
+		},
+		{
+			"path": "./scripts/lint/no-promise-all-in-transaction.grit",
+			"includes": ["**/src/**", "!**/packages/**"]
 		}
 	],
 	"assist": {

@@ -10,6 +10,8 @@ interface Check {
 	name: string;
 	description: string;
 	cmd: string[];
+	/** Print the check's summary even when it passes. */
+	printOutput?: boolean;
 }
 
 interface CheckResult {
@@ -23,16 +25,42 @@ const ROOT = join(import.meta.dir, "..", "..");
 const BIN = join(ROOT, "node_modules", ".bin");
 
 const CHECKS: readonly Check[] = [
-	{ name: "biome", description: "formatting, imports and the Biome rules", cmd: ["biome", "check", "--error-on-warnings"] },
-	{ name: "oxlint", description: "type-aware lint rules", cmd: ["oxlint", "--type-aware", "--deny-warnings"] },
-	{ name: "types", description: "TypeScript", cmd: ["tsc", "--noEmit"] },
-	{ name: "deadcode", description: "unused files, exports and dependencies, import cycles (knip)", cmd: ["knip-bun"] },
+	{
+		name: "biome",
+		description: "formatting, imports and the Biome rules",
+		cmd: ["biome", "check", "--error-on-warnings"],
+	},
+	{
+		name: "oxlint",
+		description: "type-aware lint rules",
+		cmd: ["oxlint", "--type-aware", "--deny-warnings"],
+	},
+	{
+		name: "types",
+		description: "TypeScript",
+		cmd: ["tsc", "--noEmit"],
+	},
+	{
+		name: "deadcode",
+		description: "unused files, exports and dependencies, import cycles (knip)",
+		cmd: ["knip-bun"],
+	},
 	{
 		name: "duplicates",
 		description: "copy/paste budget over src/ (tests included) and over production code",
 		cmd: [process.execPath, "scripts/lint/duplicates.script.ts"],
 	},
-	{ name: "tests", description: "test files that cannot catch a bug", cmd: [process.execPath, "scripts/lint/test-quality.script.ts"] },
+	{
+		name: "tests",
+		description: "test files that cannot catch a bug",
+		cmd: [process.execPath, "scripts/lint/test-quality.script.ts"],
+	},
+	{
+		name: "awaits",
+		description: "adjacent await statements without an ordered-steps explanation",
+		cmd: [process.execPath, "scripts/lint/sequential-awaits.script.ts"],
+		printOutput: true,
+	},
 	{
 		name: "guard",
 		description: "rules no linter ships (suppressions, ignores, strict flags)",
@@ -90,6 +118,7 @@ await Promise.all(
 		const seconds = (result.durationMs / 1000).toFixed(1);
 		if (result.exitCode === 0) {
 			console.log(`✔ ${check.name} (${seconds}s)`);
+			if (check.printOutput && result.output) console.log(result.output);
 
 			return;
 		}

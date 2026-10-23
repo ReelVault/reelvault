@@ -122,6 +122,7 @@ const REQUIRED_BIOME_PLUGINS = [
 	"./scripts/lint/no-namespace-object.grit",
 	"./scripts/lint/no-todo-test.grit",
 	"./scripts/lint/no-lost-error-cause.grit",
+	"./scripts/lint/no-promise-all-in-transaction.grit",
 ] as const;
 
 /** A lint severity, from the weakest to the strongest. */
