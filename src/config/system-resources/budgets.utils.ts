@@ -52,7 +52,7 @@ const CAPS = {
 	scannerConcurrency: 6,
 	ffprobeConcurrency: 3,
 	heavySubprocess: 2,
-	trickplay: 4,
+	trickplay: 2,
 	softwareTranscode: 4,
 } as const;
 

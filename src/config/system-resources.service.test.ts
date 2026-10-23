@@ -39,14 +39,14 @@ describe("SystemResourcesService sizing formulas (injected hardware)", () => {
 				16,
 				1.5,
 				"balanced",
-				{ capacity: 24, reserved: 6, background: 10, ffmpeg: 5, sharp: 4, scanner: 6, ffprobe: 3, pool: 12, trickplay: 4 },
+				{ capacity: 24, reserved: 6, background: 10, ffmpeg: 5, sharp: 4, scanner: 6, ffprobe: 3, pool: 12, trickplay: 2 },
 			],
 			// 32 slowest cores: threads cap at 8, pool at 12.
 			[
 				32,
 				0.35,
 				"balanced",
-				{ capacity: 11, reserved: 16, background: 16, ffmpeg: 8, sharp: 4, scanner: 5, ffprobe: 3, pool: 12, trickplay: 4 },
+				{ capacity: 11, reserved: 16, background: 16, ffmpeg: 8, sharp: 4, scanner: 5, ffprobe: 3, pool: 12, trickplay: 2 },
 			],
 			// Explicit conservative keeps the 50% reserve even on fast cores.
 			[
@@ -60,7 +60,7 @@ describe("SystemResourcesService sizing formulas (injected hardware)", () => {
 				8,
 				1.0,
 				"performance",
-				{ capacity: 8, reserved: 1, background: 7, ffmpeg: 2, sharp: 4, scanner: 4, ffprobe: 3, pool: 10, trickplay: 3 },
+				{ capacity: 8, reserved: 1, background: 7, ffmpeg: 2, sharp: 4, scanner: 4, ffprobe: 3, pool: 10, trickplay: 2 },
 			],
 		];
 

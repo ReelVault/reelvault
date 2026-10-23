@@ -28,7 +28,8 @@ export function buildFrameExtractionCommand(
 
 export function buildSpriteExtractionCommand(inputPath: string, request: SpriteExtractionRequest, outputPath?: string): string[] {
 	const format = request.format ?? "webp";
-	const inputs = request.timeMs.flatMap((timeMs) => ["-ss", (timeMs / 1000).toFixed(3), "-i", inputPath]);
+	// Each seek is its own decoder. Left on automatic threads, every decoder starts one thread per core, so a grid oversubscribes the machine.
+	const inputs = request.timeMs.flatMap((timeMs) => ["-threads", "1", "-ss", (timeMs / 1000).toFixed(3), "-i", inputPath]);
 	const filters = request.timeMs.map((_, index) => `[${index}:v]${buildFitPadFilter(request.width, request.height)}[s${index}]`);
 	const spriteInputs = request.timeMs.map((_, index) => `[s${index}]`).join("");
 	const layout = request.timeMs.map((_, index) => spritePosition(index, request.columns)).join("|");

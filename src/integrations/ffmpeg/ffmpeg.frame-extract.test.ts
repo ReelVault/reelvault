@@ -96,7 +96,7 @@ describe("frame extraction with hardware decoding", () => {
 });
 
 describe("sprite extraction commands", () => {
-	it("builds a sprite command with one seek input per frame time", () => {
+	it("builds a sprite command with one single-threaded seek input per frame time", () => {
 		expect(
 			buildSpriteExtractionCommand("/library/movie.mkv", {
 				mediaFileId: "file-1",
@@ -109,10 +109,14 @@ describe("sprite extraction commands", () => {
 			"-hide_banner",
 			"-loglevel",
 			"error",
+			"-threads",
+			"1",
 			"-ss",
 			"0.000",
 			"-i",
 			"/library/movie.mkv",
+			"-threads",
+			"1",
 			"-ss",
 			"30.000",
 			"-i",
@@ -144,10 +148,14 @@ describe("sprite extraction commands", () => {
 			"-hide_banner",
 			"-loglevel",
 			"error",
+			"-threads",
+			"1",
 			"-ss",
 			"0.000",
 			"-i",
 			"/library/movie.mkv",
+			"-threads",
+			"1",
 			"-ss",
 			"30.000",
 			"-i",

@@ -801,6 +801,7 @@ The browse and collections rows are the combined result of every change above; t
 ### Trickplay generation
 
 - **Faster trickplay rendering** — independent sprite grids render concurrently within a CPU budget. A 10-minute 1080p source with 300 frames **17,390 → 6,524 ms** (2.67×).
+- **Fixed trickplay slowing the whole machine** — at most two sprite grids render at once, and each seek decodes on one thread, so generating trickplay no longer saturates every core and several gigabytes of memory.
 
 ### Performance measurements
 
