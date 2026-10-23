@@ -832,3 +832,11 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 | **Longest maintenance stall**                   |               25.6 ms |                  0.1 ms | 99.6% shorter                        |
 | **64 KB response-body copy**                    |               0.88 ms |                0.015 ms | 58.7× faster                         |
 | **Plugin manifest read on cache miss**          |              0.405 ms |                0.022 ms | 18× faster                           |
+
+# v1.3.3
+
+## Fixes
+
+### Plugins & integrations
+
+- **Fixed plugin pages and dialogs showing 404** — plugin data requests sent with GET, such as the trailer dialog, return the plugin's content again.
