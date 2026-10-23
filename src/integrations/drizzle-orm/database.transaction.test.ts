@@ -161,7 +161,83 @@ describe("DatabaseFactory transaction connections and nesting", () => {
 			expect(rows).toHaveLength(1);
 		});
 	});
+});
 
+describe("DatabaseFactory write scopes", () => {
+	test("a continuation that outlives its transaction is not rolled back with a later transaction", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const continuations: Array<Promise<void>> = [];
+		const boom = new Error("boom");
+
+		// Started inside the first transaction; its write runs only after the gate opens.
+		await databaseFactory.transaction(() => {
+			continuations.push(
+				gate.then(async () => {
+					await databaseFactory.getClient().insert(probe).values({ value: "leaked-write" });
+				}),
+			);
+
+			return Promise.resolve();
+		});
+
+		await expect(
+			databaseFactory.transaction(async (tx) => {
+				await tx.run(sql`INSERT INTO transaction_lock_probe (value) VALUES ('later-rolled-back')`);
+				release();
+				// Long enough for the continuation to run while this transaction is still open.
+				await new Promise((resolve) => {
+					setTimeout(resolve, 20);
+				});
+				throw boom;
+			}),
+		).rejects.toBe(boom);
+
+		await Promise.all(continuations);
+		const [written] = await databaseFactory.getClient().select().from(probe).where(eq(probe.value, "leaked-write"));
+		expect(written).toMatchObject({ value: "leaked-write" });
+	});
+
+	test("a continuation that outlives its queued write waits for the next transaction", async () => {
+		const order: string[] = [];
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const continuations: Array<Promise<void>> = [];
+
+		// Started inside a queued write; its write runs only after the gate opens.
+		await databaseFactory.runWrite(() => {
+			continuations.push(
+				(async () => {
+					await gate;
+					await databaseFactory.runWrite(() => {
+						order.push("leaked-write");
+
+						return Promise.resolve();
+					});
+				})(),
+			);
+
+			return Promise.resolve();
+		});
+
+		await databaseFactory.transaction(async () => {
+			release();
+			await new Promise((resolve) => {
+				setTimeout(resolve, 20);
+			});
+			order.push("transaction-end");
+		});
+		await Promise.all(continuations);
+
+		expect(order).toEqual(["transaction-end", "leaked-write"]);
+	});
+});
+
+describe("DatabaseFactory transaction interleaving", () => {
 	test("interleaved transactions and queued writes never hit the SQLite lock", async () => {
 		const rounds = 20;
 

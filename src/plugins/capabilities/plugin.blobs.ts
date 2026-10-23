@@ -41,11 +41,13 @@ class PluginBlobsService {
 			await this.ensureStorageDirectory();
 
 			let current: PluginBlobRow | undefined;
-			await pluginBlobData.transaction(async (tx) => {
-				current = await pluginBlobData.findEntry(pluginId, key, tx);
-				await this.assertWithinPluginQuota(pluginId, size, current, tx);
-				await writeFileWithRollback(this.storagePath(storageKey), content, () =>
-					pluginBlobData.set(
+			// The file is copied before the transaction, so the database write lock is not held for the copy.
+			// A rejected row (quota) removes the file again through writeFileWithRollback.
+			await writeFileWithRollback(this.storagePath(storageKey), content, () =>
+				pluginBlobData.transaction(async (tx) => {
+					current = await pluginBlobData.findEntry(pluginId, key, tx);
+					await this.assertWithinPluginQuota(pluginId, size, current, tx);
+					await pluginBlobData.set(
 						{
 							pluginId,
 							key,
@@ -57,9 +59,9 @@ class PluginBlobsService {
 							updatedAt: now,
 						},
 						tx,
-					),
-				);
-			});
+					);
+				}),
+			);
 
 			if (current) await deleteFile(this.storagePath(current.storageKey));
 
@@ -111,6 +113,7 @@ class PluginBlobsService {
 				if (page.length === 0) break;
 
 				const keys = page.map((entry) => entry.key);
+				// awaits: sequential — rows are deleted before their files, so no row points at a removed file
 				await pluginBlobData.deleteByKeys(pluginId, keys);
 				await mapConcurrent(page, serverConfig.plugins.blobs.cleanupConcurrency, (entry) => deleteFile(this.storagePath(entry.storageKey)));
 
@@ -167,6 +170,7 @@ class PluginBlobsService {
 	}
 
 	private async deleteEntry(entry: PluginBlobRow): Promise<void> {
+		// awaits: sequential — rows are deleted before their files, so no row points at a removed file
 		await pluginBlobData.delete(entry.pluginId, entry.key);
 		await deleteFile(this.storagePath(entry.storageKey));
 	}

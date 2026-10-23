@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { file } from "bun";
 import { eq } from "drizzle-orm";
@@ -91,6 +92,18 @@ describe("pluginBlobsService.put", () => {
 			pluginBlobsService.put(PLUGIN, "settings.json", bytes("x"), { contentType: "text/plain", expiresInMs: 60_000 }),
 		).rejects.toMatchObject({ category: "validation", code: "plugin.blobs_quota_exceeded" });
 		expect((await storedBlobs()).map((row) => row.key)).toEqual(["existing.bin"]);
+	});
+
+	test("leaves no blob file behind when a write is rejected for quota", async () => {
+		await seedQuotaUse(serverConfig.plugins.blobs.maxStorageBytes);
+		await mkdir(serverConfig.paths.pluginBlobs, { recursive: true });
+		const filesBefore = await readdir(serverConfig.paths.pluginBlobs);
+
+		await expect(
+			pluginBlobsService.put(PLUGIN, "settings.json", bytes("x"), { contentType: "text/plain", expiresInMs: 60_000 }),
+		).rejects.toMatchObject({ category: "validation", code: "plugin.blobs_quota_exceeded" });
+
+		expect(await readdir(serverConfig.paths.pluginBlobs)).toEqual(filesBefore);
 	});
 
 	test("accepts a write that fills the plugin quota exactly", async () => {

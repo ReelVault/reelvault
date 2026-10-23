@@ -5,9 +5,14 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { forEachChunked, mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { toMap, unique } from "@/utils/array.utils";
+import { DomainError } from "@/utils/domain.errors";
+import { isNullish } from "@/utils/type.utils";
 import { applyOperationCounts, items, RELEASE_CLAIM, runningJobWhere, toOperationCounts, type WorkerItem } from "./shared.types";
 
 export async function cancelPending(id: string, tx?: DatabaseTransaction): Promise<boolean> {
+	// Without a caller's transaction, the item, its operation counter and its dependents change together or not at all.
+	if (!tx) return await databaseFactory.transaction(async (innerTx) => await cancelPending(id, innerTx));
+
 	const client = databaseFactory.getClient({ tx });
 	const now = new Date();
 	// The guarded UPDATE reports both "missing" and "not pending" as an empty
@@ -24,13 +29,7 @@ export async function cancelPending(id: string, tx?: DatabaseTransaction): Promi
 		await workerOperationRepository.markPendingJobsCancelled(updated.operationId, now, tx, 1);
 	}
 
-	if (tx) {
-		await cascadeCancel(tx, [id], now);
-	} else {
-		await databaseFactory.transaction(async (innerTx) => {
-			await cascadeCancel(innerTx, [id], now);
-		});
-	}
+	await cascadeCancel(tx, [id], now);
 
 	return true;
 }
@@ -113,6 +112,11 @@ async function cancelPendingWhere(
 	now: Date,
 	applyCounts: (tx: DatabaseTransaction, rows: Array<{ operationId: string | null }>) => Promise<void>,
 ): Promise<number> {
+	// `.where(undefined)` matches every row, so a missing condition is refused before anything is written.
+	if (isNullish(where)) {
+		throw new DomainError("internal", "Cancelling pending jobs requires a condition", { code: "worker.cancel_condition_missing" });
+	}
+
 	return await databaseFactory.transaction(async (tx) => {
 		const updated = await tx
 			.update(items)

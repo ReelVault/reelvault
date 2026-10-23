@@ -112,6 +112,14 @@ export class ProfilePreferencesRepository {
 		body: UpdateProfilePreferences;
 		tx?: DatabaseTransaction | undefined;
 	}): Promise<ProfilePreferences> {
+		if (!tx) {
+			// Cleared after the commit: a read between the writes and the commit would cache the overrides being replaced.
+			const updated = await databaseFactory.transaction(async (innerTx) => await this.applyUpdate({ profileId, body, tx: innerTx }));
+			this.cache.delete(profileId);
+
+			return updated;
+		}
+
 		const defaults = profileDefaultPreferences();
 		const upserts: Array<{ key: string; value: string }> = [];
 		const removals: string[] = [];

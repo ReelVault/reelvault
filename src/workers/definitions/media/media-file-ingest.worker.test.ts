@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { LibraryWithRelations } from "@reelvault/sdk/common";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import type { ProcessedMediaFileWithMarkers } from "@/modules/scanner/scanner.types";
+import { DomainError } from "@/utils/domain.errors";
 import type { MediaFileIngestTaskDependencies } from "./media-file-ingest/media-file-ingest.types";
 import { ingestMediaFileTask } from "./media-file-ingest.worker";
 
@@ -192,14 +193,31 @@ describe("media-file-ingest worker", () => {
 
 		expect(calls).toEqual([
 			"process:ingest-1",
-			"clearFinding",
 			"persist",
+			"clearFinding",
 			"trickplay",
 			"sidecars",
 			"discovered",
 			"identified",
 			"analysis:ingest-1",
 		]);
+	});
+});
+
+describe("media-file-ingest worker: scan finding on failure", () => {
+	test("keeps the scan finding when the media file cannot be persisted", async () => {
+		const harness = createMultiEpisodeHarness();
+		const insertError = new DomainError("internal", "Media file insert failed", { code: "media_file.insert_failed" });
+		const dependencies: MediaFileIngestTaskDependencies = {
+			...harness.dependencies,
+			createMediaFile: () => Promise.reject(insertError),
+		};
+
+		await expect(
+			ingestMediaFileTask({ libraryId: "library-1", libraryType: "movie", filePath: "/media/movie.mkv" }, {}, dependencies),
+		).rejects.toMatchObject({ category: "internal", code: "media_file.insert_failed" });
+
+		expect(harness.calls).not.toContain("clearFinding");
 	});
 });
 
@@ -315,8 +333,8 @@ describe("media-file-ingest worker: completion order per episode target", () => 
 		).resolves.toMatchObject({ mediaFileId: "media-metadata-1", created: true, analysisTaskId: "analysis-media-metadata-1" });
 
 		expect(calls).toEqual([
-			"clearFinding",
 			"persist:metadata-1",
+			"clearFinding",
 			"persist:metadata-2",
 			"subtitles:media-metadata-2",
 			"trickplay:media-metadata-2",
@@ -360,8 +378,8 @@ describe("media-file-ingest worker: completion order per episode target", () => 
 		).resolves.toMatchObject({ mediaFileId: "media-metadata-1", created: true, analysisTaskId: "analysis-media-metadata-1" });
 
 		expect(calls).toEqual([
-			"clearFinding",
 			"persist:metadata-1",
+			"clearFinding",
 			"persist:metadata-2",
 			"subtitles:media-metadata-2",
 			"trickplay:media-metadata-2",

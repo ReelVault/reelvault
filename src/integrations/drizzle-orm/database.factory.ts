@@ -79,8 +79,18 @@ export function queryCacheEntriesForMemoryKiB(totalKiB: number | undefined): num
 
 Database.MAX_QUERY_CACHE_SIZE = queryCacheEntriesForMemoryKiB(getTotalMemoryKiB());
 
+/**
+ * One top-level transaction or queued write. Closed when it ends, so a
+ * continuation that outlives it stops using that transaction's connection and
+ * lock.
+ */
+interface WriteScope {
+	open: boolean;
+}
+
 interface TransactionContext {
 	depth: number;
+	scope: WriteScope;
 }
 
 export class DatabaseFactory {
@@ -101,11 +111,11 @@ export class DatabaseFactory {
 	private readonly als = new AsyncLocalStorage<TransactionContext>();
 	private transactionLock: Promise<void> = Promise.resolve();
 	/**
-	 * True while the current async context holds the write lock (a queued write
+	 * The write scope of the current async context while it still holds the write lock (a queued write
 	 * or a top-level transaction) — nested writes must run inline instead of
 	 * queueing on the lock they already own.
 	 */
-	private readonly writeLockStore = new AsyncLocalStorage<true>();
+	private readonly writeLockStore = new AsyncLocalStorage<WriteScope>();
 	/** Main client with writes routed through `runWrite`; created lazily. */
 	private queuedClient: DatabaseType | null = null;
 
@@ -142,7 +152,15 @@ export class DatabaseFactory {
 			});
 		}
 
-		runMigrations(this.db, { migrationsFolder });
+		// `PRAGMA foreign_keys` is a no-op inside a transaction, and the migrator wraps all pending migrations in one.
+		// It must be off before the migrator starts: a migration that rebuilds a parent table would otherwise
+		// cascade-delete the rows of its children when the old table is dropped.
+		this.sqlite.run("PRAGMA foreign_keys = OFF");
+		try {
+			runMigrations(this.db, { migrationsFolder });
+		} finally {
+			this.sqlite.run("PRAGMA foreign_keys = ON");
+		}
 		this.analyzeIfStatisticsMissing();
 		// Cheap stats refresh after schema/index changes; a no-op when the planner
 		// already has what it needs.
@@ -199,6 +217,7 @@ export class DatabaseFactory {
 	 */
 	async analyzeChunked(): Promise<void> {
 		for (const table of this.listAnalyzableTables()) {
+			// awaits: sequential — yields to the event loop between database writes so requests are not starved
 			await this.runWrite(() => {
 				const analyze = (connection: Database): void => {
 					this.analyzeConnection(connection, quoteIdentifier(table));
@@ -208,6 +227,7 @@ export class DatabaseFactory {
 
 				return Promise.resolve();
 			});
+
 			await sleep(0);
 		}
 	}
@@ -241,6 +261,7 @@ export class DatabaseFactory {
 	 */
 	async optimizeFts(): Promise<void> {
 		for (const statement of FTS_OPTIMIZE_STATEMENTS) {
+			// awaits: sequential — yields to the event loop between database writes so requests are not starved
 			await this.runWrite(() => {
 				this.sqlite.run(statement);
 
@@ -274,7 +295,7 @@ export class DatabaseFactory {
 
 		// Inside a transaction every statement belongs to it: the transaction
 		// connection sees its own uncommitted writes and never waits on itself.
-		if (this.als.getStore()) return this.getTransactionDrizzle();
+		if (this.currentTransaction()) return this.getTransactionDrizzle();
 
 		this.queuedClient ??= createQueuedWriteClient(this.db, (write) => this.runWrite(write));
 
@@ -316,7 +337,7 @@ export class DatabaseFactory {
 	}
 
 	async transaction<T>(callback: (tx: DatabaseTransaction) => Promise<T>, options: { immediate?: boolean } = {}): Promise<T> {
-		const currentStore = this.als.getStore();
+		const currentStore = this.currentTransaction();
 
 		if (currentStore) {
 			const depth = currentStore.depth + 1;
@@ -325,7 +346,7 @@ export class DatabaseFactory {
 			txClient.run(`SAVEPOINT ${savepoint}`);
 
 			try {
-				const result = await this.als.run({ depth }, () => callback(this.getTransactionDrizzle()));
+				const result = await this.als.run({ depth, scope: currentStore.scope }, () => callback(this.getTransactionDrizzle()));
 				txClient.run(`RELEASE SAVEPOINT ${savepoint}`);
 
 				return result;
@@ -341,7 +362,8 @@ export class DatabaseFactory {
 			}
 		}
 
-		const holdsWriteLock = this.writeLockStore.getStore() === true;
+		const holdsWriteLock = this.holdsWriteLock();
+		const scope: WriteScope = { open: true };
 		let releaseLock: (() => void) | undefined;
 		if (!holdsWriteLock) {
 			releaseLock = await this.acquireWriteLock();
@@ -358,7 +380,9 @@ export class DatabaseFactory {
 			// depth rather than a requirement.
 			txClient.run(options.immediate ? "BEGIN IMMEDIATE" : "BEGIN");
 			try {
-				const result = await this.writeLockStore.run(true, () => this.als.run({ depth: 1 }, () => callback(this.getTransactionDrizzle())));
+				const result = await this.writeLockStore.run(scope, () =>
+					this.als.run({ depth: 1, scope }, () => callback(this.getTransactionDrizzle())),
+				);
 				txClient.run("COMMIT");
 
 				return result;
@@ -372,6 +396,7 @@ export class DatabaseFactory {
 				throw error;
 			}
 		} finally {
+			scope.open = false;
 			releaseLock?.();
 		}
 	}
@@ -389,15 +414,29 @@ export class DatabaseFactory {
 	 * the lock and runs inline.
 	 */
 	async runWrite<T>(write: () => Promise<T>): Promise<T> {
-		if (this.writeLockStore.getStore()) return await write();
+		if (this.holdsWriteLock()) return await write();
 
 		const releaseLock = await this.acquireWriteLock();
+		const scope: WriteScope = { open: true };
 
 		try {
-			return await this.writeLockStore.run(true, write);
+			return await this.writeLockStore.run(scope, write);
 		} finally {
+			scope.open = false;
 			releaseLock();
 		}
+	}
+
+	/** The open transaction of the current async context; a closed one is a leftover and is ignored. */
+	private currentTransaction(): TransactionContext | undefined {
+		const store = this.als.getStore();
+
+		return store?.scope.open ? store : undefined;
+	}
+
+	/** Whether the current async context still owns the write lock, so nested writes run inline. */
+	private holdsWriteLock(): boolean {
+		return this.writeLockStore.getStore()?.open === true;
 	}
 
 	/** Takes the next slot in the transaction/write chain. Callers MUST release. */

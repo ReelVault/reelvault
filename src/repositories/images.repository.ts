@@ -266,7 +266,7 @@ const overrides = {
 	},
 
 	async replaceProfileAvatar(profileId: string, image: PersistedImageInput): Promise<{ imageId: string; avatarUrl: string }> {
-		const replaced = await databaseFactory.transaction(
+		const { previousImageId: staleImageId, ...replaced } = await databaseFactory.transaction(
 			async (tx) => {
 				const client = databaseFactory.getClient({ tx });
 				const [profile] = await client
@@ -282,20 +282,23 @@ const overrides = {
 
 				// The replaced avatar row (and file) would otherwise leak forever —
 				// profiles are not part of the generic owner-collection path.
-				const previousImageId = profile.avatarUrl?.startsWith(AVATAR_URL_IMAGE_PREFIX)
-					? profile.avatarUrl.slice(AVATAR_URL_IMAGE_PREFIX.length)
-					: undefined;
+				let previousImageId: string | undefined;
+				if (profile.avatarUrl?.startsWith(AVATAR_URL_IMAGE_PREFIX))
+					previousImageId = profile.avatarUrl.slice(AVATAR_URL_IMAGE_PREFIX.length);
+
 				if (previousImageId && previousImageId !== persisted.id) {
 					await deleteImageIfUnreferenced(previousImageId, tx);
 				}
 
-				return { imageId: persisted.id, avatarUrl };
+				return { imageId: persisted.id, avatarUrl, previousImageId };
 			},
 			{ immediate: true },
 		);
 		// The auth hot path caches the profile for a few seconds; drop it only after the commit
 		// so a concurrent read cannot repopulate the cache with the old avatar.
 		profilesRepository.invalidateCached(profileId);
+		// Same for the replaced avatar file: it is forgotten only once the deletion has committed.
+		if (staleImageId) fileReadCache.delete(staleImageId);
 
 		return replaced;
 	},
@@ -336,7 +339,7 @@ async function replaceOwnerImage<TOwner>(
 	loadOwner: (tx: DatabaseTransaction) => Promise<TOwner>,
 	applyImage: (owner: TOwner, persisted: typeof schema.images.$inferSelect, tx: DatabaseTransaction) => Promise<string[]>,
 ): Promise<void> {
-	await databaseFactory.transaction(
+	const previousImageIds = await databaseFactory.transaction(
 		async (tx) => {
 			const owner = await loadOwner(tx);
 			const persisted = await upsertImage(image, tx);
@@ -344,9 +347,13 @@ async function replaceOwnerImage<TOwner>(
 			for (const staleImageId of staleImageIds) {
 				if (staleImageId !== persisted.id) await deleteImageIfUnreferenced(staleImageId, tx);
 			}
+
+			return staleImageIds;
 		},
 		{ immediate: true },
 	);
+	// Dropped after the commit: a read inside the transaction would cache the row that is about to be deleted.
+	for (const imageId of previousImageIds) fileReadCache.delete(imageId);
 }
 
 async function deleteImageIfUnreferenced(imageId: string, tx: DatabaseTransaction): Promise<void> {
@@ -369,7 +376,6 @@ async function deleteImageIfUnreferenced(imageId: string, tx: DatabaseTransactio
 	if (row?.referenced) return;
 
 	await client.delete(schema.images).where(eq(schema.images.id, imageId));
-	fileReadCache.delete(imageId);
 }
 
 async function findSeasonOwnedBy(metadataId: string, seasonId: string, tx?: DatabaseTransaction) {

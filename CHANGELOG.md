@@ -668,6 +668,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed false new-episode notifications** — adding another file for an existing episode no longer sends one.
 - **Fixed duplicate title matching** — titles differing only in capitalization or Unicode are matched consistently; conflicting provider updates merge duplicates instead of failing.
 - **Fixed Windows library cleanup** — removed files no longer leave stale media entries or scan findings.
+- **Fixed lost scan findings after a failed import** — a file whose import fails stays in the library's scan findings instead of dropping out of the list.
 - **Fixed subtitle extraction** — MKV cover art, fonts and data tracks are no longer imported as subtitles; editing a subtitle clears cached cues.
 - **Fixed deleted subtitle caching** — deleting a subtitle now clears its cached file information immediately.
 - **Fixed duplicate external subtitles** — uploading the same language again no longer reports it as missing or deletes the file.
@@ -692,8 +693,10 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed plugin lifecycle isolation** — unloading a plugin no longer unregisters core workers with the same name.
 - **Improved plugin configuration errors** — lockfile read and write failures are no longer silent when enabling or disabling a plugin.
 - **Improved plugin repository diagnostics** — counts are accurate and unsupported token formats report the real error.
+- **Improved plugin event timing** — plugin handlers for enabling, disabling, finished library scans and ready media files run in the background, so the action that triggered them no longer waits for them.
 - **Improved plugin administration performance** — manifests and lockfiles are no longer reread for every admin view.
 - **Fixed notification channel errors** — failures are logged without unhandled promise rejections.
+- **Fixed notification creation errors** — a notification is no longer reported as failed when its live update fails after it was saved.
 - **Fixed phantom plugin cards** — reloading an uninstalled plugin now returns `404 plugin.not_found` instead of leaving a failed card.
 - **Fixed duplicate plugin entities** — registering the same entity id twice in one batch is rejected with `plugin.entity_duplicate`.
 - **Fixed uninstalled plugin configuration** — the endpoint returns `404 plugin.not_found` instead of reporting a broken package.
@@ -705,6 +708,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed operation progress** — resumed operations count only jobs actually re-enqueued, and fully queued operations no longer stay pending.
 - **Fixed cancellation of dependent jobs** — shared dependencies are counted once, so progress cannot exceed 100%.
 - **Fixed job cancellation races** — pending jobs are cancelled before running jobs, and cancelled operations cannot start more work.
+- **Fixed partial job cancellation** — cancelling a queued job and its pending dependents now succeeds or fails as one step.
 - **Fixed worker finalization** — failed finalization is logged instead of producing an unhandled rejection.
 - **Fixed manual worker runs** — deduplication races no longer leave phantom pending operations.
 - **Fixed worker progress consistency** — task and operation progress now update in one transaction.
@@ -731,6 +735,7 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed paginated ordering** — recommendations, markers, admin users and sessions no longer skip or repeat rows when timestamps match.
 - **Fixed container CPU monitoring** — container CPU now uses cgroup measurements instead of host-wide usage.
 - **Fixed negative memory readings** — usage is clamped to the effective total, so the dashboard no longer fails under a memory limit.
+- **Fixed partial preference updates** — a failed save no longer leaves a profile's preferences half-updated.
 - **Fixed admin profile routes** — profile listing and creation now return 404 for unknown accounts.
 - **Fixed server component upgrades** — failed swaps restore moved files instead of leaving the installation without the server directory.
 - **Fixed static asset MIME types** — web and plugin assets now use consistent types, including JavaScript, fonts and WebVTT.

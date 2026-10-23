@@ -95,14 +95,14 @@ export async function ingestMediaFileTask(
 			return await recordIngestSkip(data, mediaFile, context, dependencies);
 		}
 
-		await dependencies.deleteScanFinding(data.libraryId, data.filePath);
-
 		// Chapter markers are NOT part of CreateMediaFile — strip before insert.
 		const { automaticMarkers, ...createData } = mediaFile;
+		// awaits: sequential — the scan finding is cleared only once the file row exists, so a failed insert keeps it
 		const { mediaFile: createdMediaFile, created } = await dependencies.createMediaFile({
 			libraryId: data.libraryId,
 			...createData,
 		});
+		await dependencies.deleteScanFinding(data.libraryId, data.filePath);
 
 		if (created) {
 			// A new title must not stay hidden behind a cached catalog list until its
@@ -145,6 +145,7 @@ export async function ingestMediaFileTask(
 			);
 		}
 
+		// awaits: sequential — subtitles are imported before trickplay is queued for the file
 		await importIngestSubtitles(createdMediaFile.id, data.filePath, dependencies);
 		// Built-in trickplay: generate previews for freshly ingested files.
 		await enqueueTrickplayIfEnabled(createdMediaFile.id, data.libraryId, dependencies);
