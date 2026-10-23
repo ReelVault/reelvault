@@ -1,1 +1,0 @@
-CREATE INDEX `media_files_library_size_idx` ON `media_files` (`library_id`,`file_size`);

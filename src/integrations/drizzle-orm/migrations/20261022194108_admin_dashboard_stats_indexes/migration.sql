@@ -1,2 +1,0 @@
-CREATE INDEX `media_files_admin_stats_idx` ON `media_files` (`file_size`,`movie_id`,`episode_id`,`quality_tag`);--> statement-breakpoint
-CREATE INDEX `metadata_admin_stats_idx` ON `metadata` (`type`,`match_score`,`has_missing_translation`);

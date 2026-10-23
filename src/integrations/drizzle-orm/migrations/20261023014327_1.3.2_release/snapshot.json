@@ -1,8 +1,8 @@
 {
 	"version": "7",
 	"dialect": "sqlite",
-	"id": "969ff59e-3454-4bbc-b616-b1e46c325a74",
-	"prevIds": ["ba5e14c5-7421-4505-ab51-a8f6b7e01688"],
+	"id": "9bde736a-893c-48f6-b77f-5b1fd1fbaab2",
+	"prevIds": ["da938c08-eb2c-4790-975d-0920c6198407"],
 	"ddl": [
 		{
 			"name": "admin_audit_logs",
@@ -122,6 +122,14 @@
 		},
 		{
 			"name": "media_markers",
+			"entityType": "tables"
+		},
+		{
+			"name": "catalog_media_stats",
+			"entityType": "tables"
+		},
+		{
+			"name": "library_media_stats",
 			"entityType": "tables"
 		},
 		{
@@ -2781,6 +2789,126 @@
 			"name": "updated_at",
 			"entityType": "columns",
 			"table": "media_markers"
+		},
+		{
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "id",
+			"entityType": "columns",
+			"table": "catalog_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "file_count",
+			"entityType": "columns",
+			"table": "catalog_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "total_size",
+			"entityType": "columns",
+			"table": "catalog_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "movie_count",
+			"entityType": "columns",
+			"table": "catalog_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "episode_count",
+			"entityType": "columns",
+			"table": "catalog_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "quality_count",
+			"entityType": "columns",
+			"table": "catalog_media_stats"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "library_id",
+			"entityType": "columns",
+			"table": "library_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "file_count",
+			"entityType": "columns",
+			"table": "library_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "total_size",
+			"entityType": "columns",
+			"table": "library_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "movie_count",
+			"entityType": "columns",
+			"table": "library_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "episode_count",
+			"entityType": "columns",
+			"table": "library_media_stats"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"name": "quality_count",
+			"entityType": "columns",
+			"table": "library_media_stats"
 		},
 		{
 			"type": "text",
@@ -6277,6 +6405,17 @@
 			"table": "media_markers"
 		},
 		{
+			"columns": ["library_id"],
+			"tableTo": "libraries",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"name": "fk_library_media_stats_library_id_libraries_id_fk",
+			"entityType": "fks",
+			"table": "library_media_stats"
+		},
+		{
 			"columns": ["metadata_id"],
 			"tableTo": "metadata",
 			"columnsTo": ["id"],
@@ -7141,6 +7280,20 @@
 			"nameExplicit": false,
 			"name": "media_markers_pk",
 			"table": "media_markers",
+			"entityType": "pks"
+		},
+		{
+			"columns": ["id"],
+			"nameExplicit": false,
+			"name": "catalog_media_stats_pk",
+			"table": "catalog_media_stats",
+			"entityType": "pks"
+		},
+		{
+			"columns": ["library_id"],
+			"nameExplicit": false,
+			"name": "library_media_stats_pk",
+			"table": "library_media_stats",
 			"entityType": "pks"
 		},
 		{
