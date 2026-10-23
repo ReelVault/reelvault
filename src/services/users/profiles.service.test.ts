@@ -90,6 +90,32 @@ describe("profilesService.switch", () => {
 	});
 });
 
+describe("profilesService.create", () => {
+	test("refuses a name longer than 100 characters and stores no profile", async () => {
+		await expect(profilesService.create({ name: "a".repeat(101) }, undefined, "user-1")).rejects.toMatchObject({
+			category: "validation",
+			code: "profile.name_too_long",
+		});
+		expect(await selectProfiles(db.client())).toEqual([]);
+	});
+
+	test("refuses an avatar that is a script URL and stores no profile", async () => {
+		await expect(
+			profilesService.create({ name: "Alex", avatarUrl: "data:text/html;base64,PHNjcmlwdD4=" }, undefined, "user-1"),
+		).rejects.toMatchObject({
+			category: "validation",
+			code: "profile.avatar_url_invalid",
+		});
+		expect(await selectProfiles(db.client())).toEqual([]);
+	});
+
+	test("accepts a local image path as the avatar", async () => {
+		await profilesService.create({ name: "Alex", avatarUrl: "/v1/images/avatar-1" }, undefined, "user-1");
+
+		expect((await selectProfiles(db.client())).map((row) => row.avatarUrl)).toEqual(["/v1/images/avatar-1"]);
+	});
+});
+
 describe("profilesService.update", () => {
 	test("answers profile.name_conflict when renaming onto a sibling's name", async () => {
 		await seedProfile({ id: "profile-1", userId: "user-1", name: "Alex" });
@@ -108,6 +134,28 @@ describe("profilesService.update", () => {
 		await profilesService.update("profile-1", { pin: null, avatarUrl: null }, undefined, "user-1");
 
 		expect(await storedProfile("profile-1")).toMatchObject({ pin: null, avatarUrl: null });
+	});
+
+	test("refuses a rename longer than 100 characters and keeps the stored name", async () => {
+		await seedProfile({ id: "profile-1", userId: "user-1", name: "Alex" });
+
+		await expect(profilesService.update("profile-1", { name: "b".repeat(101) }, undefined, "user-1")).rejects.toMatchObject({
+			category: "validation",
+			code: "profile.name_too_long",
+		});
+		expect((await storedProfile("profile-1"))?.name).toBe("Alex");
+	});
+
+	test("refuses a script URL as the avatar and keeps the stored avatar", async () => {
+		await seedProfile({ id: "profile-1", userId: "user-1", name: "Alex", avatarUrl: "/v1/images/old.png" });
+
+		await expect(
+			profilesService.update("profile-1", { avatarUrl: "data:text/html,<script>alert(1)</script>" }, undefined, "user-1"),
+		).rejects.toMatchObject({
+			category: "validation",
+			code: "profile.avatar_url_invalid",
+		});
+		expect((await storedProfile("profile-1"))?.avatarUrl).toBe("/v1/images/old.png");
 	});
 
 	test("keeps the PIN and the avatar when an update leaves them out", async () => {

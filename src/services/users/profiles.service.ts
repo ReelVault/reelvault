@@ -29,6 +29,24 @@ import { runSafely } from "@/utils/safe-execute.utils";
 import { clearWrongPins, pinAttemptStatus, recordWrongPin } from "./profile-pin-attempts.limiter";
 
 const EXTERNAL_AVATAR_URL_PATTERN = /^https?:\/\//i;
+/** Longest profile name the server stores. */
+const MAX_PROFILE_NAME_LENGTH = 100;
+/** An avatar is an absolute web URL or a local image path the server issued; a `javascript:` or `data:` URL is refused. */
+const AVATAR_URL_PATTERN = /^(https?:\/\/|\/v1\/images\/)/i;
+
+/** Refuses the values a profile row must not hold: an over-long name, or an avatar that is not a web or local image URL. */
+function assertProfileFields(fields: { name?: string | undefined; avatarUrl?: string | null | undefined }): void {
+	if (fields.name !== undefined && fields.name.length > MAX_PROFILE_NAME_LENGTH) {
+		throw new DomainError("validation", `Profile name must not exceed ${MAX_PROFILE_NAME_LENGTH} characters`, {
+			code: "profile.name_too_long",
+			params: { maxLength: MAX_PROFILE_NAME_LENGTH },
+		});
+	}
+
+	if (typeof fields.avatarUrl === "string" && !AVATAR_URL_PATTERN.test(fields.avatarUrl)) {
+		throw new DomainError("validation", "Profile avatar must be a web URL or a local image path", { code: "profile.avatar_url_invalid" });
+	}
+}
 
 class ProfilesService {
 	readonly serviceName = "ProfilesService";
@@ -84,6 +102,7 @@ class ProfilesService {
 	async create<F extends string>(body: CreateProfile, query?: FieldsQuery<F>, userId?: string): Promise<SelectFields<Profile, F>> {
 		return await runSafely(this, "create", async () => {
 			assertUserId(userId);
+			assertProfileFields(body);
 			// Administrative quota (0 = unlimited) — keep self-hosted instances from
 			// unbounded profile growth.
 			const maxProfiles = serverConfig.profiles.maxProfilesPerUser;
@@ -139,6 +158,7 @@ class ProfilesService {
 	): Promise<SelectFields<Profile, F>> {
 		return await runSafely(this, "update", async () => {
 			assertUserId(userId);
+			assertProfileFields(body);
 			const profile = await this.findOwnedProfile(profileId, userId);
 
 			// Renaming onto a sibling's name would otherwise die on the unique

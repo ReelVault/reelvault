@@ -288,6 +288,39 @@ describe("DownloadsService job ownership", () => {
 	});
 });
 
+describe("DownloadsService.resolveFileForProfile", () => {
+	test("returns the finished file to the profile that owns the job", async () => {
+		await insertDownload({ id: "dl-1", status: "completed", sizeBytes: 5, fileName: "movie.mp4" });
+		mkdirSync(join(serverConfig.paths.downloads, "dl-1"), { recursive: true });
+		writeFileSync(artifactPath("dl-1", "movie.mp4"), "bytes");
+
+		const result = await downloadsService.resolveFileForProfile("dl-1", "profile-1");
+
+		expect(result.fileName).toBe("movie.mp4");
+		expect(await result.blob.text()).toBe("bytes");
+	});
+
+	test("answers download_not_found to another profile instead of the file", async () => {
+		await insertDownload({ id: "dl-1", status: "completed", sizeBytes: 5, fileName: "movie.mp4" });
+		mkdirSync(join(serverConfig.paths.downloads, "dl-1"), { recursive: true });
+		writeFileSync(artifactPath("dl-1", "movie.mp4"), "bytes");
+
+		await expect(downloadsService.resolveFileForProfile("dl-1", "profile-2")).rejects.toMatchObject({
+			category: "not_found",
+			code: "download_not_found",
+		});
+	});
+
+	test("answers download_not_found when the finished file is gone from disk", async () => {
+		await insertDownload({ id: "dl-1", status: "completed", sizeBytes: 5, fileName: "movie.mp4" });
+
+		await expect(downloadsService.resolveFileForProfile("dl-1", "profile-1")).rejects.toMatchObject({
+			category: "not_found",
+			code: "download_not_found",
+		});
+	});
+});
+
 describe("DownloadsService.process", () => {
 	test("runs a pending download to completed and records the artifact size", async () => {
 		await insertDownload({ id: "dl-1" });

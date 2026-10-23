@@ -61,6 +61,16 @@ describe("plugin package utils", () => {
 		await expect(extractPluginPackage(archivePath)).rejects.toMatchObject({ category: "validation", code: "plugin.package_path_unsafe" });
 	});
 
+	test("rejects a zip entry whose path an earlier entry already holds as a directory", async () => {
+		const archivePath = await writeArchive(
+			Uint8Array.from(zipSync({ "plugin/lnk/escaped.txt": strToU8("first"), "plugin/lnk": strToU8("second") })),
+		);
+		await expect(extractPluginPackage(archivePath)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.package_path_conflict",
+		});
+	});
+
 	test("creates in-tree tar symlinks and rejects out-of-tree ones", async () => {
 		const inTree = buildTar([
 			{

@@ -28,6 +28,8 @@ interface ElysiaMappedError {
 const ELYSIA_ERROR_MAP: Record<string, { status: number; code: string; hasDetails?: boolean }> = {
 	VALIDATION: { status: 400, code: "validation.invalid_request", hasDetails: true },
 	PARSE: { status: 400, code: "validation.invalid_request" },
+	// A file whose content does not match the declared `t.File` type is the client's input.
+	INVALID_FILE_TYPE: { status: 400, code: "validation.invalid_request" },
 	NOT_FOUND: { status: 404, code: "not_found" },
 	INVALID_COOKIE_SIGNATURE: { status: 401, code: "unauthorized" },
 };

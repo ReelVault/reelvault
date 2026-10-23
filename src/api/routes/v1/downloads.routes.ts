@@ -64,7 +64,6 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 		"/:jobId/file",
 		async ({ params, profile }) => {
 			const result = await downloadsService.resolveFileForProfile(params.jobId, requireProfileId(profile));
-			if (!result) return new Response("Not found", { status: 404 });
 
 			return attachmentResponse(result.blob, {
 				filename: result.fileName,

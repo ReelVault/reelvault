@@ -44,6 +44,19 @@ async function authorize(
 	return undefined;
 }
 
+/**
+ * Credentials that authenticate the caller. A plugin runs in the server process and is not
+ * a party to the session, so it receives the caller's identity as `user` and never the
+ * session cookie, bearer token or API key that would let it act as the caller elsewhere.
+ */
+const CALLER_CREDENTIAL_HEADERS: ReadonlySet<string> = new Set(["authorization", "cookie", "x-api-key"]);
+
+function withoutCallerCredentials(headers: Record<string, string> | undefined): Record<string, string> | undefined {
+	if (!headers) return headers;
+
+	return Object.fromEntries(Object.entries(headers).filter(([name]) => !CALLER_CREDENTIAL_HEADERS.has(name.toLowerCase())));
+}
+
 /** Resolves the route, checks the access level and forwards the request to the plugin. */
 async function dispatch(input: PluginRouteDispatchInput): Promise<PluginRouteDispatchResult> {
 	const resolvedRoute = pluginRoutesRegistry.resolve(input.pluginId, input.method, input.path);
@@ -56,7 +69,7 @@ async function dispatch(input: PluginRouteDispatchInput): Promise<PluginRouteDis
 		const response = await pluginRoutesRegistry.dispatch(resolvedRoute, {
 			params: resolvedRoute.params,
 			query: input.query,
-			headers: input.headers,
+			headers: withoutCallerCredentials(input.headers),
 			body: input.body,
 			user: {
 				id: input.user.id,

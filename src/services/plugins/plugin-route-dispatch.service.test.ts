@@ -166,4 +166,21 @@ describe("pluginRouteDispatchService request handling", () => {
 			},
 		]);
 	});
+
+	test("withholds the caller's session and API key from the handler", async () => {
+		registerPlugin([echoRoute()]);
+
+		await pluginRouteDispatchService.dispatch(
+			createInput({
+				headers: {
+					cookie: "better-auth.session_token=session-value",
+					authorization: "Bearer token",
+					"x-api-key": "rv_key",
+					"x-custom": "1",
+				},
+			}),
+		);
+
+		expect(handled.map((request) => request.headers)).toEqual([{ "x-custom": "1" }]);
+	});
 });

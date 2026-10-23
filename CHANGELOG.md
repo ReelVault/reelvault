@@ -750,6 +750,13 @@ The browse and collections rows are the combined result of every change above; t
 - **Fixed graceful shutdown** — log flushing no longer turns a clean shutdown into a timeout and failure code.
 - **Fixed administration commands in release installs** — `doctor`, `admin:reset-password`, `admin:two-factor-enforcement` and `db:*` now run through `./start.sh <command>` (`start.bat` on Windows).
 - **Fixed release archives** — archives now bundle the tested Bun 1.4.4 and no longer include the server's 400 test files.
+- **Secured cookie-authenticated changes** — state-changing requests that carry a session cookie from an untrusted origin are refused on every route, not only on sign-in and setup.
+- **Plugin routes no longer receive credentials** — plugin HTTP routes no longer see the caller's session cookie, authorization header or API key.
+- **Fixed profile limits** — profile names over 100 characters and avatars that are neither web addresses nor local images are refused.
+- **Fixed wrong-type uploads** — a file that does not match the expected type, such as an SVG avatar, returns a validation error instead of a server error.
+- **Fixed download file errors** — a missing or foreign download file returns the standard error response instead of plain text.
+- **Fixed conflicting plugin package entries** — a package whose entries clash, such as a file where an earlier entry made a folder, is rejected with a validation error instead of a server error.
+- **Fixed fractional page and limit values** — a `page` or `limit` such as `1.5` returns a validation error instead of a server error.
 
 ### Runtime
 

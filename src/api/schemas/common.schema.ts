@@ -6,9 +6,10 @@ import { clamp } from "@/utils/math.utils";
 
 export { PaginatedResponseSchema };
 
-export function ClampedNumeric(minimum: number, maximum: number, options?: Parameters<typeof t.Numeric>[0]) {
+/** An integer query value clamped to `[minimum, maximum]`. A fraction such as `1.5` is refused, not clamped: it would reach the response unchanged. */
+export function ClampedNumeric(minimum: number, maximum: number, options?: Parameters<typeof t.Integer>[0]) {
 	return t
-		.Transform(t.Numeric({ ...options }))
+		.Transform(t.Integer({ ...options }))
 		.Decode((value) => clamp(value, minimum, maximum))
 		.Encode((value) => value);
 }

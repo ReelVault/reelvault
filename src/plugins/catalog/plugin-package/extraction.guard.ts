@@ -15,6 +15,14 @@ export function unpackedTooLarge(): DomainError {
 	});
 }
 
+/** An entry whose path an earlier entry already holds as a directory, or the reverse. */
+export function conflictingEntry(entryPath: string): DomainError {
+	return new DomainError("validation", `Plugin package contains conflicting entries: ${entryPath}`, {
+		code: "plugin.package_path_conflict",
+		params: { path: entryPath },
+	});
+}
+
 /** A symlink entry the extractor refuses; `reason` completes the sentence "Plugin package contains <reason>: <name>". */
 export function invalidSymlink(name: string, reason: string): DomainError {
 	return new DomainError("validation", `Plugin package contains ${reason}: ${name}`, {

@@ -1,5 +1,6 @@
 import type { User } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
+import { assertAuthRequestOrigin } from "@/api/middleware/auth-origin.guard";
 import { isImageAssetPath, isPluginUiPath, isWebAssetPath } from "@/api/utils/route-classification.utils";
 import { serverConstants } from "@/config/server/server.constants";
 import { type ResolvedSession, sessionResolver } from "@/services/auth/session-resolver.service";
@@ -55,6 +56,11 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 			if (!sessionResolver.hasCredentials(request.headers)) {
 				return sessionResolver.anonymous();
 			}
+
+			// A browser attaches the session cookie to every same-site request, and SameSite does not
+			// separate sibling subdomains: a state-changing request from an untrusted origin is refused
+			// here, not only on the auth routes.
+			if (request.headers.has("cookie")) assertAuthRequestOrigin(request);
 
 			return await sessionResolver.fromSessionCookie(request, current_profile_id?.value, profile_unlock?.value);
 		},

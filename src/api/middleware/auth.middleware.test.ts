@@ -100,6 +100,37 @@ test("authorization header and session cookies both count as credentials", async
 	}
 });
 
+test("a state-changing request carrying a session cookie is refused from an untrusted origin", async () => {
+	mockSession();
+	const app = probeApp().post("/probe", ({ user }) => ({ userId: user?.id ?? null }));
+
+	const response = await app.handle(
+		new Request("http://localhost/probe", {
+			method: "POST",
+			headers: { cookie: "better-auth.session_token=abc", origin: "http://evil.example" },
+		}),
+	);
+
+	expect(response.status).toBe(403);
+	expect(await response.json()).toEqual({ statusCode: 403, code: "auth.origin_denied", requestId: undefined });
+});
+
+test("a state-changing request carrying a session cookie is accepted from a trusted or absent origin", async () => {
+	mockSession();
+	const app = probeApp().post("/probe", ({ user }) => ({ userId: user?.id ?? null }));
+
+	for (const origin of ["http://localhost:5173", undefined]) {
+		const response = await app.handle(
+			new Request("http://localhost/probe", {
+				method: "POST",
+				headers: { cookie: "better-auth.session_token=abc", ...(origin ? { origin } : {}) },
+			}),
+		);
+
+		expect(await response.json()).toEqual({ userId: "user-1" });
+	}
+});
+
 test("public GET image requests skip session verification even with credentials", async () => {
 	let getSessionCalled = false;
 	auth.api.getSession = (() => {

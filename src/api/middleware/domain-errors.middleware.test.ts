@@ -116,3 +116,16 @@ test("a 429 without a retry hint sends no Retry-After header", async () => {
 	expect(res.status).toBe(429);
 	expect(res.headers.get("retry-after")).toBeNull();
 });
+
+test("an uploaded file of the wrong type is a client validation error, not a server error", async () => {
+	const app = new Elysia().use(domainErrorsMiddleware).post("/avatar", ({ body }) => body, {
+		body: t.Object({ file: t.File({ type: "image/*" }) }),
+	});
+	const form = new FormData();
+	form.set("file", new File(['<svg xmlns="http://www.w3.org/2000/svg"/>'], "avatar.svg", { type: "image/svg+xml" }));
+
+	const res = await app.handle(new Request("http://localhost/avatar", { method: "POST", body: form }));
+
+	expect(res.status).toBe(400);
+	expect(await res.json()).toEqual({ statusCode: 400, code: "validation.invalid_request" });
+});

@@ -288,8 +288,11 @@ class DownloadsService {
 		return (await requireOwnedDownload(jobId, profileId)).mediaFileId;
 	}
 
-	async resolveFileForProfile(jobId: string, profileId: string): Promise<{ fileName: string; blob: Blob } | null> {
-		return await resolveDownloadFile(await findOwnedDownload(jobId, profileId));
+	async resolveFileForProfile(jobId: string, profileId: string): Promise<{ fileName: string; blob: Blob }> {
+		const file = await resolveDownloadFile(await requireOwnedDownload(jobId, profileId));
+		if (!file) throw downloadNotFound();
+
+		return file;
 	}
 
 	async cancelForProfile(jobId: string, profileId: string): Promise<{ success: true }> {
