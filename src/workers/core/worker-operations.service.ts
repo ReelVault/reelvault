@@ -76,6 +76,7 @@ export const workerOperationsService = {
 		const operation = await workerOperationRepository.findById(id);
 		if (!operation || (operation.status !== "pending" && operation.status !== "running")) return false;
 
+		// awaits: sequential — the cancel request comes first, then pending jobs are cancelled and running ones read
 		await workerOperationRepository.requestCancel(id);
 		// Pending rows first: the poller claims them without consulting the cancel
 		// request, so the window between the two calls must be as short as possible.
@@ -173,6 +174,7 @@ export const workerOperationsService = {
 			// Re-enqueue failed part-way: cancel what was inserted and rebuild the
 			// counters from the surviving rows, so the operation cannot sit pending
 			// with a total nothing will ever reach.
+			// awaits: sequential — pending jobs are cancelled before the operation is reconciled from them
 			await workerJobRepository.cancelPendingByOperation(id).catch(() => {
 				// best-effort rollback
 			});

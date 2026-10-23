@@ -165,6 +165,7 @@ class ProfilesService {
 	async delete(profileId: string, userId?: string): Promise<{ success: boolean }> {
 		return await runSafely(this, "delete", async () => {
 			assertUserId(userId);
+			// awaits: sequential — the profile must belong to the user before it is deleted
 			await this.assertOwnedProfile(profileId, userId);
 
 			await profilesRepository.deleteOwned({ profileId, userId });
@@ -244,8 +245,7 @@ class ProfilesService {
 	/** Copies another profile's preference overrides onto this one; both profiles must belong to the same account. */
 	async copyPreferences(profileId: string, sourceProfileId: string, userId?: string): Promise<ProfilePreferences> {
 		return await runSafely(this, "copyPreferences", async () => {
-			await this.assertOwnedProfile(profileId, userId);
-			await this.assertOwnedProfile(sourceProfileId, userId);
+			await Promise.all([this.assertOwnedProfile(profileId, userId), this.assertOwnedProfile(sourceProfileId, userId)]);
 
 			return await profilePreferencesRepository.copyFrom({ sourceProfileId, targetProfileId: profileId });
 		});
@@ -266,6 +266,7 @@ class ProfilesService {
 
 	async uploadAvatar(profileId: string, file: File, userId?: string): Promise<{ avatarUrl: string }> {
 		return await runSafely(this, "uploadAvatar", async () => {
+			// awaits: sequential — ownership is checked before the avatar is uploaded
 			await this.assertOwnedProfile(profileId, userId);
 
 			const uploaded = await imageUploadService.upload(file, { ownerType: "profile", ownerId: profileId, variant: "avatar" });

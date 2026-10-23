@@ -84,6 +84,7 @@ export abstract class DictionaryCrudService<
 
 	async delete(id: string): Promise<{ success: boolean }> {
 		return await runSafely(this, "delete", async () => {
+			// awaits: sequential — the entry must exist before it is deleted
 			await this.getById(id, { fields: "id" });
 			await this.repository.delete({ primaryId: id });
 			invalidateCatalogLists();

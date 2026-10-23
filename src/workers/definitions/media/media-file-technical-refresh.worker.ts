@@ -51,6 +51,7 @@ async function refreshMediaFileTechnicalData(mediaFileId: string, context: Appli
 		const newAudioKeys = data.audioStreams.map((s) => `${s.index}:${s.codecName}:${s.language ?? ""}`).join("|");
 		const audioChanged = previousAudioKeys !== newAudioKeys;
 
+		// awaits: sequential — the markers are replaced only after the technical data is saved
 		await mediaRepository.replaceTechnicalData({
 			mediaFileId,
 			data,

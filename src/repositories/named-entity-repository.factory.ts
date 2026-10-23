@@ -138,13 +138,11 @@ export function defineNamedEntityRepository<
 						.where(inArray(nameColumn, names)),
 				persistAssociations: async (associations) => {
 					const uniqueEntityIds = unique(associations, ({ entityId }) => entityId);
-					await Promise.all([
-						config.insertProviderLinks(
-							associations.flatMap(({ entityId, providerId }) => (providerId ? [{ entityId, providerId }] : [])),
-							tx,
-						),
-						config.insertMetadataLinks({ metadataId, entityIds: uniqueEntityIds, tx }),
-					]);
+					await config.insertProviderLinks(
+						associations.flatMap(({ entityId, providerId }) => (providerId ? [{ entityId, providerId }] : [])),
+						tx,
+					);
+					await config.insertMetadataLinks({ metadataId, entityIds: uniqueEntityIds, tx });
 				},
 			});
 		},

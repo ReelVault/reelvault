@@ -16,6 +16,7 @@ export function verificationConcurrency() {
 
 /** A package directory must exist and contain no symbolic links. */
 export async function assertPackageDirectory(directory: string): Promise<void> {
+	// awaits: sequential — the directory check decides which error is reported, so it runs first
 	await assertDirectory(directory);
 	await assertNoSymbolicLinks(directory, verificationConcurrency());
 }

@@ -31,11 +31,13 @@ async function declaredCapabilities(state: PluginManagerState, pluginId: string,
 /** What the admin view shows about a plugin's package, beyond its runtime status. */
 export async function getPackageDetails(state: PluginManagerState, pluginId: string): Promise<PluginPackageDetails> {
 	const directory = state.config.resolvePluginDirectory(await directoryNameOf(state, pluginId));
-	const configReadError = await state.config.readError(directory);
-	const installed = await state.installer
-		.list()
-		.then((records) => records.find((entry) => entry.id === pluginId)?.record)
-		.catch(() => null);
+	const [configReadError, installed] = await Promise.all([
+		state.config.readError(directory),
+		state.installer
+			.list()
+			.then((records) => records.find((entry) => entry.id === pluginId)?.record)
+			.catch(() => null),
+	]);
 
 	let installState: InstalledPluginState = {};
 	if (installed) {

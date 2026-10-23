@@ -42,6 +42,8 @@ export async function materializePluginRuntime(pluginDir: string, runtimeRoot: s
 	// Two phases so the (potentially thousands of) filesystem mutations run
 	// bounded-parallel instead of one await per file.
 	const concurrency = serverConfig.plugins.lifecycle.loadConcurrency;
+
+	// awaits: sequential — the directories exist before the files are linked into them
 	await mapConcurrent(plan.directories, concurrency, (directory) => mkdir(directory, { recursive: true }));
 	await mapConcurrent(plan.files, concurrency, ({ from, to }) => linkOrCopy(from, to));
 

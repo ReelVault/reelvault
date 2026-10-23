@@ -41,6 +41,7 @@ class ImageUploadService {
 			throw new DomainError("validation", "Uploaded file is not a supported raster image", { code: "images.unsupported_format" });
 
 		const localPath = this.createTemporaryImagePath();
+		// awaits: sequential — the target directory exists before the image is written there
 		await createDirectory(dirname(localPath));
 
 		const { data, info } = await optimizeImageWithInfo(source, serverConfig.images.variants[target.variant]);

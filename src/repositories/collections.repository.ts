@@ -271,20 +271,18 @@ const overrides = {
 			persistAssociations: async (associations) => {
 				const uniqueEntityIds = unique(associations, ({ entityId }) => entityId);
 				const nextSortOrders = await nextManualSortOrders(uniqueEntityIds, tx);
-				await Promise.all([
-					collectionProviders.insert({
-						values: associations.flatMap(({ entityId, providerId }) => (providerId ? [{ collectionId: entityId, providerId }] : [])),
-						tx,
-					}),
-					metadataRepository.insertCollections({
-						values: uniqueEntityIds.map((entityId) => ({
-							metadataId,
-							collectionId: entityId,
-							sortOrder: nextSortOrders.get(entityId) ?? 0,
-						})),
-						tx,
-					}),
-				]);
+				await collectionProviders.insert({
+					values: associations.flatMap(({ entityId, providerId }) => (providerId ? [{ collectionId: entityId, providerId }] : [])),
+					tx,
+				});
+				await metadataRepository.insertCollections({
+					values: uniqueEntityIds.map((entityId) => ({
+						metadataId,
+						collectionId: entityId,
+						sortOrder: nextSortOrders.get(entityId) ?? 0,
+					})),
+					tx,
+				});
 			},
 		});
 	},
@@ -303,13 +301,13 @@ async function hydrateRelations<F extends string>(
 	tx?: DatabaseTransaction,
 ): Promise<Array<SelectFields<CollectionWithRelations, F>>> {
 	const ids = items.map((c) => c.id);
-	const [providersByCollectionId, metadataByCollectionId] = await Promise.all([
-		includesField(fields, "providers") ? loadProviders(ids, tx) : new Map<string, Array<typeof schema.providers.$inferSelect>>(),
-		loadMetadataPreviews(ids, tx, {
-			withCounts: includesField(fields, "metadataCount"),
-			withPosters: includesField(fields, "posterImages"),
-		}),
-	]);
+	let providersByCollectionId = new Map<string, Array<typeof schema.providers.$inferSelect>>();
+	if (includesField(fields, "providers")) providersByCollectionId = await loadProviders(ids, tx);
+
+	const metadataByCollectionId = await loadMetadataPreviews(ids, tx, {
+		withCounts: includesField(fields, "metadataCount"),
+		withPosters: includesField(fields, "posterImages"),
+	});
 
 	return items.map((item) => {
 		const meta = metadataByCollectionId.get(item.id);

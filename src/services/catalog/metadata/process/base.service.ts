@@ -81,6 +81,7 @@ async function enqueueBaseMetadataImages(
 	if (!base.created) return;
 
 	await state.imageEnqueueProcesses.getOrRun(base.metadataId, async () => {
+		// awaits: sequential — the metadata images are queued before the person images
 		await state.enqueueImages(
 			{
 				kind: "metadata",

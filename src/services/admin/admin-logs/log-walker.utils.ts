@@ -48,6 +48,7 @@ export async function walkLogFiles(
 			const fullPath = join(directory, entry.name);
 
 			if (entry.isDirectory) {
+				// awaits: sequential — a directory is reported only after its files are walked
 				await walkLogFiles(fullPath, { logger, signal, concurrency, onFile, onDirectory });
 				await onDirectory?.(fullPath);
 

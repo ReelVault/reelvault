@@ -69,18 +69,17 @@ export async function syncNamedProviderEntities<T extends NamedProviderEntity>({
 
 	// The provider upsert returns the persisted rows (inserted or conflict-updated),
 	// so the same rows never need a follow-up re-select.
-	const [, providers] = await Promise.all([
-		insertEntities(entityItems),
-		providersRepository.upsertByStableKey(
-			externalIds.map((externalId) => ({
-				stableKey: createProviderStableKey({ providerName, entityType, externalId }),
-				name: providerName,
-				entityType,
-				externalId,
-			})),
-			tx,
-		),
-	]);
+
+	await insertEntities(entityItems);
+	const providers = await providersRepository.upsertByStableKey(
+		externalIds.map((externalId) => ({
+			stableKey: createProviderStableKey({ providerName, entityType, externalId }),
+			name: providerName,
+			entityType,
+			externalId,
+		})),
+		tx,
+	);
 
 	// Chunk the entity lookups: a title's full cast/crew can exceed SQLite's
 	// bound-variable limit, and one giant statement blocks the event loop longer

@@ -39,6 +39,7 @@ export const adminPluginCatalogService = {
 	},
 
 	async updateRepository(id: string, body: UpdatePluginRepositoryBody, context: AuditContext): Promise<PluginRepository> {
+		// awaits: sequential — the before snapshot is read before the repository is updated
 		const before = await pluginCatalogService.listRepositories().then((rows) => rows.find((row) => row.id === id));
 		const repository = await pluginCatalogService.updateRepository(id, body);
 		recordAuditSafe(

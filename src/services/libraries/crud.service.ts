@@ -98,6 +98,7 @@ export async function createLibrary<F extends string>(
 		}
 
 		if (body.providerPriorities) {
+			// awaits: sequential — the overrides are read back only after they are written
 			await metadataProviderSettingsService.setLibraryOverrides(library.id, body.providerPriorities);
 			library.providerPriorities = await libraryProviderSettingsRepository.listForLibrary(library.id);
 		}
@@ -153,6 +154,7 @@ export async function updateLibrary<F extends string>(
 		invalidateLibraryLanguageCache(libraryId);
 
 		if (body.providerPriorities) {
+			// awaits: sequential — the overrides are read back only after they are written
 			await metadataProviderSettingsService.setLibraryOverrides(libraryId, body.providerPriorities);
 			result.providerPriorities = await libraryProviderSettingsRepository.listForLibrary(libraryId);
 		}

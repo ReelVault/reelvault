@@ -46,18 +46,16 @@ export async function findMediaCleanupData({
 	filterNullSubtitlePaths?: boolean;
 }): Promise<MediaCleanupData> {
 	const client = databaseFactory.getClient({ tx });
-	const [artifacts, subtitles] = await Promise.all([
-		client
-			.select({ storageKey: schema.mediaArtifacts.storageKey })
-			.from(schema.mediaArtifacts)
-			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.mediaArtifacts.mediaFileId))
-			.where(where),
-		client
-			.select({ id: schema.subtitles.id, filePath: schema.subtitles.filePath })
-			.from(schema.subtitles)
-			.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.subtitles.mediaFileId))
-			.where(where),
-	]);
+	const artifacts = await client
+		.select({ storageKey: schema.mediaArtifacts.storageKey })
+		.from(schema.mediaArtifacts)
+		.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.mediaArtifacts.mediaFileId))
+		.where(where);
+	const subtitles = await client
+		.select({ id: schema.subtitles.id, filePath: schema.subtitles.filePath })
+		.from(schema.subtitles)
+		.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.subtitles.mediaFileId))
+		.where(where);
 
 	return toMediaCleanupData(subtitles, artifacts, { filterNullSubtitlePaths });
 }
@@ -89,10 +87,12 @@ export async function findCleanupDataForMediaFileIds(mediaFileIds: readonly stri
 	// The chunks run with a bounded concurrency: an unbounded Promise.all over
 	// every chunk would open one statement per chunk at once.
 	const concurrency = systemResourcesService.getIoConcurrency();
-	const [subtitleResults, artifactResults] = await Promise.all([
-		mapChunked(mediaFileIds, async (idChunk) => await selectSubtitleRefsByMediaFileIds(client, idChunk), { concurrency }),
-		mapChunked(mediaFileIds, async (idChunk) => await selectArtifactKeysByMediaFileIds(client, idChunk), { concurrency }),
-	]);
+	const subtitleResults = await mapChunked(mediaFileIds, async (idChunk) => await selectSubtitleRefsByMediaFileIds(client, idChunk), {
+		concurrency,
+	});
+	const artifactResults = await mapChunked(mediaFileIds, async (idChunk) => await selectArtifactKeysByMediaFileIds(client, idChunk), {
+		concurrency,
+	});
 
 	return toMediaCleanupData(subtitleResults.flat(), artifactResults.flat());
 }

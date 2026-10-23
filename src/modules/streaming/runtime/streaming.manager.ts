@@ -127,6 +127,7 @@ class StreamingManager {
 		const generationBefore = session.generation;
 
 		try {
+			// awaits: sequential — the progress monitor attaches to the process after it starts
 			await this.processManager.startSession({ sessionId, session, inputPath, decision, startTime, timelineStart, operationId });
 			// The process is alive: keep the streaming-session operation open with a
 			// live encode percent instead of letting it complete with stream-init.

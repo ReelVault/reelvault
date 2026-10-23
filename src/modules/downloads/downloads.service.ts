@@ -186,6 +186,7 @@ class DownloadsService {
 				});
 			}
 
+			// awaits: sequential — the queued row must exist before the queue is promoted
 			const row = await downloadsRepository.insert({
 				profileId,
 				mediaFileId,
@@ -236,6 +237,7 @@ class DownloadsService {
 				}
 
 				try {
+					// awaits: sequential — access is checked before the download is prepared
 					await assertAccess(chosen.mediaFileId);
 					await this.prepare(profileId, chosen.mediaFileId, body.quality);
 					results.push({ id: episodeId, ok: true });
@@ -312,6 +314,7 @@ class DownloadsService {
 			});
 		}
 
+		// awaits: sequential — the replacement is prepared before the old job is deleted
 		const view = await this.prepare(profileId, row.mediaFileId, row.quality);
 		await this.delete(jobId);
 
@@ -342,6 +345,7 @@ class DownloadsService {
 		const row = await downloadsRepository.findById(downloadId);
 		if (row) {
 			this.killInFlight(downloadId);
+			// awaits: sequential — the file is removed before its row, so a failed removal keeps the row to retry
 			await deleteDownloadFile(row);
 			await downloadsRepository.delete(downloadId);
 		}
@@ -419,6 +423,7 @@ class DownloadsService {
 			for (const row of expired) {
 				// One EBUSY/EACCES must not abort the whole sweep.
 				try {
+					// awaits: sequential — the file is removed before its row, so a failed removal keeps the row to retry
 					await deleteDownloadFile(row);
 					await downloadsRepository.delete(row.id);
 					removed++;
@@ -510,6 +515,7 @@ class DownloadsService {
 
 	private async sweepRetention(): Promise<void> {
 		try {
+			// awaits: sequential — orphan artifacts are found only after expired downloads are removed
 			await this.sweepExpired();
 			await this.sweepOrphanArtifacts();
 		} catch (error) {

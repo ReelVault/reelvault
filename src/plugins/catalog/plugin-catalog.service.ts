@@ -122,6 +122,7 @@ class PluginCatalogService {
 	private readonly cache = new Map<string, CachedManifest>();
 
 	async listRepositories(): Promise<PluginRepositoryView[]> {
+		// awaits: sequential — the official repository is ensured before the list is read
 		await this.ensureOfficialRepository();
 		const rows = await pluginCatalogRepositoryData.list();
 
@@ -178,6 +179,7 @@ class PluginCatalogService {
 	}
 
 	async deleteRepository(id: string): Promise<void> {
+		// awaits: sequential — the repository must exist before it is deleted
 		await requireRepository(id);
 
 		await pluginCatalogRepositoryData.delete(id);

@@ -14,19 +14,17 @@ import { clearStatsCaches, type LibraryStatsCaches } from "./shared.types";
 export async function deleteWithDependents(caches: LibraryStatsCaches, libraryId: string): Promise<MediaCleanupData> {
 	return await databaseFactory.transaction(async (tx) => {
 		const client = databaseFactory.getClient({ tx });
-		const [cleanup, candidateMetadata] = await Promise.all([
-			findMediaCleanupData({
-				where: eq(schema.mediaFiles.libraryId, libraryId),
-				tx,
-				filterNullSubtitlePaths: true,
-			}),
-			// Candidate metadata rows whose only media files belong to this library.
-			// Must be captured BEFORE the media_files delete below.
-			client
-				.selectDistinct({ metadataId: schema.mediaFiles.metadataId })
-				.from(schema.mediaFiles)
-				.where(eq(schema.mediaFiles.libraryId, libraryId)),
-		]);
+		const cleanup = await findMediaCleanupData({
+			where: eq(schema.mediaFiles.libraryId, libraryId),
+			tx,
+			filterNullSubtitlePaths: true,
+		});
+		// Candidate metadata rows whose only media files belong to this library.
+		// Must be captured BEFORE the media_files delete below.
+		const candidateMetadata = await client
+			.selectDistinct({ metadataId: schema.mediaFiles.metadataId })
+			.from(schema.mediaFiles)
+			.where(eq(schema.mediaFiles.libraryId, libraryId));
 
 		// `media_files.metadata_id` is NO ACTION (a metadata row can be shared by
 		// media files from several libraries), so deleting metadata first violated

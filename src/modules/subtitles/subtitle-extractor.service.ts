@@ -96,8 +96,8 @@ export class SubtitleExtractorService {
 	): Promise<SubtitleContent | null> {
 		try {
 			return await withTempPath(cacheFilePath, ".tmp", async (tempFilePath) => {
+				// awaits: sequential — the output directory exists before ffmpeg writes into it
 				await createDirectory(this.dependencies.subtitlesPath());
-
 				const result = await this.dependencies.runFfmpeg(buildWebVttExtractionArgs(mediaFilePath, streamIndex, tempFilePath));
 
 				if (result.exitCode !== 0) {

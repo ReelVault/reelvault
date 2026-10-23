@@ -55,6 +55,7 @@ async function buildMediaStatsIfMissing(): Promise<void> {
 async function setupServer(): Promise<void> {
 	try {
 		logger.info("Checking directories and files...");
+		// awaits: sequential — the data directories exist before startup cleanup runs
 		await ensureDataDirectories();
 		await cleanupStartupDirectories();
 		updateInstallService.cleanupStaleArtifacts();
@@ -66,8 +67,8 @@ async function setupServer(): Promise<void> {
 
 		// Fill the media-presence stamp for databases that predate the column, so
 		// catalog lists and the recently-added rank never miss a title.
+		// awaits: sequential — the backfill runs before the media stats are built
 		await backfillLatestMediaCreatedAt();
-
 		await buildMediaStatsIfMissing();
 
 		// Better Auth's own user writes create the first profile; registered before any user can be created.

@@ -37,6 +37,7 @@ export const cleanupDatabaseWorker = defineMaintenanceWorker({
 		// worker-claim queries pick a type index + TEMP B-TREE sort instead of the
 		// composite indexes, degrading with catalog/backlog size. Both run table by
 		// table with a yield in between so maintenance never freezes HTTP.
+		// awaits: sequential — analyze and FTS optimize run one after another on the same database
 		await databaseFactory.analyzeChunked();
 		await databaseFactory.optimizeFts();
 

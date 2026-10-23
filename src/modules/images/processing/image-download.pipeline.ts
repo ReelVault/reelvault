@@ -132,6 +132,7 @@ export class ImageDownloadPipeline {
 
 	/** Copies a local artwork file to the temp source path (kernel copy, no JS buffer). */
 	private async copySource(sourceFilePath: string, sourcePath: string): Promise<void> {
+		// awaits: sequential — the copy must exist before it is checked
 		await this.dependencies.copyLocalFile(sourceFilePath, sourcePath);
 		await this.assertRecognizedImage(sourcePath, `Local file has no recognized image format: ${sourceFilePath}`);
 	}
@@ -196,8 +197,7 @@ export class ImageDownloadPipeline {
 				sourceHash,
 			};
 		} finally {
-			await this.dependencies.deleteFile(sourcePath);
-			await this.dependencies.deleteFile(optimizedPath);
+			await Promise.all([this.dependencies.deleteFile(sourcePath), this.dependencies.deleteFile(optimizedPath)]);
 		}
 	}
 }

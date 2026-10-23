@@ -289,8 +289,10 @@ class MediaFileProcessor {
 		scheduling?: TaskSchedulingOptions | undefined;
 		options?: { libraryId?: string | undefined } | undefined;
 	}): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
-		const sidecar = await this.readSidecarHint(filePath, recognition.type);
-		const probe = await this.probeOrSkip(filePath, fileName, signal);
+		const [sidecar, probe] = await Promise.all([
+			this.readSidecarHint(filePath, recognition.type),
+			this.probeOrSkip(filePath, fileName, signal),
+		]);
 		if (!probe) return { skipReason: "probe_failed", fileName };
 
 		const targets: AdditionalEpisodeTarget[] = [];

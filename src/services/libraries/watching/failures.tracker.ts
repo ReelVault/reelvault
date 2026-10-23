@@ -1,5 +1,6 @@
 import { serverConfig } from "@/config/server/server.config";
 import { serverRescueService } from "@/system/server-rescue.service";
+import { detachCatching } from "@/utils/promise.utils";
 import type { LibraryWatcherState, WatcherFailureEntry, WatcherFailureInfo } from "./state.types";
 import { armTimer, RESCUE_RECHECK_MS } from "./timing.utils";
 
@@ -29,13 +30,7 @@ export async function notifyAdminsOfWatcherFailure(failure: WatcherFailureInfo):
 }
 
 /** Records a path the watcher cannot cover and notifies admins once per episode. */
-export async function recordFailure(
-	state: LibraryWatcherState,
-	libraryId: string,
-	pathId: string,
-	path: string,
-	reason: string,
-): Promise<void> {
+export function recordFailure(state: LibraryWatcherState, libraryId: string, pathId: string, path: string, reason: string): void {
 	const existing = state.failures.get(pathId);
 	if (existing) {
 		// Keep the latest reason but never re-notify within one failure episode.
@@ -58,11 +53,9 @@ export async function recordFailure(
 	armFallback(state, entry);
 
 	entry.notified = true;
-	try {
-		await state.notifyFailure({ libraryId, pathId, path, reason, since: entry.since });
-	} catch (error) {
-		state.logger.warn("Failed to notify administrators about an unwatchable library path", { libraryId, pathId, error });
-	}
+	detachCatching(state.notifyFailure({ libraryId, pathId, path, reason, since: entry.since }), (error) =>
+		state.logger.warn("Failed to notify administrators about an unwatchable library path", { libraryId, pathId, error }),
+	);
 }
 
 /** Schedules the next periodic fallback scan for an unwatchable path (0 = disabled). */

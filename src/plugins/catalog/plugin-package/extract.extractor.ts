@@ -61,8 +61,8 @@ export async function extractPluginPackage(
 ): Promise<ExtractedPackage> {
 	const workRoot = await mkdtemp(join(tmpdir(), "reelvault-plugin-extract-"));
 	try {
+		// awaits: sequential — the archive is extracted before its plugin directory is located
 		await extractArchive(archivePath, workRoot, maxUncompressedBytes);
-
 		const pluginRoot = await locatePluginDirectory(workRoot);
 
 		return { pluginRoot, cleanup: () => removeTree(workRoot) };

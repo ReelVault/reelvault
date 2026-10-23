@@ -105,12 +105,16 @@ class MetadataMergeRepository {
 		);
 	}
 
+	private async selectEpisodesOfSeasons(seasonIds: string[], tx: DatabaseTransaction): Promise<Array<typeof schema.episodes.$inferSelect>> {
+		if (seasonIds.length === 0) return [];
+
+		return await episodesRepository.selectMany({ where: inArray(schema.episodes.seasonId, seasonIds), tx });
+	}
+
 	private async mergeMovieMediaFiles(targetId: string, sourceId: string, tx: DatabaseTransaction) {
 		const client = databaseFactory.getClient({ tx });
-		const [targetMovie, sourceMovie] = await Promise.all([
-			moviesRepository.selectFirst({ where: eq(schema.movies.metadataId, targetId), tx }),
-			moviesRepository.selectFirst({ where: eq(schema.movies.metadataId, sourceId), tx }),
-		]);
+		const targetMovie = await moviesRepository.selectFirst({ where: eq(schema.movies.metadataId, targetId), tx });
+		const sourceMovie = await moviesRepository.selectFirst({ where: eq(schema.movies.metadataId, sourceId), tx });
 		// Movie rows are created lazily on first media ingest; when the target has
 		// none yet, create it before repointing — setting movieId to null would
 		// violate the media_files single-target check (and orphan the row).
@@ -129,27 +133,13 @@ class MetadataMergeRepository {
 
 	private async mergeTvShowData(targetId: string, sourceId: string, tx: DatabaseTransaction) {
 		const client = databaseFactory.getClient({ tx });
-		const [sourceSeasons, targetSeasons] = await Promise.all([
-			seasonsRepository.selectMany({ where: eq(schema.seasons.metadataId, sourceId), tx }),
-			seasonsRepository.selectMany({ where: eq(schema.seasons.metadataId, targetId), tx }),
-		]);
+		const sourceSeasons = await seasonsRepository.selectMany({ where: eq(schema.seasons.metadataId, sourceId), tx });
+		const targetSeasons = await seasonsRepository.selectMany({ where: eq(schema.seasons.metadataId, targetId), tx });
 
 		const srcSeasonIds = sourceSeasons.map((s) => s.id);
 		const tgtSeasonIds = targetSeasons.map((s) => s.id);
-		let sourceEpisodes: Promise<Array<typeof schema.episodes.$inferSelect>>;
-		if (srcSeasonIds.length > 0) {
-			sourceEpisodes = episodesRepository.selectMany({ where: inArray(schema.episodes.seasonId, srcSeasonIds), tx });
-		} else {
-			sourceEpisodes = Promise.resolve([]);
-		}
-		let targetEpisodes: Promise<Array<typeof schema.episodes.$inferSelect>>;
-		if (tgtSeasonIds.length > 0) {
-			targetEpisodes = episodesRepository.selectMany({ where: inArray(schema.episodes.seasonId, tgtSeasonIds), tx });
-		} else {
-			targetEpisodes = Promise.resolve([]);
-		}
-
-		const [allSourceEpisodes, allTargetEpisodes] = await Promise.all([sourceEpisodes, targetEpisodes]);
+		const allSourceEpisodes = await this.selectEpisodesOfSeasons(srcSeasonIds, tx);
+		const allTargetEpisodes = await this.selectEpisodesOfSeasons(tgtSeasonIds, tx);
 
 		const srcEpsBySeason = groupBy(allSourceEpisodes, (ep) => ep.seasonId);
 		const tgtEpsBySeason = groupBy(allTargetEpisodes, (ep) => ep.seasonId);
@@ -194,16 +184,14 @@ class MetadataMergeRepository {
 	 */
 	private async mergeCollectionMemberships(targetId: string, sourceId: string, tx: DatabaseTransaction) {
 		const client = databaseFactory.getClient({ tx });
-		const [targetRows, sourceRows] = await Promise.all([
-			client
-				.select({ collectionId: schema.metadataCollections.collectionId })
-				.from(schema.metadataCollections)
-				.where(eq(schema.metadataCollections.metadataId, targetId)),
-			client
-				.select({ collectionId: schema.metadataCollections.collectionId })
-				.from(schema.metadataCollections)
-				.where(eq(schema.metadataCollections.metadataId, sourceId)),
-		]);
+		const targetRows = await client
+			.select({ collectionId: schema.metadataCollections.collectionId })
+			.from(schema.metadataCollections)
+			.where(eq(schema.metadataCollections.metadataId, targetId));
+		const sourceRows = await client
+			.select({ collectionId: schema.metadataCollections.collectionId })
+			.from(schema.metadataCollections)
+			.where(eq(schema.metadataCollections.metadataId, sourceId));
 		const existing = new Set(targetRows.map((row) => row.collectionId));
 		const transferIds = sourceRows.map((row) => row.collectionId).filter((collectionId) => !existing.has(collectionId));
 		if (transferIds.length === 0) return;
@@ -221,10 +209,8 @@ class MetadataMergeRepository {
 		tx: DatabaseTransaction,
 	) {
 		const client = databaseFactory.getClient({ tx });
-		const [targetRows, sourceRows] = await Promise.all([
-			client.select({ profileId: table.profileId }).from(table).where(eq(table.metadataId, targetId)),
-			client.select({ profileId: table.profileId }).from(table).where(eq(table.metadataId, sourceId)),
-		]);
+		const targetRows = await client.select({ profileId: table.profileId }).from(table).where(eq(table.metadataId, targetId));
+		const sourceRows = await client.select({ profileId: table.profileId }).from(table).where(eq(table.metadataId, sourceId));
 		const existing = new Set(targetRows.map((r) => r.profileId));
 		const duplicateProfileIds: string[] = [];
 		const transferProfileIds: string[] = [];
@@ -234,30 +220,23 @@ class MetadataMergeRepository {
 			else transferProfileIds.push(pid);
 		}
 
-		const ops: Array<Promise<unknown>> = [];
 		if (duplicateProfileIds.length > 0) {
-			ops.push(client.delete(table).where(and(eq(table.metadataId, sourceId), inArray(table.profileId, duplicateProfileIds))));
+			await client.delete(table).where(and(eq(table.metadataId, sourceId), inArray(table.profileId, duplicateProfileIds)));
 		}
 
 		if (transferProfileIds.length > 0) {
 			if (table === schema.watchlist) {
-				ops.push(
-					client
-						.update(schema.watchlist)
-						.set({ metadataId: targetId })
-						.where(and(eq(schema.watchlist.metadataId, sourceId), inArray(schema.watchlist.profileId, transferProfileIds))),
-				);
+				await client
+					.update(schema.watchlist)
+					.set({ metadataId: targetId })
+					.where(and(eq(schema.watchlist.metadataId, sourceId), inArray(schema.watchlist.profileId, transferProfileIds)));
 			} else {
-				ops.push(
-					client
-						.update(schema.userRatings)
-						.set({ metadataId: targetId })
-						.where(and(eq(schema.userRatings.metadataId, sourceId), inArray(schema.userRatings.profileId, transferProfileIds))),
-				);
+				await client
+					.update(schema.userRatings)
+					.set({ metadataId: targetId })
+					.where(and(eq(schema.userRatings.metadataId, sourceId), inArray(schema.userRatings.profileId, transferProfileIds)));
 			}
 		}
-
-		await Promise.all(ops);
 	}
 }
 

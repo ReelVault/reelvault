@@ -37,6 +37,7 @@ class DatabaseBackupService {
 			const filePath = join(serverConfig.paths.backups, fileName);
 
 			this.logger.info("Starting SQLite database backup", { targetPath: filePath });
+			// awaits: sequential — the backup file is statted after the backup is written
 			await databaseMaintenanceRepository.backup(filePath);
 
 			const stats = await file(filePath).stat();
@@ -58,6 +59,7 @@ class DatabaseBackupService {
 
 	async listBackups(): Promise<AdminDatabaseBackup[]> {
 		return await runSafely(this, "listBackups", async () => {
+			// awaits: sequential — the backups directory exists before it is read
 			await createDirectory(serverConfig.paths.backups);
 			const entries = await readdir(serverConfig.paths.backups, { withFileTypes: true });
 			const sqliteEntries = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".sqlite"));
@@ -104,6 +106,7 @@ class DatabaseBackupService {
 				const now = new Date();
 				const fileName = `reelvault_backup_upload_${backupTimestamp(now)}.sqlite`;
 				const filePath = join(serverConfig.paths.backups, fileName);
+				// awaits: sequential — the file is renamed into place before it is statted
 				await rename(stagingPath, filePath);
 				const stats = await file(filePath).stat();
 				this.logger.info("Database backup uploaded", { fileName, sizeBytes: stats.size });

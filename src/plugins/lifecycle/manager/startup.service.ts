@@ -23,6 +23,7 @@ async function verifyInstalledPlugins(state: PluginManagerState): Promise<void> 
 
 /** Boot: verify the packages, seed the disabled plugins, then load everything that is enabled. */
 export async function loadInstalledPlugins(state: PluginManagerState): Promise<void> {
+	// awaits: sequential — plugins are verified, seeded, then loaded: each step needs the one before it
 	await verifyInstalledPlugins(state);
 	await seedDisabledStatuses(state);
 	await state.loader.loadAll();

@@ -205,6 +205,7 @@ class WorkerService {
 	async drainWorkers(workerIds: readonly string[], timeoutMs: number): Promise<void> {
 		if (workerIds.length === 0) return;
 
+		// awaits: sequential — the pool drains before the pending jobs of its workers are cancelled
 		await this.pool.drain(timeoutMs, workerIds);
 		await Promise.all(
 			workerIds.map((workerId) =>

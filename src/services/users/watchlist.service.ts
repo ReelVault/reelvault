@@ -63,6 +63,7 @@ class WatchlistService {
 	async add(metadataId: string, profileId?: string) {
 		return await runSafely(this, "add", async () => {
 			assertProfileId(profileId);
+			// awaits: sequential — the metadata must exist before it is added to the watchlist
 			await this.assertMetadataExists(metadataId);
 
 			await watchlistRepository.insert({ values: { profileId, metadataId } });
@@ -101,6 +102,7 @@ class WatchlistService {
 				});
 			}
 
+			// awaits: sequential — a failed insert stops the removal, so the list is never half-updated
 			await this.assertMetadataExistAll(add);
 			const added = await watchlistRepository.insertMany(profileId, add);
 			const removed = await watchlistRepository.removeMany(profileId, remove);
@@ -147,6 +149,7 @@ class WatchlistService {
 	async toggle(body: CreateWatchlist, profileId?: string) {
 		return await runSafely(this, "toggle", async () => {
 			assertProfileId(profileId);
+			// awaits: sequential — the metadata must exist before the watchlist is toggled
 			await this.assertMetadataExists(body.metadataId);
 
 			const result = await watchlistRepository.toggle({ metadataId: body.metadataId, profileId });

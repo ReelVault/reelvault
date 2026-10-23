@@ -58,7 +58,7 @@ export interface LibraryScanTaskDependencies {
 	enqueueMediaFileIngestBatch?(entries: MediaFileIngestData[], options?: TaskSchedulingOptions): Promise<unknown>;
 	enqueueMediaFileRefreshBatch?(mediaFileIds: string[], options?: TaskSchedulingOptions, signal?: AbortSignal): Promise<unknown>;
 	publishScanStarted(input: { libraryId: string; scanId: string; correlationId: string }): void;
-	emitScanCompleted(input: { libraryId: string; scanId: string; errors: number; correlationId: string }): Promise<void>;
+	emitScanCompleted(input: { libraryId: string; scanId: string; errors: number; correlationId: string }): void;
 	/** Pushes `library:scan:completed` to connected realtime clients (web/mobile UIs invalidate their catalog caches). */
 	notifyScanCompleted(input: { libraryId: string; libraryTitle?: string }): void;
 	/**
@@ -88,7 +88,7 @@ const defaultDependencies: LibraryScanTaskDependencies = {
 		return enqueueMediaFileRefreshBatch(targets, options ?? {});
 	},
 	publishScanStarted: (input) => pluginEventBus.publish("library.scan.started", input),
-	emitScanCompleted: (input) => pluginEventBus.emit("library.scan.completed", input),
+	emitScanCompleted: (input) => pluginEventBus.publish("library.scan.completed", input),
 	notifyScanCompleted: (input) => realtimeService.broadcast("library:scan:completed", input),
 	loadCheckpoint: (libraryId) => scanStateRepository.get(libraryId),
 	saveCheckpoint: (libraryId, checkpoint) => scanStateRepository.set(libraryId, checkpoint),
@@ -195,6 +195,7 @@ async function resolveScanWorkload(
 
 	const scanResult = await dependencies.scanPaths(data.libraryId, libraryType, pathsToScan, context.signal);
 	context.signal?.throwIfAborted();
+	// awaits: sequential — findings are pruned before the checkpoint is saved
 	await dependencies.pruneScanFindings?.(data.libraryId, scanResult.filePaths, pathsToScan);
 	// Checkpoint before the first enqueue — a later interruption is detectable.
 	await dependencies.saveCheckpoint(data.libraryId, {
@@ -348,12 +349,13 @@ async function runScanLibraryTask(
 		const libraryType = mapLibraryType(library.type);
 
 		const state = await resolveScanWorkload(data, { libraryType, pathsToScan, pathsSignature }, context, dependencies);
+		// awaits: sequential — the enqueue steps run in order, and the checkpoint goes only after all of them
 		await enqueueIngestWork(state, data, libraryType, { taskScheduling, context, dependencies });
 		await enqueueRefreshWork(state, data, taskScheduling, context, dependencies);
 
 		// Everything enqueued — the checkpoint has served its purpose.
 		await dependencies.deleteCheckpoint(data.libraryId);
-		await dependencies.emitScanCompleted({ libraryId: data.libraryId, scanId: operationId, errors: 0, correlationId: operationId });
+		dependencies.emitScanCompleted({ libraryId: data.libraryId, scanId: operationId, errors: 0, correlationId: operationId });
 		dependencies.notifyScanCompleted({ libraryId: data.libraryId, libraryTitle: library.name });
 		const result = {
 			libraryId: data.libraryId,
@@ -376,7 +378,7 @@ async function runScanLibraryTask(
 		// incomplete. A checkpoint persisted before the abort lets the next scan
 		// of this library resume the enqueue phase instead of dropping it.
 		try {
-			await dependencies.emitScanCompleted({ libraryId: data.libraryId, scanId: operationId, errors: 1, correlationId: operationId });
+			dependencies.emitScanCompleted({ libraryId: data.libraryId, scanId: operationId, errors: 1, correlationId: operationId });
 			dependencies.notifyScanCompleted({ libraryId: data.libraryId });
 		} catch (completionError) {
 			context.logger?.error("Failed to publish failed library scan event", completionError, { libraryId: data.libraryId });

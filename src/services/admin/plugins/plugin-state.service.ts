@@ -67,6 +67,7 @@ async function setPackageFlag(
 	context?: AdminAuditContext,
 ): Promise<PluginAdminStatus> {
 	const { pluginId, flag, value, apply } = change;
+	// awaits: sequential — the before snapshot is read before the state changes
 	const before = await pluginManager.getPackageDetails(pluginId);
 	await apply();
 	recordUpdateAudit(adminLog.logger, {
@@ -111,6 +112,7 @@ export async function changePluginStatus(action: PluginAction, pluginId: string,
 }
 
 export async function reloadAllPlugins(context?: AdminAuditContext): Promise<PluginAdminStatus[]> {
+	// awaits: sequential — the list is read after the plugins reload
 	await pluginManager.reloadAll();
 	const result = await pluginAdminService.list();
 	recordUpdateAudit(adminLog.logger, {

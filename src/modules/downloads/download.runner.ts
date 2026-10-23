@@ -130,6 +130,8 @@ export async function runClaimedDownload(
 async function prepareOutput(downloadId: string, quality: string, sourceFileName: string): Promise<string> {
 	const fileName = downloadFileName(sourceFileName, quality);
 	const outputDir = downloadDirectory(downloadId);
+
+	// awaits: sequential — the output directory exists before the file name is recorded
 	await createDirectory(outputDir);
 	await downloadsRepository.update(downloadId, { fileName });
 

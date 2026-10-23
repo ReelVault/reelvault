@@ -68,9 +68,11 @@ export async function runInstall(
 			assertNotCancelled(state);
 
 			if (target === "web") {
+				// awaits: sequential — the history records success only after the update is applied
 				await applyWebUpdate(state, download.filePath, release.version);
 				await updateHistoryService.succeed(historyId);
 			} else {
+				// awaits: sequential — the pre-update check runs before the update is applied
 				const note = await preUpdateCheck(state);
 				await applyServerUpdate(state, download.filePath, release.version);
 				// The swap has set the restart state; the note stays on the job until the restarted server takes over.
@@ -112,6 +114,7 @@ async function finishCancelledInstall(state: UpdateInstallState, target: UpdateC
  */
 async function preUpdateCheck(state: UpdateInstallState): Promise<string> {
 	setJob(state, "verifying", 70, "database backup");
+	// awaits: sequential — the backup is taken before the integrity check
 	const backup = await databaseBackupService.createBackup();
 	const integrity = await databaseMaintenanceService.checkIntegrity();
 	if (!integrity.ok) {

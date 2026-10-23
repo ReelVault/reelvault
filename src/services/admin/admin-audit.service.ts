@@ -192,6 +192,7 @@ interface AuditedUpdateParams<T> {
  */
 export async function auditedUpdate<T>(params: AuditedUpdateParams<T>): Promise<NonNullable<T>> {
 	const { logger, resourceType, resourceId, entityName } = params;
+	// awaits: sequential — the before snapshot is read before the update changes the row
 	const before = await params.before();
 	const result = await params.update();
 	if (result === null || result === undefined) {

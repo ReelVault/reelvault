@@ -365,12 +365,10 @@ async function loadRelations<F extends string>(
 		subtitlesQuery = Promise.resolve([]);
 	}
 
-	const [videoStreams, audioStreams, subtitles, libraries] = await Promise.all([
-		videoStreamsQuery,
-		audioStreamsQuery,
-		subtitlesQuery,
-		librariesQuery,
-	]);
+	const videoStreams = await videoStreamsQuery;
+	const audioStreams = await audioStreamsQuery;
+	const subtitles = await subtitlesQuery;
+	const libraries = await librariesQuery;
 
 	return assembleRelations(mediaFileRows, { videoStreams, audioStreams, subtitles, libraries });
 }

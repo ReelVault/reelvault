@@ -253,16 +253,20 @@ export class SessionLifecycleService {
 				inputPath: file.filePath,
 				durationMs: isNullish(file.duration) ? null : file.duration * 1000,
 			});
+
+			// awaits: sequential — the runtime is prepared before the operation is created
 			await runtime.prepareSession(sessionId);
 			const operation = await workerService.createOperation({
 				type: "streaming-session",
 				reference: { type: "media-file", id: file.id },
 			});
+
 			createdOperationId = operation.id;
 			const task = await this.dependencies.enqueueStreamInit(
 				{ sessionId, mediaFileId: file.id, filePath: file.filePath, decision },
 				{ operationId: operation.id },
 			);
+
 			if (!task.operationId)
 				throw new DomainError("internal", "Streaming operation was not attached to its task", { code: "stream.start_failed" });
 

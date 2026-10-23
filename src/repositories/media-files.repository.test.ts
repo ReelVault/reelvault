@@ -148,3 +148,78 @@ describe("media file presence stamp", () => {
 		expect(afterDelete.get("movie")?.map((row) => row.id)).toEqual([]);
 	});
 });
+
+/** Every column of a probed stream; the test sets only the fields it is about. */
+const VIDEO_STREAM = {
+	codecLongName: null,
+	profile: null,
+	pixelFormat: null,
+	colorTransfer: null,
+	colorPrimaries: null,
+	colorSpace: null,
+	doviProfile: null,
+	frameRate: null,
+	bitRate: null,
+	language: null,
+	title: null,
+	isDefault: false,
+	isForced: false,
+};
+
+const AUDIO_STREAM = {
+	codecLongName: null,
+	channelLayout: null,
+	sampleRate: null,
+	bitRate: null,
+	language: null,
+	title: null,
+	isDefault: false,
+	isForced: false,
+	isCommentary: false,
+};
+
+describe("mediaRepository.replaceTechnicalData", () => {
+	test("keeps the stored streams when the database rejects a new video stream", async () => {
+		await seedTargets();
+		await insertMovieFile("file-1", "movie-1");
+		await db
+			.client()
+			.insert(schema.mediaFileVideoStreams)
+			.values({ mediaFileId: "file-1", index: 0, codecName: "h264", width: 1920, height: 1080 });
+		await db.client().insert(schema.mediaFileAudioStreams).values({ mediaFileId: "file-1", index: 0, codecName: "aac", channels: 2 });
+
+		const replacing = mediaRepository.replaceTechnicalData({
+			mediaFileId: "file-1",
+			size: 1_000,
+			sourceMtimeMs: 1,
+			data: {
+				formatName: "matroska",
+				duration: 3_600,
+				bitRate: null,
+				source: null,
+				edition: null,
+				qualityTag: null,
+				// A probe that reports a stream with no width: the database check rejects the whole video insert.
+				videoStreams: [
+					{ ...VIDEO_STREAM, index: 0, codecName: "hevc", width: 3840, height: 2160 },
+					{ ...VIDEO_STREAM, index: 1, codecName: "mjpeg", width: 0, height: 0 },
+				],
+				audioStreams: [{ ...AUDIO_STREAM, index: 1, codecName: "opus", channels: 2 }],
+				subtitles: [],
+			},
+		});
+
+		await expect(replacing).rejects.toMatchObject({ cause: { code: "SQLITE_CONSTRAINT_CHECK" } });
+
+		const videoRows = await db
+			.client()
+			.select({ index: schema.mediaFileVideoStreams.index, codecName: schema.mediaFileVideoStreams.codecName })
+			.from(schema.mediaFileVideoStreams);
+		const audioRows = await db
+			.client()
+			.select({ index: schema.mediaFileAudioStreams.index, codecName: schema.mediaFileAudioStreams.codecName })
+			.from(schema.mediaFileAudioStreams);
+		expect(videoRows).toEqual([{ index: 0, codecName: "h264" }]);
+		expect(audioRows).toEqual([{ index: 0, codecName: "aac" }]);
+	});
+});

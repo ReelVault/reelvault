@@ -274,9 +274,10 @@ class MetadataPersistenceRepository {
 		tx: DatabaseTransaction,
 		relations: readonly LockedRelation[],
 	): Promise<void> {
-		await Promise.all(
-			relations.filter((relation) => !isRelationLocked(locked, relation)).map((relation) => RELATION_DELETES[relation](metadataId, tx)),
-		);
+		const unlocked = relations.filter((relation) => !isRelationLocked(locked, relation));
+		for (const relation of unlocked) {
+			await RELATION_DELETES[relation](metadataId, tx);
+		}
 	}
 
 	/** The five non-credit relation processors, each skipped when its field lock is set. */
@@ -287,22 +288,23 @@ class MetadataPersistenceRepository {
 		tx: DatabaseTransaction,
 		locked: ReadonlySet<string>,
 	): Promise<void> {
-		const runUnlessLocked = (relation: LockedRelation, work: () => Promise<unknown>) => {
-			if (isRelationLocked(locked, relation)) return Promise.resolve();
-			return work();
+		const runUnlessLocked = async (relation: LockedRelation, work: () => Promise<unknown>) => {
+			if (isRelationLocked(locked, relation)) return;
+
+			await work();
 		};
 
-		await Promise.all([
-			runUnlessLocked("collections", () =>
-				collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }),
-			),
-			runUnlessLocked("companies", () =>
-				companiesRepository.process({ metadataId, providerName, items: metadata.productionCompanies, tx }),
-			),
-			runUnlessLocked("genres", () => genreRepository.process({ metadataId, providerName, items: metadata.genres, tx })),
-			runUnlessLocked("keywords", () => keywordsRepository.process({ metadataId, providerName, items: metadata.keywords, tx })),
-			runUnlessLocked("ratings", () => metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx })),
-		]);
+		await runUnlessLocked("collections", () =>
+			collectionRepository.process({ metadataId, providerName, collections: metadata.collection, tx }),
+		);
+		await runUnlessLocked("companies", () =>
+			companiesRepository.process({ metadataId, providerName, items: metadata.productionCompanies, tx }),
+		);
+		await runUnlessLocked("genres", () => genreRepository.process({ metadataId, providerName, items: metadata.genres, tx }));
+		await runUnlessLocked("keywords", () => keywordsRepository.process({ metadataId, providerName, items: metadata.keywords, tx }));
+		await runUnlessLocked("ratings", () =>
+			metadataRepository.insertRatings({ values: toRatingRows(metadataId, providerName, metadata), tx }),
+		);
 	}
 
 	private async createMetadataRelations(
@@ -323,12 +325,9 @@ class MetadataPersistenceRepository {
 			});
 		};
 
-		const [, personImages] = await Promise.all([
-			this.processMetadataRelations(metadataId, providerName, metadata, tx, locked),
-			processCredits(),
-		]);
+		await this.processMetadataRelations(metadataId, providerName, metadata, tx, locked);
 
-		return personImages;
+		return await processCredits();
 	}
 }
 

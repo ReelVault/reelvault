@@ -167,6 +167,8 @@ export class SidecarMetadataStorageService {
 		const { mediaFile, episode, season } = target;
 		const episodeDirectory = dirname(mediaFile.filePath);
 		const seriesDirectory = resolveSeriesDirectory(scope.storageRoots, episodeDirectory);
+
+		// awaits: sequential — a series and season are written before the episode that sits under them
 		await this.saveSeriesOnce(mediaFile, seriesDirectory, scope);
 		await this.saveSeasonOnce(season, episodeDirectory, scope);
 
@@ -207,6 +209,7 @@ export class SidecarMetadataStorageService {
 		exportArtwork: () => Promise<unknown>,
 	): Promise<void> {
 		await scope.writes.runExclusive(key, async () => {
+			// awaits: sequential — artwork is exported after the sidecar it belongs to is written
 			await write();
 			await exportArtwork();
 		});
@@ -217,6 +220,7 @@ export class SidecarMetadataStorageService {
 		if (scope.savedSeasons.has(seasonKey)) return;
 
 		scope.savedSeasons.add(seasonKey);
+		// awaits: sequential — the season record is saved before its artwork
 		await scope.writes.runExclusive(`season:${seasonKey}`, () =>
 			this.writer.saveSeason({
 				seasonId: season.id,

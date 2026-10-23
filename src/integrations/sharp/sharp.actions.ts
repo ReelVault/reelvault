@@ -69,8 +69,11 @@ async function getCoverDimensions(input: Sharp, targetWidth: number, targetHeigh
  */
 async function withSharp<T>(input: Buffer | string, signal: AbortSignal | undefined, run: (image: Sharp) => Promise<T>): Promise<T> {
 	throwIfAborted(signal);
+
+	// awaits: sequential — a failed load must not leave the semaphore slot taken
 	const sharp = await loadSharp();
 	await sharpSemaphore.acquire(signal);
+
 	try {
 		throwIfAborted(signal);
 

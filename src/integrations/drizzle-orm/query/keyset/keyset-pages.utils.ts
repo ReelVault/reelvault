@@ -42,6 +42,7 @@ export async function collectKeysetPages<TRow>({
 	let cursor: string | undefined;
 	let total = 0;
 	for (;;) {
+		// awaits: sequential — beforePage runs before each page is read
 		await beforePage?.();
 		const rows = await fetchPage(cursor);
 		if (rows.length === 0) break;

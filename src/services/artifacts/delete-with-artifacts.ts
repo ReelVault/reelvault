@@ -28,6 +28,7 @@ export interface DeleteWithArtifactsParams {
 export async function deleteWithArtifacts(params: DeleteWithArtifactsParams): Promise<void> {
 	const { cleanup, resourceType, resourceId, before, invalidate, context, logger } = params;
 
+	// awaits: sequential — the cache is invalidated after the media cleanup
 	await runMediaCleanup(cleanup);
 	await invalidate();
 

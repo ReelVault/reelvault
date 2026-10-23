@@ -49,8 +49,10 @@ class AdminLiveSessionsService {
 				const activeStreamSessions = streamingManager.getAllActiveSessions();
 				const effectiveHw = getEffectiveHwaccel();
 
-				const activeStreams = await this.resolveActiveStreams(activeStreamSessions, effectiveHw);
-				const activeDevices = await this.resolveActiveDevices();
+				const [activeStreams, activeDevices] = await Promise.all([
+					this.resolveActiveStreams(activeStreamSessions, effectiveHw),
+					this.resolveActiveDevices(),
+				]);
 				const { canSafelyUpdate, warning } = this.computeMaintenanceStatus(activeStreams, activeDevices);
 				const { limit, active } = streamingManager.explainCapacityLimit();
 

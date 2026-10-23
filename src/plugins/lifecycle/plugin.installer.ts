@@ -87,6 +87,7 @@ export class PluginInstaller {
 		const source = resolve(sourceDirectory);
 		const pluginsDirectory = resolve(this.pluginsDirectory);
 		assertSeparateDirectories(source, pluginsDirectory);
+		// awaits: sequential — the package is validated before its manifest is read
 		await assertPackageDirectory(source);
 
 		const manifest = await loadInstallableManifest(source);
@@ -218,6 +219,7 @@ export class PluginInstaller {
 		const confirmed: InstalledPluginRecord = { ...record };
 		Reflect.deleteProperty(confirmed, "previous");
 		lockfile.plugins[pluginId] = confirmed;
+		// awaits: sequential — the lockfile stops referencing the backup before the backup is removed
 		await this.lockfileStore.write(lockfile);
 		await removeTree(join(this.pluginsDirectory, record.previous.backupDirectory));
 
@@ -247,6 +249,7 @@ export class PluginInstaller {
 
 			throw error;
 		}
+		// awaits: sequential — the config is preserved before the failed copy is removed
 		await preserveMutableConfig(failed, current);
 		await removeTree(failed);
 
@@ -349,6 +352,7 @@ export class PluginInstaller {
 		await this.lockfileStore.write(updatedLockfile);
 
 		try {
+			// awaits: sequential — the config is backed up before the directory is removed
 			await backupMutableConfig(directory, this.pluginsDirectory, pluginId);
 			await removeTree(directory);
 		} catch (error) {
@@ -386,6 +390,7 @@ function requireRecord(lockfile: PluginLockfile, pluginId: string): InstalledPlu
 
 /** Copies the source into staging and checks the copy is the same, symlink-free plugin. */
 async function stagePackage(source: string, stagingDirectory: string, manifest: { id: string; version: string }): Promise<void> {
+	// awaits: sequential — the staged copy is checked before anything reads from it
 	await cp(source, stagingDirectory, { recursive: true, verbatimSymlinks: true, errorOnExist: true });
 	await assertNoSymbolicLinks(stagingDirectory, verificationConcurrency());
 

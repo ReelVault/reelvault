@@ -417,8 +417,10 @@ class PlaybackProgressService {
 		return await runSafely(this, "getContinueWatching", async () => {
 			const { playbackRepository } = this.dependencies;
 			assertProfileId(profileId);
-			const data = await playbackRepository.findContinueWatchingData(profileId, limit);
-			const preferences = await this.dependencies.profilePreferencesRepository.getEffective({ profileId });
+			const [data, preferences] = await Promise.all([
+				playbackRepository.findContinueWatchingData(profileId, limit),
+				this.dependencies.profilePreferencesRepository.getEffective({ profileId }),
+			]);
 
 			return { data: buildContinueWatching(data, limit, preferences.continueWatchingMinutes * 60) };
 		});

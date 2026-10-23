@@ -49,6 +49,7 @@ async function createReassignMetadataFromProvider(
 	});
 	const targetMetadataId = result.metadataId;
 
+	// awaits: sequential — the artwork is replaced before the person images are processed
 	await imageProcessingService.replaceProviderArtwork(targetMetadataId, providerMetadata);
 	await processPersonImages(result.personImages, ({ personId, url }) => imageProcessingService.processPerson(personId, url, true));
 

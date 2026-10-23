@@ -224,25 +224,23 @@ export async function createWithStreams(data: CreateMediaFile, tx?: DatabaseTran
 			return { mediaFile: existingMediaFile, created: false };
 		}
 
-		await Promise.all([
-			mediaFileVideoStreams.insert({
-				values: videoStreams.map((stream) => ({ ...stream, mediaFileId: createdMediaFile.id })),
-				tx: runTx,
-			}),
-			mediaFileAudioStreams.insert({
-				values: audioStreams.map((stream) => ({ ...stream, mediaFileId: createdMediaFile.id })),
-				tx: runTx,
-			}),
-			mediaFileSubtitles.insert({
-				values: subtitles.map((subtitle) => ({
-					...subtitle,
-					mediaFileId: createdMediaFile.id,
-					type: "embedded" as const,
-					filePath: null,
-				})),
-				tx: runTx,
-			}),
-		]);
+		await mediaFileVideoStreams.insert({
+			values: videoStreams.map((stream) => ({ ...stream, mediaFileId: createdMediaFile.id })),
+			tx: runTx,
+		});
+		await mediaFileAudioStreams.insert({
+			values: audioStreams.map((stream) => ({ ...stream, mediaFileId: createdMediaFile.id })),
+			tx: runTx,
+		});
+		await mediaFileSubtitles.insert({
+			values: subtitles.map((subtitle) => ({
+				...subtitle,
+				mediaFileId: createdMediaFile.id,
+				type: "embedded" as const,
+				filePath: null,
+			})),
+			tx: runTx,
+		});
 
 		await markLatestMediaCreatedAt(createdMediaFile.metadataId, createdMediaFile.createdAt, runTx);
 		await applyMediaFileStats([createdMediaFile], 1, runTx);
@@ -256,15 +254,11 @@ export async function replaceStreams(
 	streams: Pick<CreateMediaFile, "videoStreams" | "audioStreams">,
 	tx: DatabaseTransaction,
 ) {
-	await Promise.all([
-		mediaFileVideoStreams.delete({ where: eq(schema.mediaFileVideoStreams.mediaFileId, mediaFileId), tx }),
-		mediaFileAudioStreams.delete({ where: eq(schema.mediaFileAudioStreams.mediaFileId, mediaFileId), tx }),
-	]);
+	await mediaFileVideoStreams.delete({ where: eq(schema.mediaFileVideoStreams.mediaFileId, mediaFileId), tx });
+	await mediaFileAudioStreams.delete({ where: eq(schema.mediaFileAudioStreams.mediaFileId, mediaFileId), tx });
 
-	await Promise.all([
-		mediaFileVideoStreams.insert({ values: streams.videoStreams.map((stream) => ({ ...stream, mediaFileId })), tx }),
-		mediaFileAudioStreams.insert({ values: streams.audioStreams.map((stream) => ({ ...stream, mediaFileId })), tx }),
-	]);
+	await mediaFileVideoStreams.insert({ values: streams.videoStreams.map((stream) => ({ ...stream, mediaFileId })), tx });
+	await mediaFileAudioStreams.insert({ values: streams.audioStreams.map((stream) => ({ ...stream, mediaFileId })), tx });
 }
 
 export async function replaceEmbeddedSubtitles(

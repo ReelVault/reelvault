@@ -57,7 +57,9 @@ export async function loadRelations<F extends string>(
 		mediaFilesPromise = client.select().from(schema.mediaFiles).where(inArray(schema.mediaFiles.libraryId, libraryIds));
 	}
 
-	const [rawPaths, mediaFiles, libraryStats] = await Promise.all([pathsPromise, mediaFilesPromise, libraryStatsPromise]);
+	const rawPaths = await pathsPromise;
+	const mediaFiles = await mediaFilesPromise;
+	const libraryStats = await libraryStatsPromise;
 
 	let enrichedPaths: Map<string, EnrichedLibraryPath[]>;
 	if (shouldLoadPaths && rawPaths.length > 0) {

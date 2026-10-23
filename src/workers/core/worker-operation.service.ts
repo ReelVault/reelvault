@@ -70,6 +70,7 @@ export async function enqueueWithOperation<T>(
 			// A batch enqueue that failed midway may have inserted jobs referencing
 			// the operation we are about to remove — cancel them so nothing is
 			// orphaned (pending forever against a missing operation).
+			// awaits: sequential — pending jobs are cancelled before the operation is removed
 			await workerJobRepository.cancelPendingByOperation(operationId).catch(() => {
 				// intentionally empty
 			});

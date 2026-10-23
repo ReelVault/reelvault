@@ -139,6 +139,7 @@ class MediaArtifactsService {
 		const storageKey = `${normalizedArtifact.mediaFileId}/${id}`;
 		const stableKey = createLocalStableKey({ namespace: "media-artifact", value: `${ownerId}:${storageKey}` });
 		const mediaArtifactsDir = join(serverConfig.paths.artifacts, normalizedArtifact.mediaFileId);
+		// awaits: sequential — the directory exists before the artifact is written there
 		await createDirectory(mediaArtifactsDir);
 
 		const storedRows = await writeFileWithRollback(this.storagePath(storageKey), normalizedArtifact.content, () =>
@@ -239,6 +240,7 @@ class MediaArtifactsService {
 	}
 
 	private async deleteArtifacts(matching: Array<{ id: string; storageKey: string; pluginId: string }>): Promise<void> {
+		// awaits: sequential — rows go first; a file is removed only once no row points at it
 		await forEachChunked(
 			matching.map((artifact) => artifact.id),
 			async (ids) => {
@@ -266,6 +268,7 @@ class MediaArtifactsService {
 		const artifacts = await mediaArtifactsRepository.findByPluginId(ownerId);
 		if (artifacts.length === 0) return 0;
 
+		// awaits: sequential — rows go first; a file is removed only once no row points at it
 		await forEachChunked(
 			artifacts.map((artifact) => artifact.id),
 			async (ids) => {

@@ -33,6 +33,7 @@ class CollectionsService extends DictionaryCrudService<
 		context?: AdminAuditContext,
 	): Promise<SelectFields<CollectionWithRelations, F>> {
 		return await runSafely(this, "create", async () => {
+			// awaits: sequential — the name is checked before the collection is created
 			await this.assertNameAvailable(body.name);
 			const result = await collectionRepository.createAndRead(body, query);
 			assertFound(result, "Collection", body.name);
@@ -117,6 +118,7 @@ class CollectionsService extends DictionaryCrudService<
 
 	override async delete(collectionId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
 		return await runSafely(this, "delete", async () => {
+			// awaits: sequential — the collection must exist before it is deleted
 			await this.getById(collectionId, { fields: "id" });
 
 			await collectionRepository.delete({ primaryId: collectionId });

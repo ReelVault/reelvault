@@ -71,10 +71,13 @@ export class ProcessManager {
 			this.store.attachProcess(sessionId, process, timelineStart);
 		} catch (error) {
 			ffmpegProcessTracker.markIntentionalKill(sessionId);
+
+			// awaits: sequential — waits for the exit only after the kill was sent
 			await killFfmpegProcessGracefully(process).catch((killError: unknown) => {
 				this.logger.warn("Failed to kill orphaned ffmpeg during session start rollback", { sessionId, error: killError });
 			});
 			await waitForExitWithTimeout(process);
+
 			throw error;
 		}
 
@@ -87,6 +90,7 @@ export class ProcessManager {
 		const process = session.process;
 		if (process) {
 			ffmpegProcessTracker.markIntentionalKill(sessionId);
+			// awaits: sequential — waits for the exit only after the kill was sent
 			await killFfmpegProcessGracefully(process, timeoutMs).catch((killError: unknown) => {
 				// A failed kill leaves an orphan ffmpeg consuming CPU and writing into
 				// a temp dir that is about to be deleted — must be visible.
@@ -121,6 +125,7 @@ export class ProcessManager {
 			exitCode: session.process?.exitCode,
 		});
 		try {
+			// awaits: sequential — the session is prepared before it starts
 			await prepareSession(sessionId);
 			await startSession(sessionId, session);
 
@@ -136,6 +141,7 @@ export class ProcessManager {
 	}
 
 	async ensureTempDirectory(dirPath: string): Promise<void> {
+		// awaits: sequential — the old temp directory is removed before a new one is created
 		await this.removeTempDirectory(dirPath);
 		await createDirectory(dirPath);
 	}

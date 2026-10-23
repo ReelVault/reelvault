@@ -97,6 +97,7 @@ async function storeArchive(
 	const writer = Bun.file(filePath).writer();
 	let received = 0;
 	try {
+		// awaits: sequential — the writer is closed only after the body has been written in full
 		received = await consumeStreamBounded(body, {
 			maxBytes,
 			overflow: () => packageTooLarge(maxBytes),

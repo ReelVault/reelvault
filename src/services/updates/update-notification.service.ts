@@ -27,8 +27,10 @@ class UpdateNotificationService {
 		return await runSafely(this, "notifyIfUpdateAvailable", async () => {
 			await updateCheckService.checkLatest(forceCheck);
 			const state = updateCheckService.getState();
-			const notifiedServer = await this.notifyComponent("server", state.serverLatest, state.serverUpdateAvailable);
-			const notifiedWeb = await this.notifyComponent("web", state.webLatest, state.webUpdateAvailable && !state.webRequiresServerUpdate);
+			const [notifiedServer, notifiedWeb] = await Promise.all([
+				this.notifyComponent("server", state.serverLatest, state.serverUpdateAvailable),
+				this.notifyComponent("web", state.webLatest, state.webUpdateAvailable && !state.webRequiresServerUpdate),
+			]);
 
 			return notifiedServer || notifiedWeb;
 		});

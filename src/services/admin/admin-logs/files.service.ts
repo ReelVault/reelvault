@@ -137,6 +137,7 @@ export async function deleteLogFile(fileId: string, context?: AdminAuditContext)
 		if (filename === "reelvault.log" && filePath === serverConfig.paths.logFile) {
 			await truncate(filePath, 0);
 		} else {
+			// awaits: sequential — the file is removed before its parent directory is checked for emptiness
 			await bunFile(filePath).delete();
 			await removeEmptyParentDir(filePath);
 		}

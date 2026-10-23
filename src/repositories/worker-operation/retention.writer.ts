@@ -1,3 +1,4 @@
+// awaits: sequential-file — statements in one transaction run in order: SQLite is synchronous and a later statement may depend on the earlier one
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, type SQL } from "drizzle-orm";
 import { DAY, serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";

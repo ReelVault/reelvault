@@ -12,6 +12,7 @@ function configBackupPath(pluginsDirectory: string, pluginId: string): string {
 
 /** Copies a config file with owner-only permissions. Non-POSIX filesystems may not support chmod, so that failure is ignored. */
 async function copyOwnerOnly(sourcePath: string, targetPath: string): Promise<void> {
+	// awaits: sequential — the file is chmod-ed after it is written
 	await write(targetPath, file(sourcePath));
 	await chmod(targetPath, 0o600).catch(() => {
 		// Non-POSIX filesystems may not support chmod — the copy still succeeded.
@@ -35,6 +36,7 @@ export async function backupMutableConfig(fromDirectory: string, pluginsDirector
 	const sourcePath = join(fromDirectory, MUTABLE_CONFIG_FILENAME);
 	if (!(await file(sourcePath).exists())) return;
 
+	// awaits: sequential — the backup directory exists before the config is copied into it
 	await mkdir(join(pluginsDirectory, CONFIG_BACKUP_DIRECTORY), { recursive: true });
 	await copyOwnerOnly(sourcePath, configBackupPath(pluginsDirectory, pluginId));
 }

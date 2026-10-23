@@ -58,8 +58,10 @@ class ImageOptimizationService {
 		throwIfAborted(signal);
 		const optimized = await optimizeImage(sourcePath, options, signal);
 		try {
+			// awaits: sequential — the cache directory exists before the optimized image is written
 			await createDirectory(cacheDir);
 			await writeFileAtomic(cachePath, optimized);
+
 			imageCacheEviction.recordWrite(cacheDir, basename(cachePath));
 			// Fire-and-forget must not become an unhandled rejection on fs errors.
 			detachCatching(imageCacheEviction.evictIfDue(cacheDir));

@@ -5,7 +5,6 @@ import { librariesRepository } from "@/repositories/libraries.repository";
 import { toMap } from "@/utils/array.utils";
 import { directoryExists } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/domain.errors";
-import { detach } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { handleFsEvent } from "./debounce.watcher";
 import { clearFailure, recordFailure } from "./failures.tracker";
@@ -129,7 +128,7 @@ async function startWatcher(state: LibraryWatcherState, libraryId: string, pathI
 	try {
 		const exists = await directoryExists(resolvedPath);
 		if (!exists) {
-			await recordFailure(state, libraryId, pathId, resolvedPath, "path_missing");
+			recordFailure(state, libraryId, pathId, resolvedPath, "path_missing");
 			state.logger.debug("Library path does not exist on disk, skipping real-time watcher", {
 				libraryId,
 				pathId,
@@ -152,7 +151,7 @@ async function startWatcher(state: LibraryWatcherState, libraryId: string, pathI
 				error,
 			});
 			stopWatcher(state, pathId);
-			detach(recordFailure(state, libraryId, pathId, resolvedPath, `watcher_error: ${errorMessage(error)}`));
+			recordFailure(state, libraryId, pathId, resolvedPath, `watcher_error: ${errorMessage(error)}`);
 		});
 
 		state.watchers.set(pathId, {
@@ -169,7 +168,7 @@ async function startWatcher(state: LibraryWatcherState, libraryId: string, pathI
 			path: resolvedPath,
 		});
 	} catch (error) {
-		await recordFailure(state, libraryId, pathId, resolvedPath, `watch_failed: ${errorMessage(error)}`);
+		recordFailure(state, libraryId, pathId, resolvedPath, `watch_failed: ${errorMessage(error)}`);
 		state.logger.warn("Could not start real-time watcher for library path", {
 			libraryId,
 			pathId,

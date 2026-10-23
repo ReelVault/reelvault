@@ -195,8 +195,10 @@ export const mediaFilesRoutes = new Elysia({
 	.get(
 		"/:mediaFileId/artifacts/:artifactId",
 		async ({ params, set, user, profile }) => {
+			// awaits: sequential — access is checked before the artifact is read
 			await assertRouteMediaAccess({ user, profile }, params.mediaFileId);
 			const { artifact, file } = await mediaService.getArtifact(params.mediaFileId, params.artifactId);
+
 			set.headers["Content-Type"] = artifact.contentType;
 			// Access-checked content: a shared cache must never replay it to another
 			// viewer after a policy change, so keep it browser-private.

@@ -156,11 +156,12 @@ export const sessionResolver = {
 			throw new DomainError("forbidden", "This API key is read-only", { code: "api_key.read_only" });
 		}
 
-		const profile = await resolveCurrentProfile(request, selectedProfileId, unlockValue, principal.user.id);
-
-		// Full owner record — guards and audit consumers read role/ban state. A blocked owner
-		// loses the key at once, the same way a blocked account loses its sessions.
-		const user = await usersRepository.findById(principal.user.id);
+		const [profile, user] = await Promise.all([
+			resolveCurrentProfile(request, selectedProfileId, unlockValue, principal.user.id),
+			// Full owner record — guards and audit consumers read role/ban state. A blocked owner
+			// loses the key at once, the same way a blocked account loses its sessions.
+			usersRepository.findById(principal.user.id),
+		]);
 		if (!user || isBlockedAccount(user, new Date())) return sessionResolver.anonymous();
 
 		return { user, session: null, profile };

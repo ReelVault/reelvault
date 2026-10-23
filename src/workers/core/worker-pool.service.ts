@@ -197,6 +197,7 @@ export class WorkerExecutionPoolService {
 	): Promise<void> {
 		if (await this.handleAbortAfterCompletion(item, exec, startedAt, durationMs)) return;
 
+		// awaits: sequential — the job is completed before its schedule run is recorded
 		await workerJobRepository.complete(item.id, this.runnerId, JSON.stringify(result ?? null), item.claimToken ?? undefined);
 		await this.recordScheduleExecution(item.workerId, {
 			status: "completed",

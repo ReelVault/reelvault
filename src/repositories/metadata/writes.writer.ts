@@ -205,10 +205,8 @@ export async function findOrCreateMetadata({
 		eq(schema.metadata.type, type),
 		eq(schema.metadata.releaseDate, results.releaseDate),
 	);
-	const [existingByStableKey, candidateByIdentity] = await Promise.all([
-		metadataTable.selectFirst({ where: eq(schema.metadata.stableKey, stableKey), tx }),
-		metadataTable.selectFirst({ where: metadataWhere, tx }),
-	]);
+	const existingByStableKey = await metadataTable.selectFirst({ where: eq(schema.metadata.stableKey, stableKey), tx });
+	const candidateByIdentity = await metadataTable.selectFirst({ where: metadataWhere, tx });
 	if (existingByStableKey && candidateByIdentity && candidateByIdentity.id !== existingByStableKey.id && mergeConflict) {
 		// The update below would collide with this duplicate's unique identity
 		// (title, type, release_date); fold it into the provider-linked row first.

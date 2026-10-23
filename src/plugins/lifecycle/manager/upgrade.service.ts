@@ -19,6 +19,7 @@ export async function installFromDirectory(
 	options: { source?: string },
 ): Promise<InstallCatalogPluginResponse> {
 	return await runLifecycle(state, async () => {
+		// awaits: sequential — the previous records are read before the install changes them
 		const previousRecords = await state.installer.list();
 		const result = await state.installer.install(sourceDirectory, {
 			upgrade: true,

@@ -178,6 +178,7 @@ class AdminUsersService {
 			assertFound(user, "User", userId);
 			assertPresent(context?.headers, "Request headers are required to set a user password");
 
+			// awaits: sequential — sessions are revoked only after the password has changed
 			await betterAuthApi.setUserPassword({ userId, newPassword: body.newPassword, headers: context.headers });
 			// A stolen session token must not survive a password reset.
 			await sessionsRepository.deleteAllForUser(userId);

@@ -88,11 +88,13 @@ async function repairIngestSideEffects(target: IngestTarget, input: IngestComple
 	// No progress row means the crashed attempt never reached the marking step —
 	// the side effects still need to run.
 	if (!progress?.sidecarWritten) {
+		// awaits: sequential — the mark is set only after the sidecars are written
 		await saveIngestSidecars(target, input, dependencies);
 		await dependencies.markSidecarWritten?.(target.mediaFileId);
 	}
 
 	if (!progress?.discoveredEmitted) {
+		// awaits: sequential — the mark is set only after the event is emitted
 		await emitIngestDiscovered(target, input, dependencies);
 		await dependencies.markDiscoveredEmitted?.(target.mediaFileId);
 	}
@@ -107,6 +109,7 @@ async function completeRetryTarget(target: IngestTarget, input: IngestCompletion
 
 /** The side effects a first-time ingest publishes: sidecar, discovered and identified events. */
 async function publishFreshIngest(target: IngestTarget, input: IngestCompletionInput, dependencies: Deps): Promise<void> {
+	// awaits: sequential — each event and mark follows the step that produced it
 	await saveIngestSidecars(target, input, dependencies);
 	await dependencies.markSidecarWritten?.(target.mediaFileId);
 	await emitIngestDiscovered(target, input, dependencies);
@@ -134,6 +137,7 @@ export async function completeFreshIngest(input: IngestCompletionInput, dependen
 
 /** Post-create side effects every additional target row needs on a first ingest. */
 async function completeAdditionalTarget(target: IngestTarget, input: IngestCompletionInput, dependencies: Deps): Promise<void> {
+	// awaits: sequential — each follow-up step is queued only after the step before it has finished
 	await importIngestSubtitles(target.mediaFileId, input.data.filePath, dependencies);
 	await enqueueTrickplayIfEnabled(target.mediaFileId, input.data.libraryId, dependencies);
 	await enqueueCompletionAnalysis(target, input, dependencies);

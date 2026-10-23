@@ -68,8 +68,6 @@ function createHarness(options?: {
 		publishScanStarted: () => events.push("started"),
 		emitScanCompleted: (input) => {
 			events.push(`completed:errors=${input.errors}`);
-
-			return Promise.resolve();
 		},
 		notifyScanCompleted: (input) => events.push(`notified:${input.libraryId}${input.libraryTitle ? `:${input.libraryTitle}` : ""}`),
 		loadCheckpoint: (libraryId) => Promise.resolve(checkpoints.get(libraryId)),

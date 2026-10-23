@@ -217,9 +217,11 @@ class TrickplayService {
 
 	/** Whether dropping this file's own artifacts would still leave core storage over budget. */
 	private async exceedsArtifactBudget(mediaFileId: string): Promise<boolean> {
-		const budgetBytes = await resolveCoreArtifactsBudgetBytes();
-		const storedBytes = await mediaArtifactsService.getStoredBytes(CORE_ARTIFACTS_OWNER);
-		const existingBytes = await mediaArtifactsService.getMediaFileStoredBytes(mediaFileId, CORE_ARTIFACTS_OWNER);
+		const [budgetBytes, storedBytes, existingBytes] = await Promise.all([
+			resolveCoreArtifactsBudgetBytes(),
+			mediaArtifactsService.getStoredBytes(CORE_ARTIFACTS_OWNER),
+			mediaArtifactsService.getMediaFileStoredBytes(mediaFileId, CORE_ARTIFACTS_OWNER),
+		]);
 		if (storedBytes - existingBytes < budgetBytes) return false;
 
 		this.logger.warn("Trickplay generation skipped: artifact storage budget exhausted", {

@@ -104,6 +104,7 @@ export async function scan(mediaFileId: string, options?: { durationSeconds?: nu
 				};
 			}
 
+			// awaits: sequential — the decode runs after the probe, one ffmpeg run at a time
 			const { probeSuccess, probeErrorCode } = await probeMediaFile(filePath);
 
 			const { decodeSuccess, decodeErrorCode } = await decodeMediaFile(filePath, options?.durationSeconds);

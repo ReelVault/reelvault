@@ -122,6 +122,8 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 			// access policies (e.g. parental control) as the media stream itself,
 			// not just "is signed in".
 			const subtitle = await subtitlesService.getById(params.id);
+
+			// awaits: sequential — access is checked before the subtitle content is read
 			await assertRouteMediaAccess({ user, profile }, subtitle.mediaFileId);
 			const content = await subtitlesService.getContent(params.id, request.signal);
 

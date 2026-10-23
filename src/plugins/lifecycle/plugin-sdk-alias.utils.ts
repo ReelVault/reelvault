@@ -88,8 +88,10 @@ async function materializePluginSdkShim(pluginsDirectory: string): Promise<boole
 
 	const manifest = { name: "@reelvault/sdk", version: "1.0.0", type: "module", exports: exportsMap };
 	try {
+		// awaits: sequential — the shim directory exists before its package.json is written
 		await mkdir(join(pluginsDirectory, "node_modules", "@reelvault"), { recursive: true });
 		await Bun.write(join(shimDir, "package.json"), `${JSON.stringify(manifest, null, "\t")}\n`);
+
 		for (const file of files) {
 			// Only rewrite changed files so the shim does not churn the SD card / NAS.
 			const existing = existsSync(file.path) ? readFileSync(file.path, "utf8") : "";

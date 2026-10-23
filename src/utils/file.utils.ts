@@ -198,6 +198,7 @@ export async function writeFileAtomic(
 ): Promise<void> {
 	const temporaryPath = createTempPath(path);
 	try {
+		// awaits: sequential — the temporary file is written before it is renamed over the target
 		await bunWrite(temporaryPath, content);
 		await rename(temporaryPath, path);
 		if (options?.chmod !== undefined) {
@@ -354,6 +355,7 @@ async function streamToFile(body: ReadableStream<Uint8Array>, path: string, maxB
 	const sink = bunFile(path).writer();
 
 	try {
+		// awaits: sequential — the sink is closed only after the body has been written in full
 		await consumeStreamBounded(body, {
 			maxBytes,
 			signal,

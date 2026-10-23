@@ -30,8 +30,7 @@ export async function getPluginConfigDetails(state: PluginManagerState, pluginId
 	if (!(await directoryExists(pluginDir))) {
 		throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
 	}
-	const manifest = await loadPluginManifest(pluginDir);
-	const config = await state.config.load(pluginDir);
+	const [manifest, config] = await Promise.all([loadPluginManifest(pluginDir), state.config.load(pluginDir)]);
 	// The config schema travels with the loaded plugin module (`defineConfig`);
 	// a failed load keeps its definition too, so the plugin stays configurable.
 	const definition = state.registry.getConfigDefinition(pluginId);

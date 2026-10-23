@@ -50,6 +50,7 @@ export async function enqueueInBatches<T>({
 		return { queued: 0, cursor };
 	}
 
+	// awaits: sequential — progress is reported after the chunk is enqueued
 	await mapConcurrent(remaining, systemResourcesService.getIngestConcurrency(), item, signal);
 	await onChunk?.(items.length);
 

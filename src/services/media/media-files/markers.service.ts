@@ -110,6 +110,7 @@ export async function setMarkers(
 
 export async function deleteMarkers(mediaFileId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
 	return await runSafely(mediaFilesLog, "deleteMarkers", async () => {
+		// awaits: sequential — the file is checked and its markers read before they are deleted
 		await assertMediaFileExists(mediaFileId);
 		const before = await mediaMarkersRepository.findByMediaFileId(mediaFileId);
 		await mediaMarkersRepository.deleteByMediaFileId(mediaFileId);

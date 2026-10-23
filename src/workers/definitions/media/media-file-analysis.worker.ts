@@ -54,7 +54,7 @@ export async function analyzeMediaFileTask(
 			}
 		}
 
-		await pluginEventBus.emit("media.file.ready", {
+		pluginEventBus.publish("media.file.ready", {
 			libraryId: data.libraryId,
 			mediaFileId: data.mediaFileId,
 			metadataId: data.metadataId,

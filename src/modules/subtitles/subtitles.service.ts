@@ -139,6 +139,7 @@ export class SubtitlesService {
 
 	async update(id: string, body: UpdateSubtitleRequest): Promise<Subtitle> {
 		return await runSafely(this, "update", async () => {
+			// awaits: sequential — waits for the in-flight extraction before the row is changed
 			const previous = await findSubtitle(id);
 			// An in-flight extraction read the old row; let it settle before the VTT
 			// is dropped, or it can rename the old cues back after the delete.
@@ -186,12 +187,14 @@ export class SubtitlesService {
 
 	async delete(id: string): Promise<{ success: true }> {
 		return await runSafely(this, "delete", async () => {
+			// awaits: sequential — the cache and the in-flight extraction settle before the row is deleted
 			await subtitleInfoCache.invalidateAndWait(id);
 			// Wait for a concurrent extraction so it cannot rename the VTT back
 			// after this delete removes it.
 			await subtitleExtractorService.waitForInFlight(id);
 			const subtitle = await subtitlesRepository.deleteAndReturn(id);
 			assertFound(subtitle, "Subtitle", id);
+			// awaits: sequential — the cache is invalidated after the artifacts are gone, so no read refills it from them
 			await subtitleFileCleaner.deleteArtifacts(id, subtitle);
 			// A content read can load the row between the first invalidation and
 			// the delete; drop what that read cached after the row is gone.

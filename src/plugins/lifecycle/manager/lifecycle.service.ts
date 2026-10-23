@@ -71,6 +71,7 @@ async function disablePlugin(state: PluginManagerState, pluginId: string): Promi
 /** Full reload: unload every plugin first, then load them again. */
 export async function reloadAllPlugins(state: PluginManagerState): Promise<void> {
 	await runLifecycle(state, async () => {
+		// awaits: sequential — plugins unload before they reload
 		await state.loader.unloadAll();
 		await state.loader.loadAll();
 	});
@@ -109,6 +110,7 @@ export async function uninstallPlugin(state: PluginManagerState, pluginId: strin
 			state.logger.warn(`No installer record for ${pluginId} — removed loaded data only`);
 		}
 
+		// awaits: sequential — the UI settings are reset only after the plugin data is removed
 		await state.loader.removePluginData(pluginId);
 		await pluginUiSettingsService.reset(pluginId);
 

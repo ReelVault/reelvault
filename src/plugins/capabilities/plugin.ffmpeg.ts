@@ -105,11 +105,12 @@ class PluginFfmpegService {
 
 	async extractSprite(request: SpriteExtractionRequest): Promise<ExtractedSprite> {
 		assertSpriteExtractionRequest(request);
+		// awaits: sequential — the media file is checked before its sprite environment is prepared
 		const mediaFile = await this.requireMediaFile(request.mediaFileId);
-
 		const { framesDir, spriteOutputPath, format, ext, hwDecodeArgs } = await this.prepareSpriteEnvironment(request);
 
 		try {
+			// awaits: sequential — the frames are extracted before the sprite tile is assembled from them
 			await this.extractSpriteFrames(mediaFile.filePath, request, framesDir, ext, hwDecodeArgs);
 			const { columns, rows } = await this.assembleSpriteTile(framesDir, request, ext, format, spriteOutputPath);
 

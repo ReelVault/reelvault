@@ -72,11 +72,14 @@ export class PluginLoader {
 	}
 
 	async loadAll(): Promise<void> {
-		// Must precede the first entry import: plugin code imports the SDK by package name.
-		await ensurePluginSdkShim(this.pluginsDirectory);
-		// Boot / reload-all: stale mirrors from a crash are safe to drop before materialising fresh ones.
-		await clearPluginRuntimes(this.runtimeRoot);
-		await pluginBlobsService.purgeExpired();
+		// Boot / reload-all: the SDK shim, stale runtime mirrors and expired blobs are independent.
+		// awaits: sequential — the directory index scans the plugins root, which the SDK shim writes into
+		await Promise.all([
+			ensurePluginSdkShim(this.pluginsDirectory),
+			clearPluginRuntimes(this.runtimeRoot),
+			pluginBlobsService.purgeExpired(),
+		]);
+
 		// The index scans the plugins root and reads the manifests; it hands back
 		// the directory names, so the root is not scanned a second time.
 		const pluginNames = await this.directoryIndex.refresh(this.pluginsDirectory);
@@ -205,6 +208,25 @@ export class PluginLoader {
 		return defaultExport;
 	}
 
+	/** Registers a loaded plugin and binds its scope; returns the runtime that describes it. */
+	private registerLoadedPlugin(
+		manifest: Awaited<ReturnType<typeof loadPluginManifest>>,
+		plugin: ReelVaultPlugin,
+		configDefinition: ConfigDefinition | undefined,
+		scope: PluginScope,
+	): ReturnType<typeof buildPluginRuntime> {
+		const runtime = buildPluginRuntime(manifest, plugin, configDefinition, scope);
+		this.registry.register(runtime, scope.getProviders(), scope.getAnalyzers(), scope.getSubtitleProviders());
+		this.pluginScopes.set(manifest.id, scope);
+
+		const uiManifest = scope.getUiManifest();
+		if (uiManifest) {
+			this.registry.setUiManifest(manifest.id, uiManifest);
+		}
+
+		return runtime;
+	}
+
 	async load(pluginNameOrId: string): Promise<void> {
 		// Keep the SDK shim current on every load — catalog-installed plugins ship without node_modules.
 		await ensurePluginSdkShim(this.pluginsDirectory);
@@ -259,6 +281,7 @@ export class PluginLoader {
 			const rawConfig = await this.config.load(pluginDir);
 			this.registry.advance(manifest.id, "validated", "config");
 
+			// awaits: sequential — the UI manifest is attached to the scope before the plugin is imported
 			await this.loadUiManifest(pluginDir, scope);
 
 			plugin = await this.importPlugin(manifest, runtimeDirectory);
@@ -279,26 +302,20 @@ export class PluginLoader {
 			scope.assertDeclaredCapabilities(manifest.capabilities);
 			this.registry.advance(manifest.id, "initialized", "initialization");
 
+			// awaits: sequential — providers are initialized before jobs are registered
 			await scope.initializeProviders(config);
 			await scope.registerJobs(manifest.id);
 			scope.registerHttpRoutes(manifest.id);
 			this.registry.markPhase(manifest.id, "activation");
 
-			const runtime = buildPluginRuntime(manifest, plugin, configDefinition, scope);
-			this.registry.register(runtime, scope.getProviders(), scope.getAnalyzers(), scope.getSubtitleProviders());
-			this.pluginScopes.set(manifest.id, scope);
-
-			const uiManifest = scope.getUiManifest();
-			if (uiManifest) {
-				this.registry.setUiManifest(manifest.id, uiManifest);
-			}
+			const runtime = this.registerLoadedPlugin(manifest, plugin, configDefinition, scope);
 
 			if (plugin.onEnable) {
 				await plugin.onEnable();
 			}
 
 			this.registry.enable(manifest.id);
-			await pluginEventBus.emit("plugin.enabled", { pluginId: manifest.id });
+			pluginEventBus.publish("plugin.enabled", { pluginId: manifest.id });
 			realtimeService.broadcast("plugin:enabled", { pluginId: manifest.id });
 
 			this.logger.info(`Plugin [${manifest.id}@${manifest.version}] loaded successfully`, {
@@ -308,6 +325,7 @@ export class PluginLoader {
 				jobs: runtime.jobNames.length,
 			});
 		} catch (error) {
+			// awaits: sequential — the scope is cleaned up before the failed load is unloaded
 			await scope.cleanup();
 			await this.runFailedLoadUnload(plugin, trackedPluginId);
 			failurePhase = this.recordLoadFailure({ trackedPluginId, manifest, pluginName, failurePhase, configDefinition }, error);
@@ -371,6 +389,7 @@ export class PluginLoader {
 	async reloadPlugin(pluginId: string): Promise<void> {
 		const pluginName = (await this.findDirectoryNameForPluginId(pluginId)) ?? pluginId;
 
+		// awaits: sequential — the plugin unloads before it is loaded again
 		await this.unloadPlugin(pluginId);
 		await this.load(pluginName);
 	}
@@ -397,7 +416,7 @@ export class PluginLoader {
 
 		this.registry.disable(pluginId);
 		pluginAccessBus.offPlugin(pluginId);
-		await pluginEventBus.emit("plugin.disabled", { pluginId });
+		pluginEventBus.publish("plugin.disabled", { pluginId });
 		realtimeService.broadcast("plugin:disabled", { pluginId });
 		let lifecycleError: Error | undefined;
 

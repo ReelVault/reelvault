@@ -25,6 +25,7 @@ export class KeyedMutex {
 	}
 
 	private async chain(previous: Promise<void>, gate: Promise<void>): Promise<void> {
+		// awaits: sequential — the previous holder settles before this gate opens
 		await swallow(previous);
 		await gate;
 	}

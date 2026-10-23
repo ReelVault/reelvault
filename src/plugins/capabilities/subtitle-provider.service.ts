@@ -61,8 +61,7 @@ class SubtitleProviderService {
 	}
 
 	async search(request: SubtitleProviderSearchRequest): Promise<SubtitleProviderSearchResponse[]> {
-		const media = await this.getMediaItem(request.mediaFileId);
-		const disabled = await this.disabledProviderIds();
+		const [media, disabled] = await Promise.all([this.getMediaItem(request.mediaFileId), this.disabledProviderIds()]);
 		const providers = pluginManager.getSubtitleProviders().filter((provider) => !disabled.has(provider.id));
 
 		return await mapProvidersSafely<(typeof providers)[number], SubtitleProviderSearchResponse>(
@@ -85,6 +84,7 @@ class SubtitleProviderService {
 			throw new DomainError("conflict", `Subtitle provider ${providerId} is turned off`, { code: "plugin.subtitle.provider_disabled" });
 		}
 
+		// awaits: sequential — the media item is checked before the provider is asked for the subtitle
 		await this.getMediaItem(request.mediaFileId);
 
 		const download = await provider.download(request.subtitleId);
@@ -116,6 +116,7 @@ class SubtitleProviderService {
 			};
 
 			if (existing) {
+				// awaits: sequential — the row points at the new file before the old one is deleted
 				await pluginSubtitleData.update({ primaryId: existing.id, values });
 				await this.deleteOwnedFile(existing.filePath);
 

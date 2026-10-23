@@ -55,6 +55,7 @@ export async function rematch<F extends string>(
 			{
 				resourceType: "metadata_rematch",
 				persist: async (providerMetadata) => {
+					// awaits: sequential — the provider match is stored before the artwork is replaced from it
 					await metadataPersistenceRepository.rematchProviderMetadata({
 						metadataId,
 						type: existing.type,
@@ -97,6 +98,7 @@ export async function linkProvider<F extends string>(
 		return await updateLinkedProvider({ metadataId, existing, link: body }, query, context, {
 			resourceType: "metadata_link_provider",
 			persist: async (providerMetadata) => {
+				// awaits: sequential — the provider link is stored before the metadata is refreshed
 				await metadataPersistenceRepository.linkProvider(metadataId, existing.type, body.providerId, body.externalId);
 				await metadataRefreshService.refresh(metadataId, { prefetchedProviders: { [body.providerId]: providerMetadata } });
 			},

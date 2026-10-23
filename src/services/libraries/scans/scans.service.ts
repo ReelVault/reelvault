@@ -89,8 +89,10 @@ export async function scanAllLibraries(context?: AdminAuditContext) {
 /** Cancels the queued and running scans of a library: its whole-library scan, its path scans and their catch-up passes. */
 export async function cancelLibraryScans(libraryId: string, context?: AdminAuditContext) {
 	return await runSafely(librariesLog, "cancelScans", async () => {
-		const library = await getLibraryForScan(libraryId, { fields: "id,paths.id" });
-		const { workerService } = await import("@/workers/worker.service");
+		const [library, { workerService }] = await Promise.all([
+			getLibraryForScan(libraryId, { fields: "id,paths.id" }),
+			import("@/workers/worker.service"),
+		]);
 
 		const scanKeys = [`${library.id}:all`, ...library.paths.map((path) => `${library.id}:${path.id}`)];
 		const dedupeKeys = scanKeys.flatMap((key) => [key, `${key}:catch-up`]);

@@ -13,7 +13,7 @@ import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { assertUserId, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { detach } from "@/utils/promise.utils";
+import { detach, detachCatching } from "@/utils/promise.utils";
 import { invalidateProfileResponseBodies, invalidateResponseBodies } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { parseMutedNotificationTypes } from "./notification-mute.utils";
@@ -72,6 +72,7 @@ class NotificationsService {
 				link: notification.link ?? null,
 				sourcePluginId,
 			});
+
 			this.invalidateFor(notification.userId, notification.profileId ?? undefined);
 			const outgoing = {
 				id,
@@ -83,6 +84,7 @@ class NotificationsService {
 				data: notification.data ?? {},
 				link: notification.link ?? null,
 			};
+
 			this.emitNotificationCreated({ ...outgoing, sourcePluginId });
 			const realtimePayload = {
 				id,
@@ -93,9 +95,12 @@ class NotificationsService {
 				message: notification.message ?? null,
 				link: notification.link ?? null,
 			};
+
 			if (notification.profileId) {
 				// A muted type still exists for the profile's list and plugins; it just does not interrupt with a live event.
-				await this.sendProfileRealtimeCreated(notification, realtimePayload);
+				detachCatching(this.sendProfileRealtimeCreated(notification, realtimePayload), (error) =>
+					this.logger.warn("Could not send the live notification event", { profileId: notification.profileId, error }),
+				);
 			} else {
 				realtimeService.sendToUser(notification.userId, "notification:created", realtimePayload);
 			}
