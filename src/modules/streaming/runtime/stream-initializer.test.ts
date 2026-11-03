@@ -23,7 +23,7 @@ describe("StreamInitializer", () => {
 		const calls: string[] = [];
 		const initializer = new StreamInitializer(
 			dependencies({
-				startSession: (_sessionId, _filePath, _decision, startTime, operationId) => {
+				startSession: ({ startTime, operationId }) => {
 					calls.push(`start:${startTime}:${operationId}`);
 
 					return Promise.resolve();

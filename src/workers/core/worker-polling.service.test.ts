@@ -89,7 +89,7 @@ async function pollOnce(polling: WorkerPollingService): Promise<void> {
 	try {
 		await polling.poll();
 	} finally {
-		polling.stop();
+		await polling.stop();
 	}
 }
 
@@ -210,6 +210,6 @@ describe("WorkerPollingService wake-up drain", () => {
 		// The regular poll only runs after the one-second interval, so a 200 ms window passes only if the drain ran.
 		await until(() => started.length === 2, 40);
 		expect(started).toEqual(["job-1", "job-2"]);
-		polling.stop();
+		await polling.stop();
 	});
 });

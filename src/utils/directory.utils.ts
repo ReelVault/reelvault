@@ -1,14 +1,15 @@
 import { rmSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { file as bunFile, Glob } from "bun";
+import { Glob } from "bun";
+import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { isMissingFile } from "./domain.errors";
 import { statWithTimeout } from "./file.utils";
 import { createLogger } from "./logger.utils";
 import { MemoryCache } from "./memory.cache";
 import { isVideoFile } from "./path.utils";
-import { mapConcurrent, PromiseTimeoutError } from "./promise.utils";
+import { mapConcurrent, PromiseTimeoutError, withTimeout } from "./promise.utils";
 
 const logger = createLogger("DirUtils");
 
@@ -42,9 +43,11 @@ export interface DirectoryEntry {
 	isDirectory: boolean;
 }
 
-/** Reads a directory's entries; throws when it cannot be read. */
+/** Reads a directory's entries with a deadline; throws when it cannot be read. */
 export async function readDirectoryEntries(directory: string): Promise<DirectoryEntry[]> {
-	const entries = await readdir(directory, { withFileTypes: true });
+	// `readdir` has no abort parameter. A hung network mount would otherwise
+	// hold sidecar reads, log walks and cache reconciliation forever.
+	const entries = await withTimeout(readdir(directory, { withFileTypes: true }), FS_STAT_TIMEOUT_MS, `readdir ${directory}`);
 
 	return entries.map((entry) => ({ name: entry.name, isFile: entry.isFile(), isDirectory: entry.isDirectory() }));
 }
@@ -204,7 +207,7 @@ export async function scanFilesWithStats(
 			ioConcurrency,
 			async (fullPath) => {
 				try {
-					const fileStat = await bunFile(fullPath).stat();
+					const fileStat = await statWithTimeout(fullPath);
 
 					return {
 						filePath: fullPath,
@@ -299,11 +302,11 @@ async function* iterateGlob(
 async function containsVideoFile(path: string, maxDepth = 10, currentDepth = 0): Promise<boolean> {
 	if (currentDepth >= maxDepth) return false;
 
-	for (const entry of await readdir(path, { withFileTypes: true })) {
+	for (const entry of await readDirectoryEntries(path)) {
 		const entryPath = join(path, entry.name);
-		if (entry.isFile() && isVideoFile(entryPath)) return true;
+		if (entry.isFile && isVideoFile(entryPath)) return true;
 
-		if (entry.isDirectory() && (await containsVideoFile(entryPath, maxDepth, currentDepth + 1))) return true;
+		if (entry.isDirectory && (await containsVideoFile(entryPath, maxDepth, currentDepth + 1))) return true;
 	}
 
 	return false;

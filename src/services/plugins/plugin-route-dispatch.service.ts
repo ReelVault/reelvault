@@ -1,7 +1,9 @@
 import type { PluginRouteAccess } from "@reelvault/sdk/plugin";
+import { serverConfig } from "@/config/server/server.config";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { PluginRouteValidationError, pluginRoutesRegistry } from "@/plugins/runtime/plugin.routes";
 import { pluginUserData } from "@/services/plugins/plugin-data.service";
+import { withTimeout } from "@/utils/promise.utils";
 
 export interface PluginRouteDispatchInput {
 	pluginId: string;
@@ -66,17 +68,21 @@ async function dispatch(input: PluginRouteDispatchInput): Promise<PluginRouteDis
 	if (authorization) return authorization;
 
 	try {
-		const response = await pluginRoutesRegistry.dispatch(resolvedRoute, {
-			params: resolvedRoute.params,
-			query: input.query,
-			headers: withoutCallerCredentials(input.headers),
-			body: input.body,
-			user: {
-				id: input.user.id,
-				role: input.user.role ?? "user",
-				profileId: input.user.profileId,
-			},
-		});
+		const response = await withTimeout(
+			pluginRoutesRegistry.dispatch(resolvedRoute, {
+				params: resolvedRoute.params,
+				query: input.query,
+				headers: withoutCallerCredentials(input.headers),
+				body: input.body,
+				user: {
+					id: input.user.id,
+					role: input.user.role ?? "user",
+					profileId: input.user.profileId,
+				},
+			}),
+			serverConfig.plugins.runtime.routeTimeoutMs,
+			`plugin ${input.pluginId} route ${input.method} ${input.path}`,
+		);
 
 		return { type: "success", status: response.status ?? 200, body: response.body, headers: response.headers };
 	} catch (error) {

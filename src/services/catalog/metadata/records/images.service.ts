@@ -14,6 +14,7 @@ import { resolveMetadataLanguage } from "@/services/catalog/metadata/providers/l
 import { syncSeasonsAndEpisodes } from "@/services/catalog/metadata/refresh/season-sync.utils";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { toMap } from "@/utils/array.utils";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { rankImageOptions } from "@/utils/image-storage.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
@@ -114,17 +115,27 @@ export async function uploadImage(
 }
 
 /** Force-refreshes the artwork of the listed titles one after another; each id reports its own outcome. */
-export async function refreshImagesMany(metadataIds: string[]) {
+export async function refreshImagesMany(metadataIds: string[], signal?: AbortSignal) {
 	return await runSafely(
 		metadataLog,
 		"refreshImagesMany",
 		async () =>
-			await runBulkItems(metadataIds, (metadataId) => refreshImages(metadataId, { force: true }), "metadata.refresh_images_failed"),
+			await runBulkItems(
+				metadataIds,
+				(metadataId) => refreshImages(metadataId, { force: true }, signal),
+				"metadata.refresh_images_failed",
+				signal,
+			),
 	);
 }
 
-export async function refreshImages(metadataId: string, options: { force?: boolean } = {}): Promise<{ success: boolean }> {
+export async function refreshImages(
+	metadataId: string,
+	options: { force?: boolean } = {},
+	signal?: AbortSignal,
+): Promise<{ success: boolean }> {
 	return await runSafely(metadataLog, "refreshImages", async () => {
+		throwIfAborted(signal);
 		const metadata = await metadataRepository.findProviderDetails(metadataId);
 		assertFound(metadata, "Metadata", metadataId);
 
@@ -156,11 +167,11 @@ export async function refreshImages(metadataId: string, options: { force?: boole
 		if (providerMetadata.backdropPath) imagesToProcess.push({ type: "backdrop", url: providerMetadata.backdropPath });
 
 		if (imagesToProcess.length > 0) {
-			await imageProcessingService.processMetadata(metadataId, imagesToProcess, isForce);
+			await imageProcessingService.processMetadata(metadataId, imagesToProcess, isForce, signal);
 		}
 
 		if (metadata.type === "tv_show") {
-			await syncSeasonEpisodeImages(metadataId, metadata, providerMetadata, isForce);
+			await syncSeasonEpisodeImages(metadataId, metadata, providerMetadata, isForce, signal);
 		}
 
 		invalidateReadCaches();
@@ -175,7 +186,9 @@ async function syncSeasonEpisodeImages(
 	metadata: { providers?: Array<{ name: string; externalId: string }> | undefined; type: string },
 	providerMetadata: ProviderMetadataResult,
 	isForce: boolean,
+	signal?: AbortSignal,
 ): Promise<void> {
+	throwIfAborted(signal);
 	const providerLinks = mapProviderLinks(metadata.providers ?? []);
 	const seasonImages = await syncSeasonsAndEpisodes(
 		metadataId,
@@ -188,25 +201,33 @@ async function syncSeasonEpisodeImages(
 	const imageTasks: Array<() => Promise<void>> = [];
 	for (const img of seasonImages) {
 		if (img.kind === "season" && img.urls) {
-			imageTasks.push(() =>
-				imageProcessingService.processSeason({
-					metadataId: img.metadataId,
-					seasonId: img.seasonId,
-					imagesUrl: img.urls,
-					force: isForce,
-				}),
-			);
+			imageTasks.push(async () => {
+				throwIfAborted(signal);
+				await imageProcessingService.processSeason(
+					{
+						metadataId: img.metadataId,
+						seasonId: img.seasonId,
+						imagesUrl: img.urls,
+						force: isForce,
+					},
+					signal,
+				);
+			});
 		} else if (img.kind === "episode" && img.urls) {
-			imageTasks.push(() =>
-				imageProcessingService.processEpisode({
-					metadataId: img.metadataId,
-					episodeId: img.episodeId,
-					imagesUrl: img.urls,
-					force: isForce,
-				}),
-			);
+			imageTasks.push(async () => {
+				throwIfAborted(signal);
+				await imageProcessingService.processEpisode(
+					{
+						metadataId: img.metadataId,
+						episodeId: img.episodeId,
+						imagesUrl: img.urls,
+						force: isForce,
+					},
+					signal,
+				);
+			});
 		}
 	}
 
-	await mapConcurrent(imageTasks, systemResourcesService.getSharpConcurrency(), (task) => task());
+	await mapConcurrent(imageTasks, systemResourcesService.getSharpConcurrency(), async (task) => await task(), signal);
 }

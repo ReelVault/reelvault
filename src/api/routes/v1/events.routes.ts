@@ -37,6 +37,9 @@ export const eventsRoutes = new Elysia({ prefix: "/events", tags: ["Realtime"] }
 		},
 	)
 	.ws("/ws", {
+		// The protocol only carries tiny control frames; reject a hostile payload at
+		// the socket layer instead of buffering it and checking its length in JS.
+		maxPayloadLength: 16 * 1024,
 		query: t.Object({
 			profileId: t.Optional(t.String()),
 		}),

@@ -1,10 +1,12 @@
 import { type FSWatcher, watch } from "node:fs";
 import { resolve } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { librariesRepository } from "@/repositories/libraries.repository";
 import { toMap } from "@/utils/array.utils";
 import { directoryExists } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/domain.errors";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { handleFsEvent } from "./debounce.watcher";
 import { clearFailure, recordFailure } from "./failures.tracker";
@@ -106,12 +108,14 @@ export async function syncWatchers(state: LibraryWatcherState): Promise<void> {
 				if (!isCurrent(pathId, failure.path)) clearFailure(state, pathId);
 			}
 
-			// Add watchers for newly active paths
-			for (const pathRecord of activePaths) {
+			// Add watchers for newly active paths. One dead mount used to add its
+			// full 15 s stat deadline to every later path during boot; bounded
+			// parallelism keeps a broken mount from serializing the whole sync.
+			await mapConcurrent(activePaths, systemResourcesService.getIoConcurrency(), async (pathRecord) => {
 				if (!state.watchers.has(pathRecord.id)) {
 					await startWatcher(state, pathRecord.libraryId, pathRecord.id, pathRecord.path);
 				}
-			}
+			});
 
 			state.logger.debug("Library watchers synchronized", { activeWatchers: state.watchers.size, unwatchablePaths: state.failures.size });
 		});

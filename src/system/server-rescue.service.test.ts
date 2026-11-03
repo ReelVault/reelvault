@@ -64,6 +64,18 @@ function useRescueSettings(): void {
 describe("ServerRescueService engagement", () => {
 	useRescueSettings();
 
+	test("disabling the setting through reschedule releases immediately", () => {
+		const service = newService();
+		service.registerPressureProvider(() => "low");
+		engageAt(service, 0);
+
+		systemSettingsStore.setRuntimeValue("system.rescue.enabled", false);
+		service.reschedule();
+
+		expect(service.isThrottling()).toBe(false);
+		expect(service.getRescueAllocation("library-scan")).toBeUndefined();
+	});
+
 	test("stays healthy while lag and pressure are below thresholds", () => {
 		const service = newService();
 		service.registerPressureProvider(() => "low");

@@ -63,7 +63,9 @@ export class RemovalGuard {
 		// like a deletion. A root that is not reachable vetoes removals outright,
 		// regardless of how small a share of the library it holds.
 		const uniqueRoots = [...new Set(roots ?? [])];
-		let storageUnavailable = false;
+		// Boxed: the concurrent callbacks mutate it, and a local `let` would be
+		// narrowed to `false` after the root check.
+		const storage = { unavailable: false };
 		if (uniqueRoots.length > 0) {
 			await mapConcurrent(
 				uniqueRoots,
@@ -71,12 +73,19 @@ export class RemovalGuard {
 				async (root) => {
 					const state = await this.dependencies.existence(root);
 					if (state !== "exists") {
-						storageUnavailable = true;
+						storage.unavailable = true;
 						this.logger.error("Library root is not reachable — refusing to remove records", { libraryId, root, state });
 					}
 				},
 				signal,
 			);
+		}
+
+		// A root that does not answer vetoes every removal. Statting the
+		// candidates now would make a dead mount cost one timeout per file
+		// (hours on a large library) only to reach the same refusal.
+		if (storage.unavailable) {
+			return { removedFiles: [], storageUnavailable: true, massRemoval: false, skipRemovals: true };
 		}
 
 		// A range file owns one row per episode, so the same path repeats in the
@@ -96,7 +105,7 @@ export class RemovalGuard {
 				// A stat that failed for any reason other than "not found" (ACL, busy,
 				// I/O, timeout) means the storage is unreliable, not that the file was
 				// deleted. Never purge records on that basis.
-				if (state === "unavailable") storageUnavailable = true;
+				if (state === "unavailable") storage.unavailable = true;
 			},
 			signal,
 		);
@@ -119,7 +128,7 @@ export class RemovalGuard {
 
 		const massRemoval = isMassRemoval(existingCount, confirmedRows, filesOnDiskCount);
 
-		return { removedFiles, storageUnavailable, massRemoval, skipRemovals: massRemoval || storageUnavailable };
+		return { removedFiles, storageUnavailable: storage.unavailable, massRemoval, skipRemovals: massRemoval || storage.unavailable };
 	}
 }
 

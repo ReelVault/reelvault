@@ -281,8 +281,8 @@ export const mediaFilesRoutes = new Elysia({
 	)
 	.post(
 		"/:mediaFileId/scan",
-		async ({ params, body }) => {
-			return await mediaService.scan(params.mediaFileId, body);
+		async ({ params, body, request }) => {
+			return await mediaService.scan(params.mediaFileId, body, request.signal);
 		},
 		{
 			adminOnly: true,
@@ -290,7 +290,7 @@ export const mediaFilesRoutes = new Elysia({
 			params: MediaFileIdParams,
 			body: t.Optional(
 				t.Object({
-					durationSeconds: t.Optional(t.Nullable(t.Integer({ minimum: 1 }))),
+					durationSeconds: t.Optional(t.Nullable(t.Integer({ minimum: 1, maximum: 3_600 }))),
 				}),
 			),
 			response: {

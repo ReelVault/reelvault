@@ -15,11 +15,8 @@ export const databaseMaintenanceRepository = {
 	},
 
 	/** SQLite's quick consistency check: a healthy database answers a single `ok` row. */
-	quickCheck(): string[] {
-		return databaseFactory.sqlite
-			.query<{ quick_check: string }, []>("PRAGMA quick_check")
-			.all()
-			.map((row) => row.quick_check);
+	async quickCheck(): Promise<string[]> {
+		return await databaseFactory.quickCheck();
 	},
 
 	/** Migration folders shipped with the server, in the order they apply, and how many the database has recorded as applied. */

@@ -518,3 +518,368 @@ Keep these notes so another agent does not repeat the work:
 - **Collections shared poster fallback**: see 3.4; the fast path is exact for distinct posters.
 - **Admin dashboard and library stats indexes**: already added; more indexes only move the same
   full scan. The summary table (3.1) is the next step.
+
+---
+
+## Part 4 — Remaining reliability work
+
+This part records the hang, resource and administration work that was deliberately left after the
+1.3.4 reliability pass. Unless an item says otherwise, the acceptance criteria keep the current API
+response shape, SDK types and database schema. An item that needs a contract change says so
+explicitly; do not start one of those without approval for the release that owns it.
+
+### 4.1 Streaming uploads and the real request-body ceiling
+
+**Where:**
+- `src/index.ts` — `app.listen({ maxRequestBodySize: 50 * MIB })`;
+- `src/api/routes/v1/metadata.routes.ts` — `t.File({ maxSize: IMAGE_UPLOAD_MAX_SIZE })`;
+- `src/api/routes/admin/admin-database.routes.ts` — `t.File({ maxSize: DATABASE_BACKUP_UPLOAD_MAX_SIZE })`;
+- `src/api/routes/admin/admin-plugins.routes.ts` — plugin archive upload;
+- `src/config/server/server.constants.ts` — `IMAGE_UPLOAD_MAX_SIZE = "512m"`,
+  `DATABASE_BACKUP_UPLOAD_MAX_SIZE = "512m"`.
+
+**Problem:** Bun enforces `maxRequestBodySize` before Elysia reaches the route schema. A 60 MB image,
+database backup or plugin package is rejected at the transport layer even though the schema advertises
+512 MB. The admin sees a connection-level failure, not a stable API error. Raising the global limit to
+512 MB without changing the parser is not acceptable: every unauthenticated route, including login,
+could then receive a 512 MB body before the handler or auth guard runs.
+
+**Proposed change (contract-safe option first):**
+1. Keep the global transport ceiling at 50 MiB and lower the three advertised `t.File` limits to
+   `50m`. Add one boundary test per upload route proving that a 50 MiB file is accepted and a slightly
+   larger one fails with the documented status. This is a behavior change, not a response-shape
+   change; update the UI copy and the changelog.
+2. If larger uploads are required, implement a dedicated streaming path:
+   - read `request.body` as a stream (no `t.File` multipart buffering) into a staging file under
+     `serverConfig.paths.tasks`;
+   - enforce the per-file cap while streaming;
+   - validate the header/magic bytes and the content type from the first chunk;
+   - then call the existing service with a local path.
+     This is a new upload contract and needs SDK/website changes; do not hide it behind the current
+     multipart route.
+3. Never raise `maxRequestBodySize` globally as the only fix. If a larger global limit is ever used,
+   add a request-size gate before body parsing for public/auth routes and prove that an anonymous
+   request cannot allocate the limit.
+
+**Acceptance:**
+- A 50 MiB image upload and a 50 MiB database backup upload succeed; a 50 MiB + 1 byte upload fails
+  with a stable code, not a dropped socket.
+- An anonymous `POST /v1/auth/sign-in/email` with a 200 MB body is rejected before more than the
+  configured small buffer is used.
+- Peak RSS during the largest accepted upload stays within the benchmark budget on the low-end
+  hardware profile.
+- Plugin archive validation and install still use the same archive parsing/limits as today.
+
+**Risks:** multipart parsing differs between Bun versions; a streaming path must preserve the
+existing safe-archive and checksum checks; lowering the advertised limits may surprise admins who
+upload large backups. Measure before choosing the limit.
+
+### 4.2 Move the remaining unbounded admin sweeps behind an operation
+
+**Where:**
+- `src/services/catalog/metadata/records/remove.service.ts` — `deleteOrphans`;
+- `src/services/catalog/metadata/refresh/metadata-refresh-queue.service.ts` — the "all" branch;
+- `src/services/catalog/metadata/records/images.service.ts` — `refreshImagesMany`;
+- `src/api/routes/admin/admin-system.routes.ts` and `src/api/routes/v1/metadata.routes.ts`.
+
+**Current state:** the orphan purge and the catalog-wide refresh enqueue now yield between pages, and
+image refresh observes `request.signal`. They are still HTTP-request-bound and have no cap on the
+total number of pages, rows or titles. A 100k-title catalog can hold one admin request open for a long
+time even though it no longer starves the event loop.
+
+**Proposed change:** enqueue a worker operation and return `202` with an operation id + progress
+surface. This is an API/SDK change. If it is not approved, add a bounded budget instead:
+- a maximum number of pages/rows per request (for example 50 pages for orphan purge);
+- return the number processed in the existing `{ count }` field, log a warning, and let the client
+  call again;
+- never silently claim that the whole catalog was processed.
+
+**Acceptance:**
+- The operation worker processes pages, reports progress, supports cancellation, and survives a
+  server restart through the existing worker checkpoint/operation model.
+- A catalog of 100k titles can be refreshed without a request lasting longer than the route budget.
+- A page that fails leaves the operation retryable; already-processed pages are not repeated.
+- The synchronous fallback (if retained) returns a documented partial count and a reason.
+
+**Risks:** moving to `202` breaks the current admin UI; a partial synchronous purge is easy to
+misread as "complete". Do not add a hidden cap without a clear response/UI signal.
+
+### 4.3 Crash-resumable library deletion
+
+**Where:** `src/repositories/libraries/remove.writer.ts`, `src/services/libraries/crud.service.ts`,
+`src/services/artifacts/media-cleanup.cleaner.ts`.
+
+**Current state:** the delete is now paginated: media rows are read and deleted in keyset pages, each
+in a short transaction, then metadata/library rows are removed in a final transaction. This removes
+the single huge write lock. It is not crash-atomic: a process restart after some pages leaves the
+library partially emptied, with no marker that a delete was in progress. A retry can finish the job,
+but the admin UI may show a partially emptied library in the meantime.
+
+**Proposed change:**
+1. Add an internal deletion marker/operation row (`library_delete_operations` or an existing worker
+   operation reference) with `libraryId`, cursor, metadata ids page, and state.
+2. Resume from the cursor after a restart; make media-page deletion idempotent.
+3. Keep the final step (library row + stats + scan state) idempotent and retryable.
+4. The public `DELETE /v1/libraries/:libraryId` response can remain `{ success: true }` if the
+   operation completes synchronously; if it does not, this becomes the same `202` decision as 4.2.
+
+**Acceptance:**
+- Kill the process after the first media page; restart; the next delete call or boot recovery
+  completes the delete without duplicate artifact deletes or foreign-key failures.
+- No partially deleted library is left without a discoverable marker.
+- `library_media_stats` and `catalog_media_stats` are correct after retry.
+- A test seeds 2× the page size, interrupts after the first page, and resumes.
+
+**Risks:** operation bookkeeping must not become a new source of stale rows; the marker cleanup must
+run on success and on a manually abandoned delete.
+
+### 4.4 Deep offset pagination and its CPU cost
+
+**Where:** `src/config/server/server.constants.ts` (`api.pagination.maxPage = 100_000`,
+`maxLimit = 500`), `src/integrations/drizzle-orm/query/pagination.utils.ts`, list routes.
+
+**Problem:** `page=100000&limit=500` computes an offset of ~50 million. SQLite must walk the index
+that far; unique page values defeat the 10-second count cache. Any authenticated user can spend CPU
+with a cheap request. Keyset pagination already exists for the `createdAt` order but not for the
+default title order.
+
+**Proposed change:**
+1. Lower `maxPage` or add a per-route maximum offset; reject with a stable validation code before the
+   query. This preserves the response shape and only narrows the accepted inputs.
+2. For the default title sort, add a keyset cursor in a later contract release; the SDK already has
+   cursor types for the `createdAt` path, but the title cursor needs a published contract.
+3. Add a benchmark assertion that a deep page fails fast or stays under a fixed budget.
+
+**Acceptance:**
+- A request above the configured maximum returns a validation error with a stable code and no SQL
+  execution.
+- Deep pages under the limit stay within the query-plan budget; the existing keyset tests remain
+  green.
+- No existing response field is removed.
+
+**Risks:** lowering the limit can break a client that deep-links old pages. Pick a ceiling from real
+catalog sizes and document it in the release notes.
+
+### 4.5 Retention for notifications and update history
+
+**Where:** `src/workers/definitions/system/cleanup-database.worker.ts`,
+`src/repositories/notifications.repository.ts`, `src/repositories/update-history.repository.ts`,
+`src/config/definitions/system.definitions.ts`.
+
+**Problem:** notifications are deleted only when a user deletes them; `update_history` has no prune
+path. Both grow for the life of the installation. The daily database cleanup already prunes worker
+operations, watched history, interrupted sessions and audit rows, so this is the missing table set.
+
+**Proposed change:** add two settings with explicit retention semantics, for example
+`system.database.notificationRetentionDays` and `system.database.updateHistoryRetentionDays`
+(default: 180 days; `0` keeps everything). Add both to the daily cleanup with a chunked delete and a
+bounded run. This is a settings/API contract addition; do not hard-code a deletion policy without
+approval.
+
+**Acceptance:**
+- The daily cleanup removes only rows older than the configured cutoff.
+- `0` is a true no-op.
+- The cleanup is chunked and yields between chunks.
+- Counts and list totals remain correct after the prune.
+
+**Risks:** deleting undelivered plugin notifications or update history can surprise users; the
+settings must be visible in the admin UI and export/import.
+
+### 4.6 Full plugin isolation
+
+**Where:** `src/plugins/lifecycle/plugin.loader.ts`,
+`src/plugins/runtime/plugin.routes.ts`, `src/plugins/capabilities/provider/*`,
+`src/system/extensions/plugin.*`, `src/plugins/capabilities/plugin.jobs.ts`.
+
+**Current state:** plugin code now has deadlines around setup, lifecycle hooks, provider calls,
+route handlers and HTTP fetches. The code still runs in the server process. A synchronous infinite
+loop, a blocking native call or a runaway memory allocation cannot be interrupted by a timeout; only
+a process/worker boundary can stop it.
+
+**Proposed change:**
+1. Run plugin entry code in a worker thread or child process, with capability proxies over IPC.
+2. Terminate the worker on timeout or unload; recreate on enable.
+3. Keep the public plugin SDK surface unchanged by proxying the existing host capabilities.
+4. Start with the highest-risk surfaces: route handlers, providers, jobs, hooks. Lifecycle can follow.
+5. Keep a feature flag for compatibility while the official plugins migrate.
+
+**Acceptance:**
+- A plugin with `setup() { while (true) {} }` cannot stall HTTP, WebSocket, playback or shutdown.
+- Unload terminates the worker and releases its memory.
+- Provider/job/hook latency stays within the current budgets.
+- Official plugins and the plugin SDK contract work unchanged from the plugin author's point of view.
+
+**Risks:** this is the largest item here: serialization boundaries, capability proxies, dev reload,
+logging and the plugin security model. Do not mix it with unrelated feature work.
+
+### 4.7 Storage-health circuit breaker for hung mounts
+
+**Where:** `src/utils/file.utils.ts` (`statWithTimeout`, `fileExists`, `getFileStats`),
+`src/utils/directory.utils.ts` (`readDirectoryEntries`), `src/utils/url-guard.utils.ts`,
+playback/scanner/sidecar call sites.
+
+**Problem:** the caller now gets a timeout, but the underlying Bun/libuv `stat`, `readdir` or DNS
+operation may keep running. A dead NFS/CIFS mount can leave many timed-out operations in the
+threadpool; enough of them starve unrelated file and DNS work. The current code bounds each caller
+but has no shared "this mount is unhealthy" state.
+
+**Proposed change:**
+1. Add a small `StorageHealth` registry keyed by filesystem root (or device id): after N timeouts in
+   a window, mark that root degraded for a cooldown.
+2. Degraded roots fail fast with a typed `storage.unavailable` error and are skipped by scans,
+   watchers and playback probes instead of issuing another stat.
+3. Probe recovery with one bounded stat per interval; clear the state after a successful probe.
+4. Expose the state in admin diagnostics and logs; never let it delete rows.
+
+**Acceptance:**
+- A simulated hanging stat root produces at most N in-flight operations and then fast failures.
+- When the mount recovers, the next probe clears the state and normal work resumes.
+- Removal guard, scanner and playback return the typed storage error; no data-loss path treats it as
+  "missing".
+- The admin diagnostic shows the degraded root and the timeout count.
+
+**Risks:** a false positive can hide a healthy mount; make thresholds/cooldown constants and log every
+state change.
+
+### 4.8 Move remaining synchronous admin work off the event loop
+
+**Where:**
+- `src/services/admin/admin-logs/bundle.service.ts` — reads every log into memory and `zipSync`;
+- `src/repositories/database-maintenance.repository.ts` — `verifyBackupFile` runs a synchronous
+  `quick_check` on an uploaded database;
+- `src/services/admin/database-restore.service.ts` — `Bun.write` copies the staged database in the
+  request;
+- `src/services/updates/install/apply.service.ts` — staging/swap file operations.
+
+**Problem:** `quick_check` on the live database was moved to a child process, but an uploaded backup
+still runs `quick_check` synchronously on the main thread. The log bundle still compresses up to
+64 MiB with `zipSync`. A large uploaded backup or a slow restore volume can still block the loop for
+seconds.
+
+**Proposed change:**
+1. Verify an uploaded backup in the same child-process helper used by the live check, with a timeout
+   and `SIGKILL`.
+2. Run the support ZIP in a worker (the plugin-package worker pattern) or use `fflate`'s streaming
+   `Zip` with periodic yields; keep the 64 MiB cap.
+3. Thread `request.signal` through database restore copy/staging and the update apply steps where the
+   operation is cancellable; do not cancel after the swap starts.
+4. Keep all existing response shapes; a timeout returns the existing `DomainError("timeout", …)` with
+   a stable code.
+
+**Acceptance:**
+- Uploading a corrupt/large backup never holds the event loop for more than one stat/read chunk.
+- A 64 MiB bundle does not freeze HTTP; client abort stops the work.
+- Restore/update cancellation before the swap leaves the running version intact.
+- Existing admin tests and error codes stay green.
+
+**Risks:** child processes and workers need temp-file cleanup on every failure path; do not leave a
+staged database after a failed verify.
+
+### 4.9 Chunk the artifact cleanup plan
+
+**Where:** `src/services/artifacts/media-cleanup.cleaner.ts`,
+`src/integrations/drizzle-orm/utils/media-cleanup.reader.ts`,
+`src/repositories/libraries/remove.writer.ts`.
+
+**Problem:** `runMediaCleanup` builds one `tasks` array with a closure per artifact and subtitle and
+then runs `mapConcurrent`. A 100k-file library with several artifacts per file creates hundreds of
+thousands of closures and keeps all paths in memory. The paged library delete reduces the write-lock
+window but still accumulates the full cleanup plan.
+
+**Proposed change:** delete in bounded chunks as the plan is collected:
+- process one media-id page, delete its artifacts/subtitles, then release that page;
+- keep only counts/log metadata, not every path;
+- preserve the existing "delete files before/after rows" ordering and idempotency;
+- make the cleanup resumable if the caller is a worker.
+
+**Acceptance:**
+- Peak RSS while deleting a 100k-file library stays under the benchmark budget.
+- No artifact or subtitle file is skipped; a retry after a failure removes the remainder.
+- The existing library-delete and artifact-cleanup tests pass.
+
+**Risks:** a partial cleanup can leave files without rows; the orphan sweeps are the safety net, but
+the progress marker must not mark a page complete before its files are gone.
+
+### 4.10 Deadline propagation and detached-promise ownership
+
+**Where:** `src/utils/promise.utils.ts`, every `detach(...)` call site,
+`src/plugins/lifecycle/plugin.loader.ts`, `src/services/updates/install/install.runner.ts`,
+`src/workers/core/worker-pool.service.ts`.
+
+**Problem:** `withTimeout` only races the caller; it does not cancel the underlying operation. Most
+call sites are now bounded, but late side effects are still possible unless each operation checks a
+generation token or AbortSignal after every await. `detach` is a no-op, so any future promise passed
+to it that can reject becomes an unhandled rejection. The audit showed a few places where this was
+only safe because the callee catches internally.
+
+**Proposed change:**
+1. Add a single `runBounded({ signal, timeoutMs, label, run })` helper that combines the caller
+   signal with a deadline and passes the combined signal to the operation.
+2. Use generation tokens for plugin load/unload and session start, so a timed-out operation cannot
+   register or attach after its generation is stale.
+3. Replace `detach(promise)` with `detachCatching(promise, onError)` wherever the promise can reject;
+   keep a lint/ast-grep rule for `detach(` on a call that is not obviously total.
+4. Add never-resolving-promise tests for every bounded helper and every adapter that wraps a plugin or
+   external process.
+
+**Acceptance:**
+- A timed-out plugin load cannot register routes, jobs or providers.
+- A timed-out stream start cannot attach a late ffmpeg process.
+- Every detached task has an error owner; the test suite reports zero unhandled rejections.
+- An ast-grep rule catches a direct `detach(fetch(...))`, `detach(providerCall())` or similar.
+
+**Risks:** the helper must not hide the original error; preserve `cause` and the stable code. Do not
+rewrite every call site at once; add the helper first, then migrate hot paths.
+
+### 4.11 Route-specific HTTP timeouts instead of a global 255 s idle timeout
+
+**Where:** `src/index.ts` (`idleTimeout: 255`), `src/api/routes/v1/playback-sessions.routes.ts`
+(playlist/segment routes).
+
+**Problem:** the server keeps a single 255-second idle timeout for every connection because the HLS
+playlist route may legitimately wait for ffmpeg. That also lets a slowloris client hold an idle socket
+for 255 seconds. Bun's server API does not expose a per-route timeout in the current version.
+
+**Proposed change:**
+1. Prefer a reverse proxy read timeout (nginx `proxy_read_timeout`) and document it; keep the app
+   timeout as the last-resort bound.
+2. If Bun exposes a per-request timeout in a later version, apply a short timeout globally and a
+   long one only to the playlist/segment routes.
+3. Add a benchmark/smoke test that a half-open socket is closed within the configured bound and that
+   a 60-second playlist wait still succeeds.
+
+**Acceptance:**
+- A connection that sends no request is closed by the documented bound.
+- A valid slow playlist request is not cut off.
+- The behavior is covered by a proxy config example and, if possible, an integration test.
+
+**Risks:** changing the global timeout can break slow clients or the HLS startup path; do not change
+it without a route-specific mechanism or a documented proxy requirement.
+
+### 4.12 Terminalize pending jobs of unregistered workers
+
+**Where:** `src/workers/core/worker-polling.service.ts` (`poll`, unknown-worker branch),
+`src/repositories/worker-jobs/maintenance.writer.ts`,
+`src/repositories/worker-job repositories`.
+
+**Problem:** a `pending` row whose `workerId` is no longer registered is skipped on every poll with a
+warning. The row and its operation stay pending forever; the idle backoff never engages because
+`emptyPolls` is reset before the loop. This happens when a plugin is removed or renamed while jobs are
+queued, or after a manual database import.
+
+**Proposed change:**
+1. Add a repository method that terminalizes pending rows for an unregistered worker with a stable
+   code such as `worker.unregistered`.
+2. Run it once per unknown worker id per process (not on every poll), and update the operation
+   counters in the same transaction.
+3. Keep the existing `unregisterWorker()` cancellation as the fast path; this is the janitor for
+   rows that survived it.
+
+**Acceptance:**
+- A plugin is removed with three pending jobs; the next poll marks them failed with
+  `worker.unregistered`, updates the operation, and logs once.
+- A job for a temporarily unavailable core worker is not terminalized before registration.
+- The warning does not repeat on every poll.
+
+**Risks:** a worker that is intentionally unregistered and later re-registered must not lose valid
+pending work; scope the janitor to ids removed in this process or after a grace period.

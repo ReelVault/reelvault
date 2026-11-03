@@ -1,14 +1,15 @@
 import { rename } from "node:fs/promises";
 import { file } from "bun";
 import { serverConfig } from "@/config/server/server.config";
+import { FFMPEG_TIMEOUT_MS, FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createDirectory } from "@/utils/directory.utils";
-import { withTempPath } from "@/utils/file.utils";
+import { fileExists, withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { createInFlightCache } from "@/utils/memory.cache";
-import { createSemaphore } from "@/utils/promise.utils";
+import { createSemaphore, withTimeout } from "@/utils/promise.utils";
 import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./extract/ffmpeg-args.builder";
 import type { SubtitleContent } from "./subtitle-content.resolver";
 import { subtitleVttPath } from "./subtitle-path.utils";
@@ -26,8 +27,9 @@ interface ServiceDependencies {
 }
 
 const defaultDependencies: ServiceDependencies = {
-	runFfmpeg: (args) => ffMpegService.runToCompletion(args, {}),
-	mediaFileExists: (path) => file(path).exists(),
+	// A stalled decode on a dead mount must not hold the extraction permit forever.
+	runFfmpeg: (args) => ffMpegService.runToCompletion(args, { timeoutMs: systemResourcesService.scaledTimeoutMs(FFMPEG_TIMEOUT_MS) }),
+	mediaFileExists: (path) => fileExists(path),
 	subtitlesPath: () => serverConfig.paths.subtitles,
 	getConcurrency: () => systemResourcesService.getHeavySubprocessConcurrency(),
 };
@@ -74,7 +76,7 @@ export class SubtitleExtractorService {
 		const cacheFilePath = subtitleVttPath(this.dependencies.subtitlesPath(), subtitleId);
 		const cachedFile = file(cacheFilePath);
 
-		if (await cachedFile.exists()) {
+		if (await fileExists(cacheFilePath)) {
 			return { contentType: "text/vtt", file: cachedFile };
 		}
 
@@ -111,8 +113,7 @@ export class SubtitleExtractorService {
 					return null;
 				}
 
-				const tempFile = file(tempFilePath);
-				if (!(await tempFile.exists())) {
+				if (!(await fileExists(tempFilePath))) {
 					this.logger.error("Extracted subtitle file was not created", undefined, { subtitleId, tempFilePath });
 
 					return null;
@@ -130,11 +131,25 @@ export class SubtitleExtractorService {
 		}
 	}
 
-	/** Resolves once an in-flight extraction for this subtitle settles (delete coordination). */
+	/**
+	 * Resolves once an in-flight extraction for this subtitle settles (delete
+	 * coordination). Bounded: a delete must not hang forever on an extraction
+	 * that the FFmpeg deadline failed to settle; the orphan sweep removes a VTT
+	 * that arrives after the row is gone.
+	 */
 	async waitForInFlight(subtitleId: string): Promise<void> {
-		await this.inFlightExtractions.peekPending(subtitleId)?.catch(() => {
-			// Settled extraction failures are surfaced through the original caller.
-		});
+		const pending = this.inFlightExtractions.peekPending(subtitleId);
+		if (!pending) return;
+
+		try {
+			await withTimeout(
+				pending,
+				systemResourcesService.scaledTimeoutMs(FFMPEG_TIMEOUT_MS + FS_STAT_TIMEOUT_MS),
+				`subtitle extraction ${subtitleId}`,
+			);
+		} catch (error) {
+			this.logger.warn("In-flight subtitle extraction did not settle before the coordination deadline", { subtitleId, error });
+		}
 	}
 }
 

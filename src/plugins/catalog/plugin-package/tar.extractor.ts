@@ -5,6 +5,8 @@ import { isSubpath } from "@/utils/path.utils";
 import { assertSafeDestination, invalidSymlink, unpackedTooLarge } from "./extraction.guard";
 
 const TAR_BLOCK_SIZE = 512;
+/** A ustar long name is a path; 16 KiB is far beyond any real plugin path. */
+const MAX_TAR_LONG_NAME_BYTES = 16 * 1024;
 
 const TAR_TYPE_REGULAR = new Set(["0", "\0"]);
 const TAR_TYPE_DIRECTORY = "5";
@@ -164,6 +166,12 @@ function consumeHeader(reader: TarReader): boolean {
 	const typeFlag = String.fromCharCode(header[156] ?? 0x30);
 
 	if (typeFlag === TAR_TYPE_LONG_NAME) {
+		// The long-name payload is buffered in memory, so it needs both an entry
+		// cap and a share of the archive's uncompressed budget.
+		if (size > MAX_TAR_LONG_NAME_BYTES) throw unpackedTooLarge();
+		reader.total += size;
+		if (reader.total > reader.maxUncompressedBytes) throw unpackedTooLarge();
+
 		reader.payload = { kind: "long-name", remaining: size, padding };
 
 		return false;

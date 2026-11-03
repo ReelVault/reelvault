@@ -15,6 +15,7 @@ import { detach } from "@/utils/promise.utils";
 import { downloadsProcessWorker } from "@/workers/definitions/downloads/downloads-process.worker";
 import { workerService } from "@/workers/worker.service";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { waitFor } from "../../../tests/helpers/wait.helper";
 import { type DownloadRunContext, runClaimedDownload } from "./download.runner";
 import { downloadsService } from "./downloads.service";
 
@@ -452,6 +453,39 @@ describe("DownloadsService cancellation during output preparation", () => {
 
 		expect(starts).toBe(0);
 		expect(await downloadsRepository.findById("dl-1")).toMatchObject({ status: "cancelled" });
+	});
+});
+
+describe("DownloadsService abort during a run", () => {
+	test("leaves an interrupted download pending so the requeued job can resume it", async () => {
+		await insertDownload({ id: "dl-abort", status: "processing" });
+		const row = await downloadsRepository.findById("dl-abort");
+		if (!row) throw new Error("Expected the download row");
+
+		let releaseExit!: () => void;
+		const exitGate = new Promise<void>((resolve) => {
+			releaseExit = resolve;
+		});
+		let started = false;
+		fakeFfmpeg(1, async () => {
+			started = true;
+			await exitGate;
+		});
+
+		const context: DownloadRunContext = { logger: downloadsService.logger, abortHandles: new Map() };
+		const controller = new AbortController();
+		const run = runClaimedDownload(
+			context,
+			{ row, filePath: "/media/movie.mkv", durationSeconds: 3_600, sourceFileName: "My.Movie.mkv" },
+			{ signal: controller.signal },
+		);
+
+		await waitFor(() => started);
+		controller.abort();
+		releaseExit();
+		await run;
+
+		expect(await downloadsRepository.findById("dl-abort")).toMatchObject({ status: "pending" });
 	});
 });
 

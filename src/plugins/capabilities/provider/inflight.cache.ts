@@ -32,6 +32,9 @@ function providerCacheOptions() {
 		ttlMs: serverConfig.plugins.providers.detailsCacheTtlMs,
 		// The server setting is a total across these caches, not a per-cache limit.
 		maxSize: Math.max(1, Math.floor(serverConfig.plugins.providers.detailsCacheMaxSize / PROVIDER_CACHE_COUNT)),
+		// A provider that never answers must release the in-flight entry so a
+		// later lookup can retry instead of joining the same dead promise.
+		loadTimeoutMs: serverConfig.plugins.providers.requestTimeoutMs,
 	};
 }
 

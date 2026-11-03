@@ -44,6 +44,7 @@ interface ManagerStartInput {
 	startTime?: number | undefined;
 	operationId?: string | undefined;
 	timelineStart?: number | undefined;
+	signal?: AbortSignal | undefined;
 }
 
 /**
@@ -119,16 +120,27 @@ class StreamingManager {
 		startTime = 0,
 		operationId,
 		timelineStart = startTime,
+		signal,
 	}: ManagerStartInput): Promise<void> {
 		const session = this.store.get(sessionId);
 		if (!session)
 			throw new DomainError("not_found", `Session access was not registered: ${sessionId}`, { code: "stream.session_not_found" });
 
+		signal?.throwIfAborted();
 		const generationBefore = session.generation;
 
 		try {
 			// awaits: sequential — the progress monitor attaches to the process after it starts
-			await this.processManager.startSession({ sessionId, session, inputPath, decision, startTime, timelineStart, operationId });
+			await this.processManager.startSession({
+				sessionId,
+				session,
+				inputPath,
+				decision,
+				startTime,
+				timelineStart,
+				operationId,
+				signal,
+			});
 			// The process is alive: keep the streaming-session operation open with a
 			// live encode percent instead of letting it complete with stream-init.
 			await transcodeProgressMonitor.onProcessAttached(sessionId);

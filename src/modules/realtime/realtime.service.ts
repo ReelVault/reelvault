@@ -4,7 +4,12 @@ import { createLogger } from "@/utils/logger.utils";
 import { RecurringTimer } from "@/utils/recurring-timer.utils";
 import { ClientConnection } from "./connection/client.connection";
 import { ConnectionRegistry } from "./connection/connection.registry";
-import { CLIENT_STALE_TIMEOUT_MS, STALE_SWEEP_INTERVAL_MS } from "./realtime.constants";
+import {
+	CLIENT_STALE_TIMEOUT_MS,
+	MAX_REALTIME_CONNECTIONS,
+	MAX_REALTIME_CONNECTIONS_PER_USER,
+	STALE_SWEEP_INTERVAL_MS,
+} from "./realtime.constants";
 import type { ClientConnectionInput, RealtimeStats } from "./realtime.types";
 
 export class RealtimeService {
@@ -21,6 +26,18 @@ export class RealtimeService {
 	}
 
 	register(input: ClientConnectionInput): void {
+		// A socket over the cap is closed before it enters any index. Rejecting
+		// here is cheaper than tracking an unbounded number of connections.
+		if (
+			this.registry.count() >= MAX_REALTIME_CONNECTIONS ||
+			this.registry.findConnectionsByUser(input.userId).length >= MAX_REALTIME_CONNECTIONS_PER_USER
+		) {
+			this.logger.warn("Realtime connection limit reached", { userId: input.userId });
+			input.socket.close?.(1013, "Too many realtime connections");
+
+			return;
+		}
+
 		const connection = new ClientConnection(input);
 		this.registry.add(connection);
 		this.logger.debug("Realtime connection registered", {
@@ -228,8 +245,14 @@ export class RealtimeService {
 		this.sweepTimer = new RecurringTimer(
 			() => {
 				const now = Date.now();
+				const heartbeat = JSON.stringify({ type: "ping", occurredAt: new Date(now).toISOString() });
 				for (const conn of this.registry.getAll()) {
-					if (now - conn.lastActiveAt > CLIENT_STALE_TIMEOUT_MS) {
+					const wasStale = now - conn.lastActiveAt > CLIENT_STALE_TIMEOUT_MS;
+					// A server heartbeat makes liveness depend on the socket, not on
+					// the client implementing an app-level ping. A delivered heartbeat
+					// refreshes `lastActiveAt`; a dead peer fails or stays dropped.
+					const outcome = conn.safeSend(heartbeat);
+					if (outcome === "closed" || (wasStale && outcome === "dropped")) {
 						this.logger.debug("Reaping stale realtime client connection", { connectionId: conn.connectionId });
 						conn.close(1000, "Stale heartbeat");
 						this.unregister(conn.connectionId);

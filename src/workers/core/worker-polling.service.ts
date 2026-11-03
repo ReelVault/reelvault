@@ -33,6 +33,10 @@ export class WorkerPollingService {
 	private isPolling = false;
 	private isRunning = false;
 	private lastPollAt = Date.now();
+	/** Bumped when a wedged poll is superseded, so its late `finally` cannot reset the new poll's state. */
+	private pollGeneration = 0;
+	/** The poll currently in flight, so shutdown can wait for it instead of draining a moving target. */
+	private inflightPoll: Promise<void> | null = null;
 	/** Consecutive polls that found no pending work — drives the idle backoff. */
 	private emptyPolls = 0;
 	/** Set when work arrives while a poll is already running, so it is not lost to the in-flight guard. */
@@ -55,7 +59,7 @@ export class WorkerPollingService {
 		this.logger.info("Worker polling loop started");
 	}
 
-	stop(): void {
+	async stop(): Promise<void> {
 		this.isRunning = false;
 		if (this.pollTimer) {
 			clearTimeout(this.pollTimer);
@@ -65,6 +69,17 @@ export class WorkerPollingService {
 		if (this.pollDebounceTimer) {
 			clearTimeout(this.pollDebounceTimer);
 			this.pollDebounceTimer = undefined;
+		}
+
+		// A poll can be between `findPendingWorkerIds` and `claimNextBatch` when
+		// shutdown starts; drain() would snapshot the pool before it starts a job.
+		const inflight = this.inflightPoll;
+		if (inflight) {
+			try {
+				await inflight;
+			} catch {
+				// pollLogged already reports its own failure.
+			}
 		}
 
 		this.logger.info("Worker polling loop stopped");
@@ -88,18 +103,23 @@ export class WorkerPollingService {
 
 		this.pollDebounceTimer = setTimeout(() => {
 			this.pollDebounceTimer = undefined;
-			detach(this.pollLogged());
+			// Re-arm the periodic chain too: a recovery poll started from the
+			// debounce used to leave the loop without a next scheduled poll.
+			detach(this.pollAndReschedule());
 		}, 10);
 		this.pollDebounceTimer.unref();
 	}
 
 	/**
-	 * Watchdog escalation: the polling loop looks wedged. Clear the in-flight
-	 * guard so a fresh poll can run, then trigger it.
+	 * Watchdog escalation: the polling loop looks wedged. Supersede the in-flight
+	 * poll's state with a generation bump, then start a fresh one. The old poll
+	 * may still settle later, but its `finally` can no longer clear the new
+	 * poll's `isPolling` flag.
 	 */
 	recoverFromStall(): void {
 		if (!this.isRunning) return;
 
+		this.pollGeneration++;
 		this.isPolling = false;
 		this.pollAgain = false;
 		this.triggerPoll();
@@ -127,10 +147,19 @@ export class WorkerPollingService {
 	 * Poll wrapper that can never reject; polls report their own failures.
 	 */
 	private async pollLogged(): Promise<void> {
+		const run = (async () => {
+			try {
+				await this.poll();
+			} catch (error) {
+				this.logger.error("Worker polling failed", error);
+			}
+		})();
+		this.inflightPoll = run;
+
 		try {
-			await this.poll();
-		} catch (error) {
-			this.logger.error("Worker polling failed", error);
+			await run;
+		} finally {
+			if (this.inflightPoll === run) this.inflightPoll = null;
 		}
 	}
 
@@ -149,9 +178,62 @@ export class WorkerPollingService {
 		return this.isRunning;
 	}
 
+	/** Claims one batch for a worker and starts it; split from `poll` to keep the loop readable. */
+	private async claimForWorker(input: {
+		workerId: string;
+		runtime: ReturnType<typeof getWorkerRuntime>;
+		maxGlobalPool: number;
+		activeJobIds: string[];
+		now: Date;
+	}): Promise<void> {
+		const { workerId, runtime, maxGlobalPool, activeJobIds, now } = input;
+		const definition = runtime.registry.get(workerId);
+		if (!definition) {
+			// Jobs for an unregistered worker (plugin removed/renamed) would
+			// otherwise sit pending forever, re-detected on every poll tick.
+			this.logger.warn("Pending jobs reference an unregistered worker — skipped", { workerId });
+
+			return;
+		}
+
+		const effectiveConcurrency = definition.concurrency ?? serverConfig.workers.scheduling.defaultConcurrency;
+		const freeSlots = Math.min(
+			effectiveConcurrency - runtime.pool.runningCountFor(workerId),
+			maxGlobalPool - runtime.pool.totalRunningCount,
+		);
+		if (freeSlots <= 0) return;
+
+		// One transaction claims every runnable job for this worker — the
+		// sequential claimNext re-ran recover/candidates/counts per job.
+		const claimedItems = await workerJobRepository.claimNextBatch(
+			{
+				workerId,
+				runnerId: this.runnerId,
+				concurrency: effectiveConcurrency,
+				timeoutMs: definition.timeoutMs ?? serverConfig.workers.scheduling.defaultTimeoutMs,
+				now,
+				// Jobs whose handlers are still hanging in memory must not be
+				// recovered and re-claimed by a parallel poll (double execution).
+				excludeActiveIds: activeJobIds,
+			},
+			freeSlots,
+		);
+
+		// The claim itself is a transaction; a stop during it leaves rows running
+		// for the watchdog to recover rather than starting a handler after drain.
+		if (!this.isRunningNow()) return;
+
+		for (const item of claimedItems) {
+			if (!this.isRunningNow()) break;
+
+			detachStarted(runtime.pool.start(definition, item));
+		}
+	}
+
 	async poll(): Promise<void> {
 		if (!this.isRunningNow() || this.isPolling) return;
 
+		const generation = ++this.pollGeneration;
 		this.isPolling = true;
 		this.lastPollAt = Date.now();
 
@@ -162,6 +244,9 @@ export class WorkerPollingService {
 			if (runtime.pool.totalRunningCount >= maxGlobalPool) return;
 
 			const pendingWorkerIds = await workerJobRepository.findPendingWorkerIds(now);
+			// `stop()` may have run while the query was in flight; starting a job
+			// now would land after the drain snapshot.
+			if (!this.isRunningNow()) return;
 			if (pendingWorkerIds.length === 0) {
 				this.emptyPolls++;
 
@@ -176,49 +261,19 @@ export class WorkerPollingService {
 			const activeJobIds = runtime.pool.getActiveJobIds();
 
 			for (const workerId of pendingWorkerIds) {
-				if (runtime.pool.totalRunningCount >= maxGlobalPool) break;
+				if (!this.isRunningNow() || runtime.pool.totalRunningCount >= maxGlobalPool) break;
 
-				const definition = runtime.registry.get(workerId);
-				if (!definition) {
-					// Jobs for an unregistered worker (plugin removed/renamed) would
-					// otherwise sit pending forever, re-detected on every poll tick.
-					this.logger.warn("Pending jobs reference an unregistered worker — skipped", { workerId });
-					continue;
-				}
-
-				const effectiveConcurrency = definition.concurrency ?? serverConfig.workers.scheduling.defaultConcurrency;
-				const freeSlots = Math.min(
-					effectiveConcurrency - runtime.pool.runningCountFor(workerId),
-					maxGlobalPool - runtime.pool.totalRunningCount,
-				);
-				if (freeSlots <= 0) continue;
-
-				// One transaction claims every runnable job for this worker — the
-				// sequential claimNext re-ran recover/candidates/counts per job.
-				const claimedItems = await workerJobRepository.claimNextBatch(
-					{
-						workerId,
-						runnerId: this.runnerId,
-						concurrency: effectiveConcurrency,
-						timeoutMs: definition.timeoutMs ?? serverConfig.workers.scheduling.defaultTimeoutMs,
-						now,
-						// Jobs whose handlers are still hanging in memory must not be
-						// recovered and re-claimed by a parallel poll (double execution).
-						excludeActiveIds: activeJobIds,
-					},
-					freeSlots,
-				);
-
-				for (const item of claimedItems) {
-					detachStarted(runtime.pool.start(definition, item));
-				}
+				await this.claimForWorker({ workerId, runtime, maxGlobalPool, activeJobIds, now });
 			}
 		} finally {
-			this.isPolling = false;
-			// Drain a wake-up that arrived while this poll was running.
-			if (this.pollAgain && this.isRunning) {
-				this.pollAgain = false;
-				this.triggerPoll();
+			// A superseded poll must not clear the flag of the poll that replaced it.
+			if (generation === this.pollGeneration) {
+				this.isPolling = false;
+				// Drain a wake-up that arrived while this poll was running.
+				if (this.pollAgain && this.isRunning) {
+					this.pollAgain = false;
+					this.triggerPoll();
+				}
 			}
 		}
 	}

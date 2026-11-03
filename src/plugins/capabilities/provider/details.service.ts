@@ -1,5 +1,6 @@
 import type { MediaIdentity, MetadataProviderSearchResponse } from "@reelvault/sdk/common";
 import type { ExternalIdentifiers, ProviderMediaType, ProviderMetadataResult } from "@reelvault/sdk/plugin";
+import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import {
 	type AggregatedMetadata,
@@ -11,6 +12,7 @@ import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { hasEntry } from "@/utils/array.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { isAcceptableMatch } from "@/utils/media-match/ranking.utils";
+import { withTimeout } from "@/utils/promise.utils";
 import { isNullish, normalizeLower } from "@/utils/type.utils";
 import { mapProvidersSafely } from "./fan-out.service";
 import { providerCaches } from "./inflight.cache";
@@ -140,7 +142,11 @@ export async function fetchDetailsByProvider(
 	if (!provider) return undefined;
 
 	try {
-		const metadata = await provider.getDetails(type, externalId, options.language ? { language: options.language } : undefined);
+		const metadata = await withTimeout(
+			provider.getDetails(type, externalId, options.language ? { language: options.language } : undefined),
+			serverConfig.plugins.providers.requestTimeoutMs,
+			`provider ${provider.id} details`,
+		);
 
 		return metadata ? normalizeMetadataDetails(metadata) : undefined;
 	} catch (error) {
@@ -279,7 +285,11 @@ async function fetchDetailsOnce(type: "movie" | "tv_show", parsed: MediaIdentity
 	for (const candidate of accepted) {
 		const provider = candidate.provider;
 		try {
-			const metadata = await provider.getDetails(type, candidate.bestMatch.item.externalId);
+			const metadata = await withTimeout(
+				provider.getDetails(type, candidate.bestMatch.item.externalId),
+				serverConfig.plugins.providers.requestTimeoutMs,
+				`provider ${provider.id} details`,
+			);
 			if (!metadata) continue;
 
 			if (candidate.index > 0 || candidate.bestMatch.score < 0.8) {

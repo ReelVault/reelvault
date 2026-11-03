@@ -4,6 +4,10 @@
  */
 export const MAX_SESSION_SUBSCRIPTIONS_PER_CONNECTION = 10;
 
+/** Hard ceiling on open realtime sockets, so one account or a buggy client cannot exhaust memory. */
+export const MAX_REALTIME_CONNECTIONS = 10_000;
+export const MAX_REALTIME_CONNECTIONS_PER_USER = 32;
+
 /**
  * Inactive duration before a WebSocket connection without ping/activity is considered stale.
  */

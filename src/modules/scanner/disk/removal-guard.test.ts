@@ -128,7 +128,10 @@ describe("RemovalGuard mass removal and unreachable roots", () => {
 			filesOnDiskCount: 2000,
 		});
 
-		expect(assessment.removedFiles).toEqual(["/media/movies/a.mkv"]);
+		// Nothing under an unreachable root is "confirmed gone": the candidates
+		// were never stat'ed, so reporting them as removable would be a lie even
+		// though `skipRemovals` protects the database.
+		expect(assessment.removedFiles).toEqual([]);
 		expect(assessment.massRemoval).toBeFalse();
 		expect(assessment.storageUnavailable).toBeTrue();
 		expect(assessment.skipRemovals).toBeTrue();

@@ -1,22 +1,29 @@
 import { resolve } from "node:path";
 import { normalizePath } from "@/utils/path.utils";
 
-export function filterPathsWithinRoots(filePaths: string[], roots: string[]): string[] {
-	if (filePaths.length === 0 || roots.length === 0) return [];
-
-	const resolvedRoots = roots.map((root) => {
+/** Normalized `root/` prefixes shared by the path filters and the per-root removal baseline. */
+export function rootPathPrefixes(roots: readonly string[]): string[] {
+	return roots.map((root) => {
 		// Normalize to forward slashes: on Windows a resolved root uses `\`, which
 		// would never prefix-match a resolved file path in this comparison.
 		const resolved = normalizePath(resolve(root));
 
 		return resolved.endsWith("/") ? resolved : `${resolved}/`;
 	});
+}
 
-	return filePaths.filter((filePath) => {
-		const resolved = normalizePath(resolve(filePath));
+export function isPathWithinRoots(filePath: string, rootPrefixes: readonly string[]): boolean {
+	const resolved = normalizePath(resolve(filePath));
 
-		return resolvedRoots.some((prefix) => resolved.startsWith(prefix));
-	});
+	return rootPrefixes.some((prefix) => resolved.startsWith(prefix));
+}
+
+export function filterPathsWithinRoots(filePaths: string[], roots: string[]): string[] {
+	if (filePaths.length === 0 || roots.length === 0) return [];
+
+	const prefixes = rootPathPrefixes(roots);
+
+	return filePaths.filter((filePath) => isPathWithinRoots(filePath, prefixes));
 }
 
 /**

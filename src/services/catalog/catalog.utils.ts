@@ -1,6 +1,7 @@
 import type { BulkRefreshItem } from "@reelvault/sdk/common";
 import type { ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import { providerService } from "@/plugins/capabilities/provider.service";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { errorCodeOf } from "@/utils/domain.errors";
 import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 
@@ -82,9 +83,11 @@ export async function runBulkItems(
 	ids: readonly string[],
 	runOne: (id: string) => Promise<unknown>,
 	fallbackCode: string,
+	signal?: AbortSignal,
 ): Promise<{ results: BulkRefreshItem[] }> {
 	const results: BulkRefreshItem[] = [];
 	for (const id of new Set(ids)) {
+		throwIfAborted(signal);
 		results.push(await runBulkItem(id, () => runOne(id), fallbackCode));
 	}
 

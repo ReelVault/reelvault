@@ -45,7 +45,7 @@ export class PluginConfig {
 		try {
 			if (!(await fileExists(configPath))) return { values: {} };
 
-			const config = await readJsonFile<unknown>(configPath, { silent: true });
+			const config = await readJsonFile<unknown>(configPath, { silent: true, maxSize: MAX_CONFIG_BYTES });
 			if (isRecord(config)) return { values: config };
 
 			return { values: {}, code: PLUGIN_CONFIG_UNREADABLE, cause: "not a JSON object" };

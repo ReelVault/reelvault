@@ -840,3 +840,48 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 ### Plugins & integrations
 
 - **Fixed plugin pages and dialogs showing 404** — plugin data requests sent with GET, such as the trailer dialog, return the plugin's content again.
+
+# v1.3.4
+
+## Fixes
+
+### Catalog & lists
+
+- **Fixed pagination of titles sorted by creation date** — the second page of a list sorted by `createdAt` descending returned the first page again, so library grids repeated the same titles and admin catalog paging never advanced.
+- **Image refreshes stop when the admin disconnects** — a closed bulk-refresh request no longer keeps downloading and encoding artwork in the background.
+- **Large orphan purges and catalog-wide refresh enqueues yield between pages** — the HTTP listener keeps answering while these admin sweeps run.
+
+### Playback & storage
+
+- **Hung storage no longer wedges playback** — file stats, playlist reads, segment waits and temp cleanup have deadlines, so a dead NFS/CIFS mount fails the operation instead of holding a session, its seek lock and its capacity slot forever.
+- **Subtitle extraction is bounded** — a stalled FFmpeg decode releases its extraction slot, and deleting or editing a subtitle no longer waits on it forever.
+- **On-demand media checks are bounded** — the decode duration is capped, FFmpeg has a deadline, and closing the request stops the work.
+
+### Scanning & libraries
+
+- **A path-scoped scan compares removals against that path's own rows** — a partially mounted multi-path library can no longer purge a smaller path while staying below the library-wide mass-removal threshold.
+- **Unreachable library roots short-circuit removal checks** — a scan no longer spends one 15-second timeout per file after it already knows the storage is unavailable.
+- **Directory reads and watcher startup are bounded** — sidecar reads, log walks and watcher reconciliation survive a hung mount, and watcher startup no longer delays `app.listen` by 15 seconds per path.
+- **Continuous filesystem activity eventually triggers a scan** — the debounce now has a maximum deferral instead of waiting for a quiet window that a growing download never provides.
+
+### Workers & plugins
+
+- **Plugin setup and route handlers are time-boxed** — a plugin that never answers returns a timeout instead of blocking the global lifecycle lock or the admin panel.
+- **Metadata and subtitle provider calls have a deadline** — one hung provider no longer poisons the in-flight cache for every later lookup.
+- **Plugin HTTP calls have a deadline** — a plugin's outbound request cannot keep an install, refresh or route handler alive forever.
+- **Worker shutdown waits for the poll in flight** — jobs can no longer start after the drain snapshot, and retry delays are capped at one day.
+- **Interrupted downloads stay resumable** — server rescue or shutdown leaves the row pending instead of marking it failed and making the requeued job a no-op.
+- **Plugin package staging uses the data disk** — installing a large package no longer fills a RAM-backed `/tmp` on NAS and container hosts. Package and update archives are extracted on a worker thread, so the server keeps answering during unpacking.
+
+### Realtime
+
+- **Idle WebSocket clients get a server heartbeat** — a client that only listens is no longer disconnected every minute for not sending its own ping.
+- **Realtime connections are capped per user and server-wide** — a buggy client or account cannot open sockets until the process runs out of memory.
+
+### Updates & maintenance
+
+- **SQLite integrity checks no longer freeze the server** — `quick_check` runs in a child process with a deadline.
+- **Support log bundles are capped** — the bundle stops at a fixed size and honours client disconnects instead of reading every log into memory.
+- **Updates restart correctly under both systemd scopes** — the unit manager owns the stop/start pair, so its `SIGTERM` no longer forces an early exit.
+- **A cleanup failure no longer turns a successful update into a failed one.**
+- **Expired authentication sessions are pruned daily** instead of accumulating until their token is presented again.

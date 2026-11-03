@@ -3,6 +3,7 @@ import { daysAgo, MINUTE } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { adminAuditRepository } from "@/repositories/admin-audit.repository";
 import { interruptedPlaybackSessionRepository } from "@/repositories/interrupted-playback-session.repository";
+import { sessionsRepository } from "@/repositories/sessions.repository";
 import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
 import { workerOperationsService } from "@/workers/core/worker-operations.service";
 import { defineMaintenanceWorker } from "@/workers/utils/maintenance-worker.utils";
@@ -13,7 +14,12 @@ export const cleanupDatabaseWorker = defineMaintenanceWorker({
 	timeoutMs: MINUTE,
 	trigger: { id: "clean-db-daily", type: "daily", timeOfDay: "02:00" },
 	run: async () => {
-		const deletedCount = await workerOperationsService.cleanupExpired();
+		// Better Auth only deletes an expired session when its token is presented
+		// again; sessions abandoned by users would otherwise accumulate forever.
+		const [deletedCount, expiredSessionsCount] = await Promise.all([
+			workerOperationsService.cleanupExpired(),
+			sessionsRepository.deleteExpired(),
+		]);
 
 		// 0 keeps the full play history — pruning is opt-in via the retention setting.
 		let prunedHistoryCount = 0;
@@ -41,6 +47,6 @@ export const cleanupDatabaseWorker = defineMaintenanceWorker({
 		await databaseFactory.analyzeChunked();
 		await databaseFactory.optimizeFts();
 
-		return { deletedOperationsCount: deletedCount, prunedHistoryCount, prunedAuditCount };
+		return { deletedOperationsCount: deletedCount, expiredSessionsCount, prunedHistoryCount, prunedAuditCount };
 	},
 });

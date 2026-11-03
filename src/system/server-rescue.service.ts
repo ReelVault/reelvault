@@ -130,6 +130,11 @@ class ServerRescueService {
 		this.isInitialized = true;
 
 		if (!serverConfig.rescue.enabled) {
+			// A runtime disable can arrive while the state machine is rescuing.
+			// Leaving it there would keep every non-protected worker at concurrency
+			// 0 with no timer left to release it.
+			if (this.state === "rescuing") this.exitRescue(Date.now(), "rescue disabled in system settings");
+
 			this.logger.info("Server rescue monitor disabled in system settings");
 
 			return;

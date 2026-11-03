@@ -44,6 +44,11 @@ const LOW_MEMORY_KIB = 2 * MIB;
  */
 const ANALYZE_SAMPLE_ROWS = 1_000;
 
+/** Hard deadline for the out-of-process SQLite consistency check. */
+const DATABASE_CHECK_TIMEOUT_MS = 60_000;
+/** `VACUUM INTO` rewrites the whole database; give a large library a generous but finite window. */
+const DATABASE_BACKUP_TIMEOUT_MS = 10 * 60_000;
+
 /** Statements that merge the FTS5 segment b-trees. Kept together so the chunked runner stays in sync. */
 const FTS_OPTIMIZE_STATEMENTS: readonly string[] = [
 	"INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')",
@@ -368,9 +373,12 @@ export class DatabaseFactory {
 		if (!holdsWriteLock) {
 			releaseLock = await this.acquireWriteLock();
 		}
-		const txClient = this.getTransactionClient();
-
 		try {
+			// Opening/configuring the transaction connection can throw (EMFILE,
+			// ENOSPC, SQLITE_CANTOPEN). It must happen inside the try, or the write
+			// lock acquired above is never released and every later write waits.
+			const txClient = this.getTransactionClient();
+
 			// `immediate` takes the write lock up front so busy_timeout can wait for
 			// it. Use it for write-heavy transactions: a deferred BEGIN only locks on
 			// the first write, and SQLite refuses to upgrade a transaction that
@@ -474,6 +482,8 @@ export class DatabaseFactory {
 			cmd: [process.execPath, "-e", script],
 			stdout: "ignore",
 			stderr: "pipe",
+			timeout: DATABASE_BACKUP_TIMEOUT_MS,
+			killSignal: "SIGKILL",
 		});
 		const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
 		if (exitCode !== 0) {
@@ -483,6 +493,60 @@ export class DatabaseFactory {
 				params: { exitCode },
 			});
 		}
+	}
+
+	/**
+	 * SQLite's quick consistency check, in a child process. `PRAGMA quick_check`
+	 * scans the whole database synchronously; running it on the live connection
+	 * froze HTTP, WebSocket and playback for the duration.
+	 */
+	async quickCheck(timeoutMs = DATABASE_CHECK_TIMEOUT_MS): Promise<string[]> {
+		const script = [
+			'import { Database } from "bun:sqlite";',
+			`const db = new Database(${JSON.stringify(this.path)});`,
+			"try {",
+			'	db.run("PRAGMA busy_timeout = 5000");',
+			'	const rows = db.query("PRAGMA quick_check").all();',
+			"	console.log(JSON.stringify(rows.map((row) => row.quick_check)));",
+			"} finally {",
+			"	db.close();",
+			"}",
+		].join("\n");
+
+		const proc = Bun.spawn({
+			cmd: [process.execPath, "-e", script],
+			stdout: "pipe",
+			stderr: "pipe",
+			timeout: timeoutMs,
+			killSignal: "SIGKILL",
+			maxBuffer: 16 * MIB,
+		});
+		const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+
+		if (exitCode !== 0) {
+			throw new DomainError("internal", `Database integrity check failed (exit ${exitCode}): ${stderr.trim()}`, {
+				code: "database.integrity_check_failed",
+				params: { exitCode },
+			});
+		}
+
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(stdout);
+		} catch (error) {
+			throw new DomainError("internal", "Database integrity check returned an unreadable payload", {
+				cause: error,
+				code: "database.integrity_check_invalid",
+			});
+		}
+
+		if (!(Array.isArray(parsed) && parsed.every((message): message is string => typeof message === "string"))) {
+			throw new DomainError("internal", "Database integrity check returned an unexpected payload", {
+				code: "database.integrity_check_invalid",
+			});
+		}
+
+		return parsed;
 	}
 
 	shutdown() {

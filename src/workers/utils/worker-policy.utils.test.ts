@@ -13,6 +13,7 @@ describe("getRetryDelay", () => {
 		{ label: "exponential backoff doubles per attempt", attempts: 3, backoffType: "exponential", delay: 1000, expected: 4000 },
 		{ label: "exponential backoff at attempt five", attempts: 5, backoffType: "exponential", delay: 1000, expected: 16000 },
 		{ label: "exponential backoff at attempt ten", attempts: 10, backoffType: "exponential", delay: 1000, expected: 512000 },
+		{ label: "exponential backoff is capped at one day", attempts: 100, backoffType: "exponential", delay: 1000, expected: 86_400_000 },
 		{ label: "zero base delay stays zero for fixed backoff", attempts: 1, backoffType: "fixed", delay: 0, expected: 0 },
 		{ label: "zero base delay stays zero for exponential backoff", attempts: 5, backoffType: "exponential", delay: 0, expected: 0 },
 	] as const)("$label", ({ attempts, backoffType, delay, expected }) => {

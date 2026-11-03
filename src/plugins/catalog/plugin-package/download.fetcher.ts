@@ -1,5 +1,3 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MIB } from "@/utils/bytes.utils";
 import { createHash } from "@/utils/crypto.utils";
@@ -7,6 +5,7 @@ import { removeTree } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { consumeStreamBounded } from "@/utils/file.utils";
 import { guardedFetch } from "@/utils/url-guard.utils";
+import { pluginPackageTempDirectory } from "./plugin-package-temp.utils";
 
 const DEFAULT_MAX_DOWNLOAD_BYTES = 200 * MIB;
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -91,7 +90,7 @@ async function storeArchive(
 	body: ReadableStream<Uint8Array>,
 	{ maxBytes, declaredLength, onProgress }: StoreOptions,
 ): Promise<DownloadedArchive> {
-	const directory = await mkdtemp(join(tmpdir(), "reelvault-plugin-pkg-"));
+	const directory = await pluginPackageTempDirectory("reelvault-plugin-pkg-");
 	const filePath = join(directory, "package.bin");
 	const hasher = createHash("sha256");
 	const writer = Bun.file(filePath).writer();

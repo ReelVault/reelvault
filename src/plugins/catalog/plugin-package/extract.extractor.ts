@@ -1,9 +1,11 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { sleep } from "bun";
 import { MIB } from "@/utils/bytes.utils";
 import { removeTree } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
+import { extractArchiveInWorker } from "./plugin-package-extract.runner";
+import { pluginPackageTempDirectory } from "./plugin-package-temp.utils";
 import { createTarStreamExtractor } from "./tar.extractor";
 import { createZipEntryHandler } from "./zip.extractor";
 
@@ -37,11 +39,16 @@ export async function extractArchive(
 		const sink = await createArchiveSink(sniffArchiveType(first.value), workRoot, maxUncompressedBytes);
 		sink.dispatch(first.value, false);
 
+		let chunks = 1;
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
 
 			sink.dispatch(value, false);
+			// Decompression and the extractor's file writes are synchronous. Yield
+			// periodically so a large package does not freeze HTTP/WebSocket work.
+			chunks++;
+			if (chunks % 32 === 0) await sleep(0);
 		}
 
 		sink.dispatch(new Uint8Array(0), true);
@@ -59,10 +66,10 @@ export async function extractPluginPackage(
 	archivePath: string,
 	maxUncompressedBytes = DEFAULT_MAX_UNCOMPRESSED_BYTES,
 ): Promise<ExtractedPackage> {
-	const workRoot = await mkdtemp(join(tmpdir(), "reelvault-plugin-extract-"));
+	const workRoot = await pluginPackageTempDirectory("reelvault-plugin-extract-");
 	try {
 		// awaits: sequential — the archive is extracted before its plugin directory is located
-		await extractArchive(archivePath, workRoot, maxUncompressedBytes);
+		await extractArchiveInWorker(archivePath, workRoot, maxUncompressedBytes);
 		const pluginRoot = await locatePluginDirectory(workRoot);
 
 		return { pluginRoot, cleanup: () => removeTree(workRoot) };
@@ -104,13 +111,14 @@ export async function withExtractedArchive<T>(
 	options: { tempPrefix: string; onExtractError?: ((error: unknown) => T) | undefined },
 	run: (pluginRoot: string) => Promise<T>,
 ): Promise<T> {
-	const temporaryPath = join(tmpdir(), `${options.tempPrefix}-${crypto.randomUUID()}.bin`);
+	const archiveRoot = await pluginPackageTempDirectory("reelvault-plugin-archive-");
+	const temporaryPath = join(archiveRoot, `${options.tempPrefix}-${crypto.randomUUID()}.bin`);
 	try {
 		await Bun.write(temporaryPath, archive);
 
 		return await withExtractedPackageFile(temporaryPath, run, options.onExtractError);
 	} finally {
-		await rm(temporaryPath, { force: true });
+		await removeTree(archiveRoot);
 	}
 }
 

@@ -12,6 +12,7 @@ import { mediaRepository } from "@/repositories/media-files.repository";
 import { writeCoreArtifact } from "@/services/artifacts/core-artifacts.writer";
 import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
 import { chunk } from "@/utils/array.utils";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createDirectory, deleteDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
@@ -123,7 +124,8 @@ class TrickplayService {
 	readonly serviceName = "TrickplayService";
 	readonly logger = createLogger("TrickplayService");
 
-	async generateForMediaFile(mediaFileId: string): Promise<TrickplayGenerationResult> {
+	async generateForMediaFile(mediaFileId: string, signal?: AbortSignal): Promise<TrickplayGenerationResult> {
+		throwIfAborted(signal);
 		if (!serverConfig.trickplay.enabled) {
 			return { mediaFileId, frames: 0, sprites: 0, skipped: "disabled" };
 		}
@@ -177,11 +179,13 @@ class TrickplayService {
 			// Idempotent regeneration: remove the PREVIOUS generation before writing
 			// the new sprites. Deleting after the loop (as before) removed the
 			// sprites we just wrote, leaving the VTT pointing at missing artifacts.
+			throwIfAborted(signal);
 			await removePreviews(mediaFileId);
 
 			let sprites: TrickplaySprite[];
 			try {
-				sprites = await this.extractSprites(job, chunks);
+				sprites = await this.extractSprites(job, chunks, signal);
+				throwIfAborted(signal);
 
 				await writeCoreArtifact({
 					mediaFileId,
@@ -243,17 +247,19 @@ class TrickplayService {
 	 * left the machine idle between grids. The budget comes from the background
 	 * cores, so a slow box still renders one grid at a time.
 	 */
-	private async extractSprites(job: TrickplayJob, chunks: number[][]): Promise<TrickplaySprite[]> {
-		// A failed grid aborts the siblings, so a generation error does not leave
-		// ffmpeg processes decoding frames nobody will read.
+	private async extractSprites(job: TrickplayJob, chunks: number[][], signal?: AbortSignal): Promise<TrickplaySprite[]> {
+		// A failed grid (or a cancelled worker) aborts the siblings, so a
+		// generation error does not leave ffmpeg processes decoding frames
+		// nobody will read.
 		const controller = new AbortController();
+		const runSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
 		let rendered: Array<{ file: BunFile; tileCount: number }>;
 		try {
 			rendered = await mapConcurrent(
 				chunks,
 				systemResourcesService.getTrickplayConcurrency(),
-				async (chunkTimeMs, spriteIndex) => await this.renderSprite(job, spriteIndex, chunkTimeMs, controller.signal),
-				controller.signal,
+				async (chunkTimeMs, spriteIndex) => await this.renderSprite(job, spriteIndex, chunkTimeMs, runSignal),
+				runSignal,
 			);
 		} catch (error) {
 			controller.abort();

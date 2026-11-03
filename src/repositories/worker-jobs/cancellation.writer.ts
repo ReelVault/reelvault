@@ -42,6 +42,7 @@ export async function cancelPending(id: string, tx?: DatabaseTransaction): Promi
  */
 export async function cascadeCancel(tx: DatabaseTransaction, parentIds: string[], now: Date): Promise<void> {
 	let frontier = parentIds;
+	const visited = new Set<string>(parentIds);
 	const affected: Array<{ id: string; operationId: string | null }> = [];
 
 	while (frontier.length > 0) {
@@ -52,10 +53,15 @@ export async function cascadeCancel(tx: DatabaseTransaction, parentIds: string[]
 				.where(and(inArray(items.dependsOnJobId, chunkIds), eq(items.status, "pending"))),
 		);
 
-		if (dependents.length === 0) break;
+		// Statuses are written after the walk, so a pending dependency cycle would
+		// otherwise keep the frontier alive forever. A visited set stops at the
+		// first repeated row.
+		const next = dependents.filter((dependent) => !visited.has(dependent.id));
+		if (next.length === 0) break;
 
-		affected.push(...dependents);
-		frontier = dependents.map((d) => d.id);
+		for (const dependent of next) visited.add(dependent.id);
+		affected.push(...next);
+		frontier = next.map((dependent) => dependent.id);
 	}
 
 	if (affected.length === 0) return;

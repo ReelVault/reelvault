@@ -140,9 +140,14 @@ export async function readJsonFile(path: string, options?: ReadJsonOptions | num
 	}
 }
 
+/**
+ * Bounded stat. Every caller must survive a dead mount, so the unbounded
+ * `bunFile(path).stat()` is never exposed directly: a hung stat would keep the
+ * caller (and any slot or mutex it holds) forever.
+ */
 export async function getFileStats(path: string) {
 	try {
-		return await bunFile(path).stat();
+		return await statWithTimeout(path);
 	} catch {
 		return null;
 	}
@@ -156,8 +161,13 @@ export async function statWithTimeout(path: string): Promise<Stats> {
 	return await withTimeout(bunFile(path).stat(), FS_STAT_TIMEOUT_MS, `stat ${path}`);
 }
 
+/**
+ * Existence probe with the same deadline. `false` covers both "missing" and
+ * "storage unavailable"; callers that must tell them apart use
+ * {@link checkFileExistence}.
+ */
 export async function fileExists(path: string): Promise<boolean> {
-	return await bunFile(path).exists();
+	return (await checkFileExistence(path)) === "exists";
 }
 
 export async function checkFileExistence(path: string): Promise<"exists" | "missing" | "unavailable"> {
@@ -211,16 +221,25 @@ export async function writeFileAtomic(
 	}
 }
 
+/** Above this size the unchanged-content check is skipped: reading a hostile huge target is worse than a rewrite. */
+const MAX_COMPARE_BYTES = 10 * MIB;
+
 export async function writeFileIfChanged(
 	path: string,
 	content: string | Buffer | ArrayBuffer | Uint8Array,
 	options?: { chmod?: number | undefined },
 ): Promise<boolean> {
 	const incoming = toBuffer(content);
-	const existing = await bunFile(path)
-		.arrayBuffer()
-		.catch(() => null);
-	if (existing && Buffer.from(existing).equals(incoming)) return false;
+	const existingStats = await getFileStats(path);
+
+	// A missing or unreadable target is written; a huge one is replaced without
+	// buffering it first (atomic rename, not an in-place read/compare).
+	if (existingStats && existingStats.size <= MAX_COMPARE_BYTES) {
+		const existing = await bunFile(path)
+			.arrayBuffer()
+			.catch(() => null);
+		if (existing && Buffer.from(existing).equals(incoming)) return false;
+	}
 
 	await writeFileAtomic(path, content, options);
 
@@ -295,10 +314,6 @@ export async function downloadFile(url: string, destination: string, options: Do
 
 		return false;
 	}
-}
-
-export function getFileSize(path: string): number {
-	return bunFile(path).size;
 }
 
 export function getBunFile(path: string) {

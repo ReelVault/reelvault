@@ -26,8 +26,8 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.get(
 		"/logs/bundle",
-		async () => {
-			const { data, filename } = await adminLogsService.getLogBundle();
+		async ({ request }) => {
+			const { data, filename } = await adminLogsService.getLogBundle(request.signal);
 
 			return attachmentResponse(new Blob([data]), { filename, contentType: "application/zip" });
 		},

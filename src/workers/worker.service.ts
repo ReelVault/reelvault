@@ -100,7 +100,9 @@ class WorkerService {
 		this.initialized = false;
 		this.scheduler.dispose();
 		this.watchdog.stop();
-		this.polling.stop();
+		// Await the poll in flight: a job claimed between `findPendingWorkerIds`
+		// and `claimNextBatch` otherwise starts after `cancelAll()`/`drain()`.
+		await this.polling.stop();
 		this.pool.cancelAll();
 		await this.pool.drain();
 

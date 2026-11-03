@@ -2,7 +2,7 @@ import { and, desc, eq, gte, inArray, isNotNull, isNull, notInArray, or, type SQ
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+import { forEachChunked, mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { DomainError } from "@/utils/domain.errors";
 
@@ -100,9 +100,14 @@ const overrides = {
 	async createBatch(items: Array<typeof schema.notifications.$inferInsert>, tx?: DatabaseTransaction): Promise<string[]> {
 		if (items.length === 0) return [];
 
-		const results = await notifications.insertReturning({ values: items, tx });
+		// A new-episode fan-out can reach every viewer of a show. Chunk the
+		// multi-row INSERT so a large recipient list cannot exceed SQLite's
+		// bound-variable limit and lose the whole batch.
+		return await mapChunked(items, async (chunkItems) => {
+			const results = await notifications.insertReturning({ values: chunkItems, tx });
 
-		return results.map((r) => r.id);
+			return results.map((row) => row.id);
+		});
 	},
 
 	async findForRecipient(userId: string, profileId?: string, unreadOnly = false, limit = 50, excludedTypes: readonly string[] = []) {

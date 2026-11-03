@@ -3,8 +3,10 @@ import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sleep } from "bun";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { CancellationError } from "@/utils/cancellation.utils";
 import { removeTree } from "@/utils/directory.utils";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { waitFor } from "../../../tests/helpers/wait.helper";
 import { SubtitleExtractorService } from "./subtitle-extractor.service";
 
@@ -249,5 +251,29 @@ describe("SubtitleExtractorService in-flight sharing", () => {
 		const { extractor } = createExtractor();
 
 		await expect(extractor.waitForInFlight("unknown")).resolves.toBeUndefined();
+	});
+
+	test("waitForInFlight gives up at the coordination deadline instead of hanging a delete forever", async () => {
+		const { extractor, ffmpegCalls } = createExtractor({
+			runFfmpeg: async () =>
+				await new Promise<never>(() => {
+					// A real FFmpeg run that never settles; the test only exercises the deadline.
+				}),
+		});
+
+		// The extraction is left pending on purpose: the deadline, not the FFmpeg
+		// process, is the behavior under test.
+		extractor.extractToVtt("sub-hung", "/media/movie.mkv", 2, "subrip").catch(() => {
+			// The extraction is intentionally left pending; this only prevents an
+			// unhandled rejection if the service ever settles it.
+		});
+		await waitFor(() => ffmpegCalls.length > 0);
+
+		const scaledTimeout = stubMethod(systemResourcesService, "scaledTimeoutMs", () => 20);
+		try {
+			await expect(extractor.waitForInFlight("sub-hung")).resolves.toBeUndefined();
+		} finally {
+			scaledTimeout.restore();
+		}
 	});
 });

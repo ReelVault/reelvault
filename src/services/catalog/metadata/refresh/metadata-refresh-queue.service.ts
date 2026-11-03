@@ -1,3 +1,4 @@
+import { sleep } from "bun";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
@@ -73,6 +74,7 @@ class MetadataRefreshQueueService {
 						);
 						if (stored.some((item) => item.operationId === opId)) attachment.attached = true;
 					},
+					betweenPages: () => sleep(0),
 				});
 
 				if (enqueued === 0) {

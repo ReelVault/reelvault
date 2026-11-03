@@ -179,6 +179,33 @@ describe("ScannerService.scanPaths against the library rows", () => {
 		expect(await remainingMediaIds(client, libraryId)).toEqual([survivingId]);
 	});
 
+	test("compares a path-scoped removal against that path's own rows, not the whole library", async () => {
+		const client = db.client();
+		const pathA = join(workDir, "path-a");
+		const pathB = join(workDir, "path-b");
+		await mkdir(pathA);
+		await mkdir(pathB);
+		await writeFile(join(pathA, "survivor.mkv"), "video");
+
+		const rootARowIds: string[] = [];
+		for (const index of [1, 2, 3, 4, 5, 6]) {
+			rootARowIds.push(await insertRow(client, join(pathA, `gone-${index}.mkv`), `movie-a-${index}`));
+		}
+		// Ten rows in another path make the library-wide half much larger than
+		// the five candidates this path-scoped scan would remove.
+		for (const index of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+			await insertRow(client, join(pathB, `other-${index}.mkv`), `movie-b-${index}`);
+		}
+		const firstRootAId = rootARowIds[0];
+		if (!firstRootAId) throw new Error("Expected a row in path A");
+		const libraryId = await libraryIdOf(client, firstRootAId);
+
+		const result = await scannerService.scanPaths(libraryId, "movie", [pathA]);
+
+		expect(result.removedFilePaths).toEqual([]);
+		expect(await remainingMediaIds(client, libraryId)).toEqual(expect.arrayContaining(rootARowIds));
+	});
+
 	test("keeps every row when the scan finds drastically fewer files than the database", async () => {
 		const client = db.client();
 		const firstId = await insertRow(client, join(libraryRoot, "gone-1.mkv"), "movie-gone-1");

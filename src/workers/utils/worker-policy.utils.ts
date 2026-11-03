@@ -1,8 +1,11 @@
 import type { TaskTrigger } from "@reelvault/sdk/common";
 import type { BackoffType } from "@reelvault/sdk/plugin";
-import { MINUTE } from "@/config/server/server.constants";
+import { DAY, MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
 import { MemoryCache } from "@/utils/memory.cache";
+
+/** A runaway attempt counter must not overflow `Date` or schedule a retry years out. */
+const MAX_RETRY_DELAY_MS = DAY;
 
 export function getRetryDelay({
 	attempts,
@@ -13,9 +16,9 @@ export function getRetryDelay({
 	backoffType: BackoffType;
 	backoffDelayMs: number;
 }): number {
-	if (backoffType === "fixed") return backoffDelayMs;
+	if (backoffType === "fixed") return Math.min(backoffDelayMs, MAX_RETRY_DELAY_MS);
 
-	return backoffDelayMs * 2 ** Math.max(0, attempts - 1);
+	return Math.min(backoffDelayMs * 2 ** Math.max(0, attempts - 1), MAX_RETRY_DELAY_MS);
 }
 
 type CompiledCronField = (value: number) => boolean;

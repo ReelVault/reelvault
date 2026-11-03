@@ -147,15 +147,42 @@ async function hydrateRows<F extends string>(
 	return data.map((item) => applyFields(withRelations(item, relations.get(item.id)), fields));
 }
 
+/** True when the effective ordering is the descending createdAt keyset the cursor serves. */
+function usesCreatedAtCursorOrdering(
+	query: (CursorPaginationQuery & MetadataSorting) | undefined,
+	sorting: MetadataSorting | undefined,
+): boolean {
+	const createdAtOrder = sorting?.sortBy === "createdAt" || (!sorting?.sortBy && query?.cursor !== undefined);
+
+	return createdAtOrder && (sorting?.sortOrder === "desc" || !sorting?.sortOrder);
+}
+
+/** ORDER BY for offset and cursor pages; both share the keyset order for createdAt. */
+function resolveOrderBy(
+	usesCreatedAtCursorOrder: boolean,
+	sorting: MetadataSorting | undefined,
+	collectionIds: string | undefined,
+): SQL | undefined {
+	if (usesCreatedAtCursorOrder) return sql`${desc(schema.metadata.createdAt)}, ${desc(schema.metadata.id)}`;
+	if (sorting?.sortBy === "collectionOrder") return buildCollectionOrderBy(collectionIds, sorting.sortOrder ?? "asc");
+
+	const baseOrderBy = buildOrderBy(sorting, metadataQueryMap.orderBy, metadataQueryMap.defaults);
+	if (!baseOrderBy) return undefined;
+
+	// Tiebreaker keeps offset pagination deterministic for non-unique keys.
+	return withTiebreaker(baseOrderBy, schema.metadata.id, resolveSortOrder(sorting, metadataQueryMap.defaults));
+}
+
 export async function findPage<F extends string>(
 	query?: CursorPaginationQuery & FieldsQuery<F> & MetadataRepositoryFilters & MetadataSorting,
 ): Promise<CursorPaginatedResponse<SelectFields<MetadataWithRelation, F>>> {
 	const { pagination, fields, sorting, filters } = parseWithFilters<F, MetadataRepositoryFilters, MetadataSorting>(query);
 	const where = buildWhereConditions(filters, metadataQueryMap.filters);
-	const cursorMode =
-		(query?.cursor !== undefined || query?.sortBy === "createdAt") &&
-		(sorting?.sortBy === "createdAt" || !sorting?.sortBy) &&
-		(sorting?.sortOrder === "desc" || !sorting?.sortOrder);
+	// Descending createdAt is the one ordering the keyset cursor serves. A page
+	// numbered request without a cursor still uses offset paging, otherwise page
+	// 2 and later would keep repeating the first page.
+	const usesCreatedAtCursorOrder = usesCreatedAtCursorOrdering(query, sorting);
+	const cursorMode = usesCreatedAtCursorOrder && (query?.cursor !== undefined || pagination.page <= 1);
 
 	const cursor = decodeCursorFor(query?.cursor, cursorMode, "Pagination cursor requires descending createdAt sorting");
 	const cursorWhere = cursor ? keysetWhere(schema.metadata.createdAt, schema.metadata.id, cursor) : undefined;
@@ -164,18 +191,7 @@ export async function findPage<F extends string>(
 		combinedWhere = where ? and(where, cursorWhere) : cursorWhere;
 	}
 
-	let orderBy: SQL | undefined;
-	if (cursorMode) {
-		orderBy = sql`${desc(schema.metadata.createdAt)}, ${desc(schema.metadata.id)}`;
-	} else if (sorting?.sortBy === "collectionOrder") {
-		orderBy = buildCollectionOrderBy(filters?.collectionIds, sorting.sortOrder ?? "asc");
-	} else {
-		const baseOrderBy = buildOrderBy(sorting, metadataQueryMap.orderBy, metadataQueryMap.defaults);
-		// Tiebreaker keeps offset pagination deterministic for non-unique keys.
-		if (baseOrderBy) {
-			orderBy = withTiebreaker(baseOrderBy, schema.metadata.id, resolveSortOrder(sorting, metadataQueryMap.defaults));
-		}
-	}
+	const orderBy = resolveOrderBy(usesCreatedAtCursorOrder, sorting, filters?.collectionIds);
 
 	const requiredFields: Array<keyof typeof metadataColumns> | undefined = cursorMode ? ["createdAt"] : undefined;
 	const findManyArgs = {

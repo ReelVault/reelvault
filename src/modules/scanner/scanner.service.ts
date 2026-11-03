@@ -13,7 +13,7 @@ import { fileScannerService } from "./disk/file.scanner";
 import { type RemovalGuard, removalGuard } from "./disk/removal.guard";
 import { type StaleArtifactCleaner, staleArtifactCleaner } from "./processing/stale-artifact.cleaner";
 import type { LibraryScanResult, LibraryType } from "./scanner.types";
-import { filterPathsWithinRoots } from "./utils/scanner.utils";
+import { filterPathsWithinRoots, isPathWithinRoots, rootPathPrefixes } from "./utils/scanner.utils";
 
 /** Rows read per keyset page while diffing a library against disk. */
 const SCAN_DB_PAGE_SIZE = 5000;
@@ -84,24 +84,29 @@ export class ScannerService {
 	private async collectDatabaseStats(
 		libraryId: string,
 		statsByPath: ReadonlyMap<string, { size: number; mtimeMs: number }>,
+		roots: readonly string[],
 		signal?: AbortSignal,
 	): Promise<{
 		pathCounts: Map<string, number>;
 		removedAll: string[];
 		changedFiles: string[];
-		existingCount: number;
+		existingCountInRoots: number;
 	}> {
 		const pathCounts = new Map<string, number>();
 		const removedAll: string[] = [];
 		const changedFiles: string[] = [];
-		let existingCount = 0;
+		// The mass-removal ratio must compare candidates with the rows under the
+		// scanned roots, not the whole library: a path-scoped scan of one small
+		// path could otherwise purge it while staying under the library-wide half.
+		const rootPrefixes = rootPathPrefixes(roots);
+		let existingCountInRoots = 0;
 		await collectKeysetPages({
 			pageSize: SCAN_DB_PAGE_SIZE,
 			beforePage: () => throwIfAborted(signal),
 			fetchPage: (cursor) => this.dependencies.findStatsPage(libraryId, cursor, SCAN_DB_PAGE_SIZE),
 			onPage: (rows) => {
 				for (const row of rows) {
-					existingCount++;
+					if (isPathWithinRoots(row.filePath, rootPrefixes)) existingCountInRoots++;
 					pathCounts.set(row.filePath, (pathCounts.get(row.filePath) ?? 0) + 1);
 					const diskStat = statsByPath.get(row.filePath);
 					if (!diskStat) {
@@ -115,7 +120,7 @@ export class ScannerService {
 			betweenPages: () => sleep(0),
 		});
 
-		return { pathCounts, removedAll, changedFiles, existingCount };
+		return { pathCounts, removedAll, changedFiles, existingCountInRoots };
 	}
 
 	async scanPaths(libraryId: string, type: LibraryType, paths?: string[], signal?: AbortSignal): Promise<LibraryScanResult> {
@@ -135,7 +140,12 @@ export class ScannerService {
 				}
 
 				const statsByPath = await this.dependencies.discover(effectivePaths, signal);
-				const { pathCounts, removedAll, changedFiles, existingCount } = await this.collectDatabaseStats(libraryId, statsByPath, signal);
+				const { pathCounts, removedAll, changedFiles, existingCountInRoots } = await this.collectDatabaseStats(
+					libraryId,
+					statsByPath,
+					effectivePaths,
+					signal,
+				);
 
 				const newFiles = await collectNewFiles(statsByPath.keys(), type, pathCounts);
 
@@ -146,7 +156,7 @@ export class ScannerService {
 					libraryId,
 					candidates: removedCandidates,
 					roots: effectivePaths,
-					existingCount,
+					existingCount: existingCountInRoots,
 					filesOnDiskCount: statsByPath.size,
 					signal,
 				});
@@ -154,7 +164,12 @@ export class ScannerService {
 				if (massRemoval) {
 					this.logger.error(
 						"Refusing to remove library records — the scan found drastically fewer files than the database. Likely a transient storage failure.",
-						{ libraryId, existingRecords: existingCount, filesOnDisk: statsByPath.size, removalCandidates: removedFiles.length },
+						{
+							libraryId,
+							existingRecords: existingCountInRoots,
+							filesOnDisk: statsByPath.size,
+							removalCandidates: removedFiles.length,
+						},
 					);
 				}
 

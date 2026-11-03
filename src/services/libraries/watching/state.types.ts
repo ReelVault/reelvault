@@ -12,6 +12,8 @@ export interface WatchedPathEntry {
 /** `${libraryId}:${pathId}` → the debounce timer that will fire a scan. */
 export interface PendingScanState {
 	timer: unknown;
+	/** The first event of this quiet-window burst; bounds how long a continuous writer can defer a scan. */
+	firstEventAt: number;
 }
 
 /** A library path the filesystem watcher cannot cover; surfaced to admins once per episode. */

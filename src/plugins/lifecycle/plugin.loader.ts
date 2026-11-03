@@ -32,6 +32,9 @@ import { buildPluginRuntime, isReelVaultPlugin, type LoadedPluginManifest, toLif
 import { clearPluginRuntimes, materializePluginRuntime, pluginRuntimeRoot } from "./plugin-runtime.service";
 import { ensurePluginSdkShim } from "./plugin-sdk-alias.utils";
 
+/** UI contributions are a small descriptor, not a place to stream a huge JSON document. */
+const MAX_UI_MANIFEST_BYTES = 256 * 1024;
+
 export class PluginLoader {
 	readonly logger = createLogger("PluginLoader");
 	private readonly config: PluginConfig;
@@ -171,7 +174,7 @@ export class PluginLoader {
 	/** Loads the optional ui.json into the scope; a malformed manifest skips UI contributions, not the plugin. */
 	private async loadUiManifest(pluginDir: string, scope: PluginScope): Promise<void> {
 		const uiManifestPath = join(pluginDir, "ui.json");
-		const uiManifestRaw = await readJsonFile<unknown>(uiManifestPath, { silent: true });
+		const uiManifestRaw = await readJsonFile<unknown>(uiManifestPath, { silent: true, maxSize: MAX_UI_MANIFEST_BYTES });
 		if (uiManifestRaw === null) return;
 
 		try {
@@ -254,11 +257,11 @@ export class PluginLoader {
 		let manifest: Awaited<ReturnType<typeof loadPluginManifest>> | undefined;
 		let plugin: ReelVaultPlugin | undefined;
 		let configDefinition: ConfigDefinition | undefined;
-		let failurePhase: PluginLoadPhase | undefined;
 
 		try {
 			manifest = await loadPluginManifest(pluginDir);
-			this.directoryIndex.set(manifest.id, pluginName);
+			const loadedManifest = manifest;
+			this.directoryIndex.set(loadedManifest.id, pluginName);
 
 			const existing = this.registry.get(manifest.id);
 			if (existing) {
@@ -284,55 +287,94 @@ export class PluginLoader {
 			// awaits: sequential — the UI manifest is attached to the scope before the plugin is imported
 			await this.loadUiManifest(pluginDir, scope);
 
-			plugin = await this.importPlugin(manifest, runtimeDirectory);
+			const loadedPlugin = await this.runPluginStep("import", serverConfig.plugins.lifecycle.loadTimeoutMs, () =>
+				this.importPlugin(loadedManifest, runtimeDirectory),
+			);
+			plugin = loadedPlugin;
 
 			// Parse the stored values through the plugin's own config schema before setup() sees them.
-			configDefinition = isRecord(plugin) && isConfigDefinition(plugin.config) ? plugin.config : undefined;
-
-			const config = validatePluginConfig(rawConfig, configDefinition);
-			this.registry.markPhase(manifest.id, "setup");
-
-			const pluginLogger = createLogger(`Plugin:${manifest.id}`);
-			scope.setDeclaredCapabilities(manifest.capabilities);
-			// Bind the id before setup(): host capabilities usable during setup
-			// (notification channels) need the namespace, not just lifecycle hooks.
-			scope.bindPluginId(manifest.id);
-
-			await plugin.setup(createPluginHost(manifest.id, pluginLogger, config, scope));
-			scope.assertDeclaredCapabilities(manifest.capabilities);
-			this.registry.advance(manifest.id, "initialized", "initialization");
-
-			// awaits: sequential — providers are initialized before jobs are registered
-			await scope.initializeProviders(config);
-			await scope.registerJobs(manifest.id);
-			scope.registerHttpRoutes(manifest.id);
-			this.registry.markPhase(manifest.id, "activation");
-
-			const runtime = this.registerLoadedPlugin(manifest, plugin, configDefinition, scope);
-
-			if (plugin.onEnable) {
-				await plugin.onEnable();
-			}
-
-			this.registry.enable(manifest.id);
-			pluginEventBus.publish("plugin.enabled", { pluginId: manifest.id });
-			realtimeService.broadcast("plugin:enabled", { pluginId: manifest.id });
-
-			this.logger.info(`Plugin [${manifest.id}@${manifest.version}] loaded successfully`, {
-				hasConfig: hasEntry(config),
-				providers: runtime.providerIds.length,
-				subtitleProviders: runtime.subtitleProviderIds.length,
-				jobs: runtime.jobNames.length,
-			});
+			configDefinition = isRecord(loadedPlugin) && isConfigDefinition(loadedPlugin.config) ? loadedPlugin.config : undefined;
+			await this.activateLoadedPlugin({ manifest: loadedManifest, plugin: loadedPlugin, rawConfig, configDefinition, scope });
 		} catch (error) {
-			// awaits: sequential — the scope is cleaned up before the failed load is unloaded
-			await scope.cleanup();
-			await this.runFailedLoadUnload(plugin, trackedPluginId);
-			failurePhase = this.recordLoadFailure({ trackedPluginId, manifest, pluginName, failurePhase, configDefinition }, error);
-
-			this.logger.error(`Failed to load plugin ${pluginName}`, error, { failurePhase });
+			await this.handleLoadFailure({ scope, plugin, trackedPluginId, manifest, pluginName, configDefinition, error });
 			throw error;
 		}
+	}
+
+	/** Runs the plugin's setup, provider initialization and activation under the load deadline. */
+	private async activateLoadedPlugin(params: {
+		manifest: Awaited<ReturnType<typeof loadPluginManifest>>;
+		plugin: ReelVaultPlugin;
+		rawConfig: Record<string, unknown>;
+		configDefinition: ConfigDefinition | undefined;
+		scope: PluginScope;
+	}): Promise<void> {
+		const { manifest, plugin, rawConfig, configDefinition, scope } = params;
+		const config = validatePluginConfig(rawConfig, configDefinition);
+
+		this.registry.markPhase(manifest.id, "setup");
+		const pluginLogger = createLogger(`Plugin:${manifest.id}`);
+		scope.setDeclaredCapabilities(manifest.capabilities);
+		// Bind the id before setup(): host capabilities usable during setup
+		// (notification channels) need the namespace, not just lifecycle hooks.
+		scope.bindPluginId(manifest.id);
+
+		await this.runPluginStep("setup", serverConfig.plugins.lifecycle.loadTimeoutMs, () =>
+			plugin.setup(createPluginHost(manifest.id, pluginLogger, config, scope)),
+		);
+		scope.assertDeclaredCapabilities(manifest.capabilities);
+		this.registry.advance(manifest.id, "initialized", "initialization");
+
+		// awaits: sequential — providers are initialized before jobs are registered
+		await this.runPluginStep("provider initialization", serverConfig.plugins.lifecycle.loadTimeoutMs, () =>
+			scope.initializeProviders(config),
+		);
+		await scope.registerJobs(manifest.id);
+		scope.registerHttpRoutes(manifest.id);
+		this.registry.markPhase(manifest.id, "activation");
+
+		const runtime = this.registerLoadedPlugin(manifest, plugin, configDefinition, scope);
+
+		if (plugin.onEnable) {
+			await this.runPluginStep("onEnable", serverConfig.plugins.lifecycle.loadTimeoutMs, () => plugin.onEnable?.());
+		}
+
+		this.registry.enable(manifest.id);
+		pluginEventBus.publish("plugin.enabled", { pluginId: manifest.id });
+		realtimeService.broadcast("plugin:enabled", { pluginId: manifest.id });
+		this.logger.info(`Plugin [${manifest.id}@${manifest.version}] loaded successfully`, {
+			hasConfig: hasEntry(config),
+			providers: runtime.providerIds.length,
+			subtitleProviders: runtime.subtitleProviderIds.length,
+			jobs: runtime.jobNames.length,
+		});
+	}
+
+	/** Cleanup and registry bookkeeping for a failed load; never replaces the original error. */
+	private async handleLoadFailure(params: {
+		scope: PluginScope;
+		plugin: ReelVaultPlugin | undefined;
+		trackedPluginId: string | undefined;
+		manifest: Awaited<ReturnType<typeof loadPluginManifest>> | undefined;
+		pluginName: string;
+		configDefinition: ConfigDefinition | undefined;
+		error: unknown;
+	}): Promise<void> {
+		const { scope, plugin, trackedPluginId, manifest, pluginName, configDefinition, error } = params;
+
+		// A cleanup failure must not replace the load failure or skip its registry record.
+		try {
+			await this.runPluginStep("failed-load cleanup", serverConfig.plugins.lifecycle.unloadTimeoutMs, () => scope.cleanup());
+		} catch (cleanupError) {
+			this.logger.warn("Plugin scope cleanup failed during load error handling", {
+				pluginId: trackedPluginId,
+				error: errorMessage(cleanupError),
+			});
+		}
+
+		await this.runFailedLoadUnload(plugin, trackedPluginId);
+		const phase = this.recordLoadFailure({ trackedPluginId, manifest, pluginName, failurePhase: undefined, configDefinition }, error);
+		this.logger.error(`Failed to load plugin ${pluginName}`, error, { failurePhase: phase });
 	}
 
 	/** A partially-initialized plugin may have opened timers/sockets during setup(), so its unload hook still runs. */
@@ -340,7 +382,7 @@ export class PluginLoader {
 		if (!plugin?.onUnload) return;
 
 		try {
-			await plugin.onUnload();
+			await this.runPluginStep("failed-load onUnload", serverConfig.plugins.lifecycle.unloadTimeoutMs, () => plugin.onUnload?.());
 		} catch (unloadError) {
 			this.logger.warn("Plugin onUnload failed during load error cleanup", {
 				pluginId: trackedPluginId,
@@ -386,6 +428,15 @@ export class PluginLoader {
 		this.pluginScopes.delete(pluginId);
 	}
 
+	/**
+	 * Plugin code is arbitrary and in-process: one `setup`, provider init or
+	 * lifecycle hook that never settles must not hold the global lifecycle lock
+	 * (and every later admin request) forever.
+	 */
+	private async runPluginStep<T>(label: string, timeoutMs: number, step: () => T | Promise<T>): Promise<T> {
+		return await withTimeout(Promise.resolve().then(step), timeoutMs, `Plugin step ${label}`);
+	}
+
 	async reloadPlugin(pluginId: string): Promise<void> {
 		const pluginName = (await this.findDirectoryNameForPluginId(pluginId)) ?? pluginId;
 
@@ -402,9 +453,12 @@ export class PluginLoader {
 			return;
 		}
 
-		if (runtime.state === "failed" || !runtime.plugin) {
+		const plugin = runtime.plugin;
+		if (runtime.state === "failed" || !plugin) {
 			try {
-				await this.pluginScopes.get(pluginId)?.cleanup();
+				await this.runPluginStep("failed cleanup", serverConfig.plugins.lifecycle.unloadTimeoutMs, () =>
+					this.pluginScopes.get(pluginId)?.cleanup(),
+				);
 			} catch {
 				// A failed plugin's cleanup errors were already recorded in the registry.
 			}
@@ -421,19 +475,21 @@ export class PluginLoader {
 		let lifecycleError: Error | undefined;
 
 		try {
-			await runtime.plugin.onDisable?.();
+			await this.runPluginStep("onDisable", serverConfig.plugins.lifecycle.unloadTimeoutMs, () => plugin.onDisable?.());
 		} catch (error) {
 			lifecycleError = toLifecycleError(error);
 		}
 
 		try {
-			await this.pluginScopes.get(pluginId)?.cleanup();
+			await this.runPluginStep("scope cleanup", serverConfig.plugins.lifecycle.unloadTimeoutMs, () =>
+				this.pluginScopes.get(pluginId)?.cleanup(),
+			);
 		} catch (error) {
 			lifecycleError ??= toLifecycleError(error);
 		}
 
 		try {
-			await runtime.plugin.onUnload?.();
+			await this.runPluginStep("onUnload", serverConfig.plugins.lifecycle.unloadTimeoutMs, () => plugin.onUnload?.());
 		} catch (error) {
 			lifecycleError ??= toLifecycleError(error);
 		} finally {

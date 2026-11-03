@@ -14,6 +14,7 @@ import { DomainError } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { isSubpath } from "@/utils/path.utils";
+import { withTimeout } from "@/utils/promise.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import { pluginMediaService } from "./plugin.media";
 import { pluginMetadataService } from "./plugin.metadata";
@@ -87,7 +88,11 @@ class SubtitleProviderService {
 		// awaits: sequential — the media item is checked before the provider is asked for the subtitle
 		await this.getMediaItem(request.mediaFileId);
 
-		const download = await provider.download(request.subtitleId);
+		const download = await withTimeout(
+			provider.download(request.subtitleId),
+			serverConfig.plugins.providers.requestTimeoutMs,
+			`subtitle provider ${providerId} download`,
+		);
 		if (!download)
 			throw new DomainError("not_found", `Subtitle ${request.subtitleId} was not found in provider ${providerId}`, {
 				code: "plugin.subtitle.not_found",

@@ -1,5 +1,5 @@
 import type { PaginationQuery } from "@reelvault/sdk/common";
-import { and, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, ne, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { createPageResponse, parsePagination } from "@/integrations/drizzle-orm/query/pagination.utils";
@@ -66,6 +66,17 @@ export const sessionsRepository = {
 			.limit(1);
 
 		return session?.token;
+	},
+
+	/** Drops sessions that can no longer authenticate anything; Better Auth removes them only on reuse. */
+	async deleteExpired(now: Date = new Date()): Promise<number> {
+		const deleted = await databaseFactory
+			.getClient()
+			.delete(sessionsRepository.table)
+			.where(lt(sessionsRepository.table.expiresAt, now))
+			.returning({ id: sessionsRepository.table.id });
+
+		return deleted.length;
 	},
 
 	async deleteOtherSessions({ userId, currentSessionId }: { userId: string; currentSessionId: string }): Promise<void> {

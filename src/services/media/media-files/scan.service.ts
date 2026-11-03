@@ -1,8 +1,10 @@
+import { FFMPEG_TIMEOUT_MS } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { videoParser } from "@/modules/scanner/probe/video-parser.service";
 import { mediaRepository } from "@/repositories/media-files.repository";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { assertFound, errorCodeOf } from "@/utils/domain.errors";
 import { getFileStats } from "@/utils/file.utils";
 import { createSemaphore } from "@/utils/promise.utils";
@@ -45,9 +47,9 @@ async function probeFileStats(filePath: string): Promise<{ exists: boolean; read
 	return { exists, readable, sizeBytes };
 }
 
-async function probeMediaFile(filePath: string): Promise<{ probeSuccess: boolean; probeErrorCode: string | null }> {
+async function probeMediaFile(filePath: string, signal?: AbortSignal): Promise<{ probeSuccess: boolean; probeErrorCode: string | null }> {
 	try {
-		const probe = await videoParser.probe(filePath);
+		const probe = await videoParser.probe(filePath, signal);
 		if (probe) return { probeSuccess: true, probeErrorCode: null };
 
 		return { probeSuccess: false, probeErrorCode: "media.probe_no_data" };
@@ -60,6 +62,7 @@ async function probeMediaFile(filePath: string): Promise<{ probeSuccess: boolean
 async function decodeMediaFile(
 	filePath: string,
 	durationSeconds: number | null | undefined,
+	signal?: AbortSignal,
 ): Promise<{ decodeSuccess: boolean; decodeErrorCode: string | null }> {
 	try {
 		const args = ["-v", "error"];
@@ -70,7 +73,11 @@ async function decodeMediaFile(
 
 		args.push("-i", filePath, "-f", "null", "-");
 
-		const ffmpegResult = await ffMpegService.runToCompletion(args, { stdout: "ignore" });
+		const ffmpegResult = await ffMpegService.runToCompletion(args, {
+			stdout: "ignore",
+			timeoutMs: systemResourcesService.scaledTimeoutMs(FFMPEG_TIMEOUT_MS),
+			signal,
+		});
 		if (ffmpegResult.exitCode === 0) return { decodeSuccess: true, decodeErrorCode: null };
 
 		return { decodeSuccess: false, decodeErrorCode: "media.decode_failed" };
@@ -79,8 +86,14 @@ async function decodeMediaFile(
 	}
 }
 
-export async function scan(mediaFileId: string, options?: { durationSeconds?: number | null } | null): Promise<MediaFileScanResult> {
+export async function scan(
+	mediaFileId: string,
+	options?: { durationSeconds?: number | null } | null,
+	signal?: AbortSignal,
+): Promise<MediaFileScanResult> {
 	return await scanSemaphore.run(async () => {
+		throwIfAborted(signal);
+
 		return await runSafely(mediaFilesLog, "scan", async () => {
 			const mediaFile = await mediaRepository.findByPrimaryId({
 				primaryId: mediaFileId,
@@ -105,9 +118,9 @@ export async function scan(mediaFileId: string, options?: { durationSeconds?: nu
 			}
 
 			// awaits: sequential — the decode runs after the probe, one ffmpeg run at a time
-			const { probeSuccess, probeErrorCode } = await probeMediaFile(filePath);
+			const { probeSuccess, probeErrorCode } = await probeMediaFile(filePath, signal);
 
-			const { decodeSuccess, decodeErrorCode } = await decodeMediaFile(filePath, options?.durationSeconds);
+			const { decodeSuccess, decodeErrorCode } = await decodeMediaFile(filePath, options?.durationSeconds, signal);
 
 			// `exists` was already asserted by the early return above.
 			const hasErrors = !(readable && probeSuccess && decodeSuccess);
@@ -130,5 +143,5 @@ export async function scan(mediaFileId: string, options?: { durationSeconds?: nu
 				isEnabled,
 			};
 		});
-	});
+	}, signal);
 }

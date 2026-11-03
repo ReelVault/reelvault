@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { isRecord } from "@/utils/type.utils";
@@ -113,7 +113,7 @@ async function materializePluginSdkShim(pluginsDirectory: string): Promise<boole
 
 function findServerRoot(): string | undefined {
 	let directory = import.meta.dir;
-	while (directory !== "/" && directory !== ".") {
+	for (;;) {
 		const manifestPath = join(directory, "package.json");
 		if (existsSync(manifestPath)) {
 			try {
@@ -124,8 +124,11 @@ function findServerRoot(): string | undefined {
 			}
 		}
 
-		directory = join(directory, "..");
-	}
+		// `join("C:\\", "..")` stays `C:\` on Windows; comparing against the
+		// filesystem root stops the walk instead of spinning forever.
+		const parent = dirname(directory);
+		if (parent === directory) return undefined;
 
-	return undefined;
+		directory = parent;
+	}
 }

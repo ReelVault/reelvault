@@ -15,15 +15,31 @@ export interface StreamInitResult {
 	message: string;
 }
 
+export interface StreamSessionStartInput {
+	sessionId: string;
+	filePath: string;
+	decision: PlaybackDecision;
+	startTime: number;
+	operationId?: string | undefined;
+	signal?: AbortSignal | undefined;
+}
+
 export interface StreamInitializerDependencies {
-	startSession(sessionId: string, filePath: string, decision: PlaybackDecision, startTime: number, operationId?: string): Promise<void>;
+	startSession(input: StreamSessionStartInput): Promise<void>;
 	discardSession(sessionId: string): Promise<void>;
 	releaseSessionReservation(sessionId: string): void;
 }
 
 const defaultDependencies: StreamInitializerDependencies = {
-	startSession: (sessionId, filePath, decision, startTime, operationId) =>
-		streamingManager.startSession({ sessionId, inputPath: filePath, decision, startTime, operationId }),
+	startSession: (input) =>
+		streamingManager.startSession({
+			sessionId: input.sessionId,
+			inputPath: input.filePath,
+			decision: input.decision,
+			startTime: input.startTime,
+			operationId: input.operationId,
+			signal: input.signal,
+		}),
 	discardSession: (sessionId) => streamingManager.discardSession(sessionId),
 	releaseSessionReservation: (sessionId) => streamingManager.releaseSessionReservation(sessionId),
 };
@@ -46,7 +62,14 @@ export class StreamInitializer {
 
 			let failure: ReturnType<typeof toDomainError> | undefined;
 			try {
-				await this.dependencies.startSession(data.sessionId, data.filePath, data.decision, 0, context.correlationId);
+				await this.dependencies.startSession({
+					sessionId: data.sessionId,
+					filePath: data.filePath,
+					decision: data.decision,
+					startTime: 0,
+					operationId: context.correlationId,
+					signal: context.signal,
+				});
 				context.signal?.throwIfAborted();
 			} catch (error) {
 				failure = toDomainError(error, `Stream initialization failed: ${data.sessionId}`);

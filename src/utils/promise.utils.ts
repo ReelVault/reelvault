@@ -1,6 +1,7 @@
 import { watch } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { file } from "bun";
+import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
 import { createLogger } from "@/utils/logger.utils";
 import { DomainError } from "./domain.errors";
 
@@ -158,12 +159,19 @@ export function waitForFile(filePath: string, timeoutMs = 10_000, pollMs = 200, 
 			resolve();
 		};
 
-		// Best-effort existence probe; failures just mean "not yet".
+		// One existence probe at a time: a dead mount would otherwise start a new
+		// stat on every 25 ms tick and leave a growing pile of hung requests.
+		let probing = false;
 		const checkExists = async (): Promise<void> => {
+			if (resolved || probing) return;
+
+			probing = true;
 			try {
-				if (await file(filePath).exists()) onFound();
+				if (await withTimeout(file(filePath).exists(), FS_STAT_TIMEOUT_MS, `exists ${filePath}`)) onFound();
 			} catch {
-				// still not found
+				// still not found, or the storage did not answer within the deadline
+			} finally {
+				probing = false;
 			}
 		};
 

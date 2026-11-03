@@ -21,6 +21,8 @@ interface DedupWaiter {
 interface InflightEntry {
 	/** Set by the leader once the handler produced a value (or threw). */
 	settled: boolean;
+	/** When the leader registered; a leader that never settles is swept after a few wait windows. */
+	createdAt: number;
 	responseValue?: unknown;
 	status: number;
 	error?: unknown;
@@ -31,6 +33,27 @@ interface InflightEntry {
 
 const inflight = new Map<string, InflightEntry>();
 let trackedCount = 0;
+
+/**
+ * A leader whose request was aborted without running `mapResponse`/`onError`
+ * would otherwise stay in `inflight` forever and permanently consume a slot.
+ * Sweeping only when the cap is reached keeps the common path allocation-free.
+ */
+function sweepStaleEntries(): void {
+	const cutoff = Date.now() - serverConfig.requestDedup.waitTimeoutMs * 2;
+	for (const [key, entry] of inflight) {
+		if (entry.settled || entry.createdAt > cutoff) continue;
+
+		inflight.delete(key);
+		trackedCount--;
+		const error = new Error("Dedup leader expired");
+		const waiters = entry.waiters;
+		entry.waiters = [];
+		entry.settled = true;
+		entry.error = error;
+		for (const waiter of waiters) waiter.reject(error);
+	}
+}
 
 function buildSharedResponse(entry: InflightEntry): Response {
 	if (entry.response) return entry.response;
@@ -90,7 +113,10 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 
 				if (!(context.request.method === "GET" || context.request.method === "HEAD")) return undefined;
 
-				if (trackedCount >= serverConfig.requestDedup.maxConcurrent) return undefined;
+				if (trackedCount >= serverConfig.requestDedup.maxConcurrent) {
+					sweepStaleEntries();
+					if (trackedCount >= serverConfig.requestDedup.maxConcurrent) return undefined;
+				}
 
 				// GET and HEAD share a route but not a response contract — keep them apart.
 				const composed = requestIdentityKey(context.request, { includeMethod: true });
@@ -136,7 +162,7 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 					}
 				}
 
-				inflight.set(key, { settled: false, status: 200, waiters: [] });
+				inflight.set(key, { settled: false, createdAt: Date.now(), status: 200, waiters: [] });
 				trackedCount++;
 				context._dedupKey = key;
 

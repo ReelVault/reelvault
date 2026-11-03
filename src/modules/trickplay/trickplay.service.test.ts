@@ -88,6 +88,22 @@ async function cueTrack(mediaFileId: string): Promise<string> {
 	return await found.file.text();
 }
 
+describe("trickplayService.generateForMediaFile cancellation", () => {
+	test("leaves the previous artifacts untouched when the worker is already aborted", async () => {
+		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
+		await trickplayService.generateForMediaFile(mediaFileId);
+		const before = await storedArtifacts(mediaFileId);
+
+		const controller = new AbortController();
+		controller.abort();
+
+		await expect(trickplayService.generateForMediaFile(mediaFileId, controller.signal)).rejects.toMatchObject({
+			name: "CancellationError",
+		});
+		expect(await storedArtifacts(mediaFileId)).toEqual(before);
+	});
+});
+
 describe("trickplayService.generateForMediaFile", () => {
 	test("stores sprite sheets and a cue track for the file", async () => {
 		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);

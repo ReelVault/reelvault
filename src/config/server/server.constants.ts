@@ -172,6 +172,8 @@ export const serverConstants = {
 	},
 	ffmpeg: {
 		requiredAudioFilters: ["aresample"] as const,
+		/** Boot-time capability probes; a wrapper or dead binary must not block `app.listen`. */
+		diagnosticTimeoutMs: 10_000,
 	},
 	ffprobe: {
 		timeoutMs: MINUTE,
@@ -254,6 +256,8 @@ export const serverConstants = {
 			concurrency: 8,
 			defaultPriority: 100,
 			settingsCacheTtlMs: 30_000,
+			/** One provider call may not hold an ingest, admin request or cache load forever. */
+			requestTimeoutMs: 20_000,
 		},
 		subtitles: {
 			maxSizeBytes: 20 * MEBIBYTE,
@@ -263,6 +267,8 @@ export const serverConstants = {
 		runtime: {
 			accessPolicyTimeoutMs: 1_000,
 			hookTimeoutMs: 5_000,
+			/** Plugin HTTP route handlers run arbitrary code; the request must still answer. */
+			routeTimeoutMs: 30_000,
 		},
 		// Per-plugin flood guard for the notifications capability — a buggy plugin
 		// must not bury the user's notification feed (0 would disable creation).

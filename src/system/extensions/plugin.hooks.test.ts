@@ -88,6 +88,17 @@ describe("plugin hook bus", () => {
 		expect(seenTitles).toEqual(["Original title"]);
 	});
 
+	test("does not freeze a plugin-owned result object", async () => {
+		const bus = new PluginHookBus();
+		const shared = { ...candidate, title: "Shared result" };
+		bus.register("shared", "beforeMetadataSave", () => shared);
+
+		await expect(bus.run("beforeMetadataSave", candidate)).resolves.toEqual(shared);
+
+		Reflect.set(shared, "title", "Changed after the hook");
+		expect(shared.title).toBe("Changed after the hook");
+	});
+
 	test("runs only the hooks registered for the named hook point", async () => {
 		const bus = new PluginHookBus();
 		bus.register("parser", "beforeMediaRecognition", ({ candidate: input }) => ({ ...input, title: input.title.replaceAll(".", " ") }));

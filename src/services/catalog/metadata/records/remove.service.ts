@@ -1,3 +1,4 @@
+import { sleep } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { mediaRepository } from "@/repositories/media-files.repository";
@@ -84,6 +85,7 @@ export async function deleteOrphans(context?: AdminAuditContext): Promise<{ coun
 					sample.push(...orphanIds.slice(0, MAX_ORPHAN_AUDIT_IDS - sample.length));
 				}
 			},
+			betweenPages: () => sleep(0),
 		});
 
 		if (deleted > 0) invalidateReadCaches();

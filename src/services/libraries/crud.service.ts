@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type {
 	CreateLibrary,
@@ -12,6 +11,7 @@ import type {
 	SelectFields,
 	UpdateLibrary,
 } from "@reelvault/sdk/common";
+import { systemResourcesService } from "@/config/system-resources.service";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import { librariesRepository } from "@/repositories/libraries.repository";
 import { libraryProviderSettingsRepository } from "@/repositories/library-provider-settings.repository";
@@ -21,6 +21,8 @@ import { deleteWithArtifacts } from "@/services/artifacts/delete-with-artifacts"
 import { librariesLog } from "@/services/libraries/libraries.logger";
 import { libraryWatcherService } from "@/services/libraries/watching/library-watcher.service";
 import { assertFound, DomainError } from "@/utils/domain.errors";
+import { checkFileExistence } from "@/utils/file.utils";
+import { mapConcurrent } from "@/utils/promise.utils";
 import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { ingestLibraryCache } from "@/workers/definitions/media/media-file-ingest/dependencies.utils";
@@ -29,14 +31,24 @@ import { LIBRARY_LIST_PATH_PREFIXES, normalizeMetadataLanguage } from "./shared.
 /**
  * A typo in a source path would otherwise create a library that silently
  * scans nothing — fail the request with the offending path instead.
+ *
+ * Async and deadline-bounded: `existsSync` on an unreachable network mount
+ * blocked the whole event loop, and a path whose storage does not answer is
+ * reported separately from a path that is genuinely missing.
  */
-function assertPathsExist(paths: CreateLibraryPath[]): void {
-	for (const item of paths) {
+async function assertPathsExist(paths: CreateLibraryPath[]): Promise<void> {
+	await mapConcurrent(paths, systemResourcesService.getIoConcurrency(), async (item) => {
 		const resolved = resolve(item.path.trim());
-		if (!existsSync(resolved)) {
+		const state = await checkFileExistence(resolved);
+
+		if (state === "missing") {
 			throw new DomainError("validation", `Source path does not exist: ${resolved}`, { code: "library.path_not_found" });
 		}
-	}
+
+		if (state === "unavailable") {
+			throw new DomainError("timeout", `Source path is not reachable: ${resolved}`, { code: "library.path_unavailable" });
+		}
+	});
 }
 
 /** Existence-checked read for internal scan paths. Skips the provider-priority overrides that only the detail view needs. */
@@ -82,7 +94,7 @@ export async function createLibrary<F extends string>(
 	context?: AdminAuditContext,
 ): Promise<SelectFields<LibraryWithRelations, F>> {
 	return await runSafely(librariesLog, "create", async () => {
-		assertPathsExist(body.paths);
+		await assertPathsExist(body.paths);
 		// Direct probe (not findPage) — the count cache would hide a library
 		// created seconds ago and the duplicate would slip through as 200.
 		if (await librariesRepository.hasNameConflict(body.name, body.type)) {
@@ -128,7 +140,7 @@ export async function updateLibrary<F extends string>(
 	context?: AdminAuditContext,
 ): Promise<SelectFields<LibraryWithRelations, F>> {
 	return await runSafely(librariesLog, "update", async () => {
-		if (body.paths) assertPathsExist(body.paths);
+		if (body.paths) await assertPathsExist(body.paths);
 
 		const before = await librariesRepository.findWithPaths(libraryId);
 		assertFound(before, "Library", libraryId);

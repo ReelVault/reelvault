@@ -8,8 +8,8 @@ export const databaseMaintenanceService = {
 
 	/** Runs SQLite's quick check; `ok` only when it reports nothing but the healthy answer. */
 	async checkIntegrity(): Promise<{ ok: boolean; messages: string[] }> {
-		return await runSafely(databaseMaintenanceService, "checkIntegrity", () => {
-			const messages = databaseMaintenanceRepository.quickCheck();
+		return await runSafely(databaseMaintenanceService, "checkIntegrity", async () => {
+			const messages = await databaseMaintenanceRepository.quickCheck();
 
 			return { ok: messages.length === 1 && messages[0] === "ok", messages };
 		});

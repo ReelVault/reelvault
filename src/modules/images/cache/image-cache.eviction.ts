@@ -74,8 +74,10 @@ export class ImageCacheEviction {
 		// The first sweep in this process must discover files left by earlier
 		// runs; subsequent sweeps evict the tracked write order directly.
 		if (!this.reconciled.has(cacheDir)) {
-			this.reconciled.add(cacheDir);
+			// Mark reconciled only after a successful pass: a transient EACCES or
+			// mount loss must not disable cache eviction for the process lifetime.
 			await this.reconcile(cacheDir);
+			this.reconciled.add(cacheDir);
 
 			return;
 		}

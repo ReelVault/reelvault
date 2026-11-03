@@ -10,6 +10,8 @@ import { workerService } from "@/workers/worker.service";
 
 /** Absolute cap on a plugin-declared job timeout (24h) — a job must not stall a slot forever. */
 const MAX_PLUGIN_JOB_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+/** A plugin may retry, but not enough times to overflow the retry deadline or keep history forever. */
+const MAX_PLUGIN_JOB_ATTEMPTS = 25;
 
 /** One entry of a plugin job batch (`jobs.enqueueMany` / `scope.enqueueJobs`). */
 export interface PluginJobBatchItem {
@@ -33,6 +35,12 @@ function clampPluginJobTimeout(value: number | undefined): number | undefined {
 	if (value === undefined) return undefined;
 
 	return clamp(Math.floor(value), 1, MAX_PLUGIN_JOB_TIMEOUT_MS);
+}
+
+function clampPluginJobAttempts(value: number | undefined): number | undefined {
+	if (value === undefined) return undefined;
+
+	return clamp(Math.floor(value), 1, MAX_PLUGIN_JOB_ATTEMPTS);
 }
 
 export const pluginJobsService = {
@@ -82,7 +90,7 @@ export const pluginJobsService = {
 					defaultTriggers: job.schedule?.defaultTriggers,
 					concurrency: clampPluginJobConcurrency(name, job.options?.concurrency),
 					timeoutMs: clampPluginJobTimeout(job.options?.timeoutMs),
-					attempts: job.options?.attempts,
+					attempts: clampPluginJobAttempts(job.options?.attempts),
 					backoff: job.options?.backoff,
 					removeOnComplete: job.options?.removeOnComplete,
 					removeOnFail: job.options?.removeOnFail,

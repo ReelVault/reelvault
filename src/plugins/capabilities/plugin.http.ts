@@ -7,6 +7,8 @@ import { guardedFetch, isPublicAddress } from "@/utils/url-guard.utils";
 
 const MAX_REDIRECTS = 5;
 const PLUGIN_HTTP_PROTOCOLS = ["http:", "https:"] as const;
+/** A plugin's own HTTP call must not outlive the request that triggered it. */
+const PLUGIN_HTTP_TIMEOUT_MS = 30_000;
 const SETTING_ALLOWED_DOMAINS = "plugins.http.allowedDomains";
 
 const LOCAL_HOST_SUFFIXES = [".local", ".localhost", ".internal", ".home.arpa"];
@@ -71,8 +73,12 @@ function inputToUrl(input: RequestInfo | URL): string {
  * http(s)-only, allowlist/local-host policy, and pinned to a vetted public IP.
  */
 export function guardedPluginFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+	const timeout = AbortSignal.timeout(PLUGIN_HTTP_TIMEOUT_MS);
+	const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+
 	return guardedFetch(inputToUrl(input), {
 		...init,
+		signal,
 		allowedProtocols: PLUGIN_HTTP_PROTOCOLS,
 		maxRedirects: MAX_REDIRECTS,
 		assertHostAllowed: assertPluginHostAllowed,

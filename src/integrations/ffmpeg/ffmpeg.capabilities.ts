@@ -36,11 +36,12 @@ let capabilities: FfmpegCapabilities = {
 };
 
 export async function initializeFfmpegCapabilities(): Promise<FfmpegCapabilities> {
+	const timeoutMs = serverConfig.ffmpeg.diagnosticTimeoutMs;
 	const [versionOutput, filtersOutput, encodersOutput, hwaccelsOutput] = await Promise.all([
-		runFfmpegDiagnostic(["-version"]),
-		runFfmpegDiagnostic([...FFMPEG_QUIET_ARGS, "-filters"]),
-		runFfmpegDiagnostic([...FFMPEG_QUIET_ARGS, "-encoders"]),
-		runFfmpegDiagnostic([...FFMPEG_QUIET_ARGS, "-hwaccels"]),
+		runFfmpegDiagnostic(["-version"], timeoutMs),
+		runFfmpegDiagnostic([...FFMPEG_QUIET_ARGS, "-filters"], timeoutMs),
+		runFfmpegDiagnostic([...FFMPEG_QUIET_ARGS, "-encoders"], timeoutMs),
+		runFfmpegDiagnostic([...FFMPEG_QUIET_ARGS, "-hwaccels"], timeoutMs),
 	]);
 
 	if (versionOutput.exitCode !== 0)

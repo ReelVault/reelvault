@@ -5,6 +5,7 @@ import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.
 import { pluginJobsService } from "./plugin.jobs";
 
 const MAX_PLUGIN_JOB_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const MAX_PLUGIN_JOB_ATTEMPTS = 25;
 // Plugin jobs belong to no resource category, so the worker ceiling is the default one.
 const PLUGIN_JOB_CONCURRENCY_CEILING = 4;
 const registered: string[][] = [];
@@ -23,7 +24,7 @@ describe("plugin job clamps", () => {
 			{
 				name: "huge",
 				handler: async () => undefined,
-				options: { concurrency: 100_000, timeoutMs: 10 ** 12 },
+				options: { concurrency: 100_000, timeoutMs: 10 ** 12, attempts: 1_000_000 },
 			},
 		]);
 		registered.push(names);
@@ -31,6 +32,7 @@ describe("plugin job clamps", () => {
 		const definition = workerService.getDefinitions().find((candidate) => candidate.id === names[0]);
 		expect(definition?.concurrency).toBe(PLUGIN_JOB_CONCURRENCY_CEILING);
 		expect(definition?.timeoutMs).toBe(MAX_PLUGIN_JOB_TIMEOUT_MS);
+		expect(definition?.attempts).toBe(MAX_PLUGIN_JOB_ATTEMPTS);
 	});
 
 	test("namespaces a local job name with its plugin id", async () => {

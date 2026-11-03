@@ -19,6 +19,7 @@ interface PipelineConfig {
 	downloadSucceeds?: boolean | undefined;
 	downloadError?: Error | undefined;
 	writeSucceeds?: boolean | undefined;
+	sourceSize?: number | undefined;
 }
 
 interface PipelineSpies {
@@ -60,6 +61,7 @@ function createPipeline(config: PipelineConfig = {}): { pipeline: ImageDownloadP
 			return Promise.resolve();
 		},
 		getImageMetadata: async () => ({ format: config.metadataFormat ?? "png" }),
+		getFileStats: async () => ({ size: config.sourceSize ?? 1024 }),
 		optimizeImageWithInfo: async () => ({ data: DATA, info: { format: "webp", width: 320, height: 240, size: DATA.byteLength } }),
 		writeFile: async () => config.writeSucceeds !== false,
 		deleteFile: (path) => {
@@ -177,6 +179,16 @@ describe("ImageDownloadPipeline", () => {
 			localPath: STABLE_PATH,
 			stableKey: STABLE_KEY,
 		});
+	});
+
+	test("prepareLocalArtwork refuses an oversized local file before copying it", async () => {
+		const { pipeline, spies } = createPipeline({ sourceSize: 512 * 1024 * 1024 });
+
+		await expect(pipeline.prepareLocalArtwork("/media/Movie/folder.jpg", TARGET, "poster", "poster")).rejects.toMatchObject({
+			category: "validation",
+			code: "images.local_source_too_large",
+		});
+		expect(spies.localCopies).toEqual([]);
 	});
 
 	test("prepareLocalArtwork rejects a local file without a recognized format", async () => {

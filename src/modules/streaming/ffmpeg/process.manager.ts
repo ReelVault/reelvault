@@ -1,5 +1,5 @@
 import type { PlaybackDecision, StreamingSession, TranscodeConfig } from "@reelvault/sdk/common";
-import { serverConstants } from "@/config/server/server.constants";
+import { FS_STAT_TIMEOUT_MS, serverConstants } from "@/config/server/server.constants";
 import { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { killFfmpegProcessGracefully, waitForExitWithTimeout } from "@/integrations/ffmpeg/ffmpeg.process";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
@@ -8,6 +8,7 @@ import type { SessionReservationTracker } from "@/modules/streaming/runtime/sess
 import { createDirectory, deleteTemporaryDirectory, directoryExists } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
+import { withTimeout } from "@/utils/promise.utils";
 import { isSoftwareFallbackEligible } from "./software-fallback.policy";
 import { createStrategyRegistry } from "./strategies/strategy.factory";
 
@@ -19,6 +20,7 @@ interface ProcessStartInput {
 	startTime: number;
 	timelineStart: number;
 	operationId?: string | undefined;
+	signal?: AbortSignal | undefined;
 }
 
 export class ProcessManager {
@@ -35,7 +37,18 @@ export class ProcessManager {
 		this.strategies = createStrategyRegistry(config);
 	}
 
-	async startSession({ sessionId, session, inputPath, decision, startTime, timelineStart, operationId }: ProcessStartInput): Promise<void> {
+	async startSession({
+		sessionId,
+		session,
+		inputPath,
+		decision,
+		startTime,
+		timelineStart,
+		operationId,
+		signal,
+	}: ProcessStartInput): Promise<void> {
+		signal?.throwIfAborted();
+
 		// Capacity counts sessions that already ran a process; a restart (seek,
 		// software fallback) re-enters through here and keeps its reserved slot.
 		const isRestart = session.generation > 0;
@@ -55,9 +68,11 @@ export class ProcessManager {
 
 		if (operationId) session.operationId = operationId;
 
+		signal?.throwIfAborted();
 		await this.ensureTempDirectory(session.tempDir);
 
 		const strategy = this.strategies[decision.mode];
+		signal?.throwIfAborted();
 		const process = await strategy.startSession({
 			sessionId,
 			inputPath,
@@ -67,6 +82,9 @@ export class ProcessManager {
 			operationId: session.operationId,
 		});
 		try {
+			// A worker timeout may fire while ffmpeg was spawning; the job is
+			// already failed then, so the fresh process must not attach.
+			signal?.throwIfAborted();
 			// Atomic: refuses a session whose release was claimed while ffmpeg spawned.
 			this.store.attachProcess(sessionId, process, timelineStart);
 		} catch (error) {
@@ -147,8 +165,21 @@ export class ProcessManager {
 	}
 
 	async removeTempDirectory(dirPath: string): Promise<void> {
-		if (await directoryExists(dirPath)) {
-			await deleteTemporaryDirectory(dirPath);
+		try {
+			// A stalled transcodes volume must not hold the session release (and its
+			// capacity slot) forever; the startup cleanup sweeps a directory left behind.
+			await withTimeout(
+				(async () => {
+					if (await directoryExists(dirPath)) await deleteTemporaryDirectory(dirPath);
+				})(),
+				FS_STAT_TIMEOUT_MS * 2,
+				`remove temp directory ${dirPath}`,
+			);
+		} catch (error) {
+			this.logger.warn("Could not remove streaming temp directory in time — leaving it for startup cleanup", {
+				dirPath,
+				error,
+			});
 		}
 	}
 }

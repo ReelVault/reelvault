@@ -28,13 +28,16 @@ export class ResourceAllocator {
 	private currentSnapshot?: ResourceSnapshot | undefined;
 	private recentAlerts: ResourceAlert[] = [];
 	private readonly alertCooldowns = new Map<string, number>();
-	private readonly monitorTimer = new RecurringTimer(async () => {
-		try {
-			await this.collectSnapshot();
-		} catch (error) {
-			this.logger.error("Resource snapshot failed", error);
-		}
-	}, serverConfig.resources.monitoringIntervalMs);
+	private readonly monitorTimer = new RecurringTimer(
+		async () => {
+			try {
+				await this.collectSnapshot();
+			} catch (error) {
+				this.logger.error("Resource snapshot failed", error);
+			}
+		},
+		() => serverConfig.resources.monitoringIntervalMs,
+	);
 	private lastFlushAt = 0;
 	private collecting = false;
 	private isShutdown = false;

@@ -255,7 +255,7 @@ export const metadataRoutes = new Elysia({
 			},
 		},
 	)
-	.post("/bulk-refresh-images", async ({ body }) => await metadataService.refreshImagesMany(body.ids), {
+	.post("/bulk-refresh-images", async ({ body, request }) => await metadataService.refreshImagesMany(body.ids, request.signal), {
 		adminOnly: true,
 		rateLimit: routeLimit("metadata-bulk-refresh-images", 30),
 		body: BulkRefreshBodySchema,
@@ -267,7 +267,8 @@ export const metadataRoutes = new Elysia({
 	})
 	.post(
 		"/:metadataId/refresh-images",
-		async ({ params, body }) => await metadataService.refreshImages(params.metadataId, { force: body?.force ?? true }),
+		async ({ params, body, request }) =>
+			await metadataService.refreshImages(params.metadataId, { force: body?.force ?? true }, request.signal),
 		{
 			adminOnly: true,
 			params: MetadataIdParams,

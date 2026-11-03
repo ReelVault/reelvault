@@ -1,7 +1,9 @@
+import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
 import { parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer.utils";
 import type { HlsBufferAnalysis } from "@/modules/streaming/streaming.types";
 import { getBunFile, getFileStats } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory.cache";
+import { withTimeout } from "@/utils/promise.utils";
 
 interface PlaylistStats {
 	mtimeMs: number;
@@ -82,7 +84,7 @@ export class PlaylistFileCache {
 
 		let raw: string;
 		try {
-			raw = await this.dependencies.readFile(playlistPath).text();
+			raw = await withTimeout(this.dependencies.readFile(playlistPath).text(), FS_STAT_TIMEOUT_MS, `read playlist ${playlistPath}`);
 		} catch (error) {
 			return { ok: false, error, analysis: parseHlsBuffer("", segmentDuration) };
 		}

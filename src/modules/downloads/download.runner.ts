@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Logger } from "@reelvault/sdk";
-import { file, type Subprocess } from "bun";
+import type { Subprocess } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import type { DownloadQuality } from "@/integrations/drizzle-orm/constants/downloads.constants";
 import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
@@ -10,6 +10,7 @@ import { type DownloadRow, downloadsRepository } from "@/repositories/downloads.
 import { mediaRepository } from "@/repositories/media-files.repository";
 import { createDirectory } from "@/utils/directory.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
+import { getFileStats } from "@/utils/file.utils";
 import { clamp } from "@/utils/math.utils";
 import { detachCatching } from "@/utils/promise.utils";
 import { deleteDownloadOutput, downloadDirectory, downloadFileName } from "./download-files.utils";
@@ -118,7 +119,14 @@ export async function runClaimedDownload(
 			processState,
 			abortProcess,
 		});
-		await finalizeDownload({ downloadId: row.id, profileId: row.profileId, quality: row.quality, outputPath, exitCode });
+		await finalizeDownload({
+			downloadId: row.id,
+			profileId: row.profileId,
+			quality: row.quality,
+			outputPath,
+			exitCode,
+			aborted: processState.aborted,
+		});
 	} catch (error) {
 		await downloadsRepository.releaseClaim(row.id);
 		throw error;
@@ -210,12 +218,23 @@ async function finalizeDownload(params: {
 	quality: DownloadQuality;
 	outputPath: string;
 	exitCode: number | null;
+	aborted: boolean;
 }): Promise<void> {
-	const { downloadId, profileId, quality, outputPath, exitCode } = params;
+	const { downloadId, profileId, quality, outputPath, exitCode, aborted } = params;
 
 	const fresh = await downloadsRepository.findById(downloadId);
 	if (fresh?.status === "cancelled") {
 		await deleteDownloadOutput(outputPath);
+
+		return;
+	}
+
+	// Rescue/shutdown aborts the handler and requeues the job. The row must stay
+	// resumable: marking it failed here made the requeued job a no-op.
+	if (aborted && exitCode !== 0) {
+		// awaits: sequential — the row is requeued before the status check decides whether to delete the output
+		await downloadsRepository.requeueIfActive(downloadId);
+		await deleteOutputUnlessCompleted(downloadId, outputPath);
 
 		return;
 	}
@@ -226,7 +245,8 @@ async function finalizeDownload(params: {
 		return;
 	}
 
-	const sizeBytes = file(outputPath).size;
+	const outputStats = await getFileStats(outputPath);
+	const sizeBytes = outputStats?.size ?? 0;
 	if (sizeBytes === 0) {
 		await failFinalizing(downloadId, outputPath, "download.empty_output");
 

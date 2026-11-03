@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { MemoryCache } from "./memory.cache";
+import { PromiseTimeoutError } from "./promise.utils";
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } {
 	let resolve!: (value: T) => void;
@@ -306,4 +307,30 @@ test("expired entries release their weight when they are read", async () => {
 
 	expect(cache.has("b")).toBe(true);
 	expect(cache.has("c")).toBe(true);
+});
+
+test("a load that exceeds its deadline is evicted so the next caller can retry", async () => {
+	let calls = 0;
+	const cache = new MemoryCache<number>({ ttlMs: -1, maxSize: -1, loadTimeoutMs: 20 });
+
+	await expect(
+		cache.getOrSet("k", () => {
+			calls++;
+
+			return new Promise<number>(() => {
+				// Never settles: the cache's own deadline is the behavior under test.
+			});
+		}),
+	).rejects.toBeInstanceOf(PromiseTimeoutError);
+
+	expect(cache.stats().pendingLoads).toBe(0);
+
+	const value = await cache.getOrSet("k", () => {
+		calls++;
+
+		return Promise.resolve(7);
+	});
+
+	expect(value).toBe(7);
+	expect(calls).toBe(2);
 });

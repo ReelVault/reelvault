@@ -2,7 +2,7 @@ import { env } from "@/config/env.config";
 import { MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
 import { type MemoryCacheStats, registerNamedCache, unregisterNamedCache } from "@/utils/memory-cache/cache-registry.registry";
-import { detach } from "@/utils/promise.utils";
+import { detach, withTimeout } from "@/utils/promise.utils";
 
 // Benchmark honesty escape hatches (see env.config): with caches disabled every
 // cache reports a miss and drops writes; with dedup disabled concurrent loads
@@ -47,6 +47,13 @@ interface MemoryCacheOptions<T, K extends string> {
 	 * Errors thrown here are caught and ignored so cache internals stay consistent.
 	 */
 	onEvict?: ((key: K, value: T) => void) | undefined;
+	/**
+	 * Hard deadline for one `getOrSet`/`getOrRun` loader. A timed-out load
+	 * rejects and leaves `pending`, so later callers retry instead of joining a
+	 * promise that may never settle. Off by default: most loaders are local DB
+	 * reads, and only external/plugin calls need this guard.
+	 */
+	loadTimeoutMs?: number | undefined;
 }
 
 interface CacheEntry<T> {
@@ -63,6 +70,7 @@ export class MemoryCache<T, K extends string = string> {
 	private readonly maxSize: number;
 	private readonly maxWeight: number;
 	private readonly weigh: ((value: T) => number) | undefined;
+	private readonly loadTimeoutMs: number | undefined;
 	private totalWeight = 0;
 	private readonly onEvict: ((key: K, value: T) => void) | undefined;
 	private readonly registryName: string | undefined;
@@ -84,6 +92,7 @@ export class MemoryCache<T, K extends string = string> {
 		this.maxSize = options.maxSize ?? 500;
 		this.maxWeight = options.maxWeight ?? -1;
 		this.weigh = options.weigh;
+		this.loadTimeoutMs = options.loadTimeoutMs;
 		this.onEvict = options.onEvict;
 		this.registryName = options.name;
 		this.registryEntry = options.name ? () => this.stats() : undefined;
@@ -282,9 +291,15 @@ export class MemoryCache<T, K extends string = string> {
 	private trackLoad(key: K, load: () => Promise<T>): Promise<T> {
 		if (dedupDisabled) return load();
 
+		const loadTimeoutMs = this.loadTimeoutMs;
+		let boundedLoad = load;
+		if (loadTimeoutMs !== undefined) {
+			boundedLoad = async () => await withTimeout(load(), loadTimeoutMs, `cache ${this.registryName ?? "unnamed"} load ${key}`);
+		}
+
 		const promise = (async () => {
 			try {
-				return await load();
+				return await boundedLoad();
 			} finally {
 				this.pending.delete(key);
 			}

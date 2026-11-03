@@ -8,7 +8,7 @@ import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createHash } from "@/utils/crypto.utils";
 import { createDirectory } from "@/utils/directory.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
-import { createTempPath, deleteFile, downloadFile, fileExists, writeFile } from "@/utils/file.utils";
+import { createTempPath, deleteFile, downloadFile, fileExists, getFileStats, writeFile } from "@/utils/file.utils";
 import { createImageStableKey, createImageStoragePath } from "@/utils/image-storage.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { getContentType } from "./content-types.utils";
@@ -17,6 +17,7 @@ interface ServiceDependencies {
 	download: typeof downloadFile;
 	copyLocalFile: (from: string, to: string) => Promise<void>;
 	getImageMetadata: (filePath: string) => Promise<{ format: string }>;
+	getFileStats: (filePath: string) => Promise<{ size: number } | null>;
 	optimizeImageWithInfo: (input: string, options: SharpImageOptions, signal?: AbortSignal) => Promise<OptimizedImageResult>;
 	writeFile: (path: string, content: Buffer) => Promise<boolean>;
 	deleteFile: (path: string) => Promise<boolean>;
@@ -32,6 +33,7 @@ const defaultDependencies: ServiceDependencies = {
 	download: (url, destination, options) => downloadFile(url, destination, options),
 	copyLocalFile: (from, to) => copyFile(from, to),
 	getImageMetadata: (filePath) => getImageMetadata(filePath),
+	getFileStats: (filePath) => getFileStats(filePath),
 	optimizeImageWithInfo: (input, options, signal) => optimizeImageWithInfo(input, options, signal),
 	writeFile: (path, content) => writeFile(path, content),
 	deleteFile: (path) => deleteFile(path),
@@ -132,6 +134,22 @@ export class ImageDownloadPipeline {
 
 	/** Copies a local artwork file to the temp source path (kernel copy, no JS buffer). */
 	private async copySource(sourceFilePath: string, sourcePath: string): Promise<void> {
+		// A misnamed 20 GB file must be rejected before the kernel copies it into
+		// the image temp directory.
+		const stats = await this.dependencies.getFileStats(sourceFilePath);
+		if (!stats) {
+			throw new DomainError("not_found", `Local artwork file was not found: ${sourceFilePath}`, {
+				code: "images.local_source_missing",
+			});
+		}
+
+		if (stats.size > serverConfig.images.maxUploadBytes) {
+			throw new DomainError("validation", `Local artwork exceeds the ${serverConfig.images.maxUploadBytes} byte limit: ${sourceFilePath}`, {
+				code: "images.local_source_too_large",
+				params: { maxBytes: serverConfig.images.maxUploadBytes },
+			});
+		}
+
 		// awaits: sequential — the copy must exist before it is checked
 		await this.dependencies.copyLocalFile(sourceFilePath, sourcePath);
 		await this.assertRecognizedImage(sourcePath, `Local file has no recognized image format: ${sourceFilePath}`);

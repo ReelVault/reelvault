@@ -24,7 +24,7 @@ interface HttpListenOptions {
 /** What the composition root does with the server: start it and stop it. */
 export interface HttpApp {
 	listen(options: HttpListenOptions, callback: () => void): void;
-	stop(): Promise<void>;
+	stop(force?: boolean): Promise<void>;
 }
 
 /** The HTTP server: the middleware stack in its required order, the API router and the bundled web UI. */
@@ -79,8 +79,8 @@ export function createHttpApp(): HttpApp {
 		listen: (options, callback) => {
 			app.listen(options, callback);
 		},
-		stop: async () => {
-			await app.stop();
+		stop: async (force = false) => {
+			await app.stop(force);
 		},
 	};
 }

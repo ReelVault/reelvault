@@ -1,5 +1,6 @@
 import type { SidecarWriteResult } from "@/modules/metadata-sidecars/sidecar.types";
 import { writeFileIfChanged } from "@/utils/file.utils";
+import { suppressWatcherPath } from "@/utils/watcher-write-suppression.utils";
 
 export interface XmlDocumentOutput {
 	readonly rootName: string;
@@ -35,6 +36,7 @@ export async function writeXmlDocument({ rootName, values }: XmlDocumentOutput):
  * is already identical.
  */
 export async function writeXmlIfChanged(documentPath: string, contents: string): Promise<SidecarWriteResult> {
+	suppressWatcherPath(documentPath);
 	const written = await writeFileIfChanged(documentPath, contents);
 
 	return { documentPath, writtenFiles: written ? [documentPath] : [] };

@@ -2,11 +2,11 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	DISCARD_DIR,
+	detectSystemdScope,
 	LAUNCHER_FILE_NAMES,
 	PENDING_DIR,
 	PREVIOUS_DIR,
 	SERVER_DIR_NAMES,
-	systemdServiceRegistered,
 } from "@/services/updates/update-environment.utils";
 import { requestApplicationRestart } from "@/system/shutdown.service";
 import type { RestartScheduler } from "./shared.types";
@@ -16,11 +16,17 @@ export function defaultRestartScheduler(): RestartScheduler {
 		scheduleRestart(root: string): void {
 			if (process.platform === "win32") {
 				writeWindowsSwapScript(root);
-			} else if (systemdServiceRegistered()) {
-				// systemd stops (graceful SIGTERM) and starts the unit in one call —
-				// the exit code of the running process becomes irrelevant.
-				detachedSpawn("systemctl", ["--user", "restart", "reelvault"]);
 			} else {
+				const systemdScope = detectSystemdScope();
+				if (systemdScope) {
+					// systemd owns the stop/start pair: it sends SIGTERM, the normal
+					// shutdown path runs, and a second in-process restart would race
+					// that signal and force-exit mid-shutdown.
+					detachedSpawn("systemctl", [...(systemdScope === "user" ? ["--user"] : []), "restart", "reelvault"]);
+
+					return;
+				}
+
 				// No supervisor: a detached helper waits for this process to exit and
 				// relaunches the already-swapped application.
 				detachedSpawn("sh", [
@@ -31,6 +37,7 @@ export function defaultRestartScheduler(): RestartScheduler {
 					root,
 				]);
 			}
+
 			requestApplicationRestart();
 		},
 	};

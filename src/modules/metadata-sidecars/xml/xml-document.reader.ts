@@ -2,7 +2,7 @@ import type { XMLParser } from "fast-xml-parser";
 import type { SyntaxValidator } from "fast-xml-validator";
 import { KIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { getFileSize, readFile } from "@/utils/file.utils";
+import { getFileStats, readFile } from "@/utils/file.utils";
 import { isRecord } from "@/utils/type.utils";
 
 export interface XmlDocument {
@@ -65,7 +65,10 @@ export function assertXmlDocumentSize(documentPath: string, sizeBytes: number | 
  * cap is still checked.
  */
 export async function loadXmlDocumentFile(documentPath: string, content?: string): Promise<XmlDocument | null> {
-	if (content === undefined) assertXmlDocumentSize(documentPath, getFileSize(documentPath));
+	if (content === undefined) {
+		const stats = await getFileStats(documentPath);
+		assertXmlDocumentSize(documentPath, stats?.size);
+	}
 
 	const input = content ?? (await readFile(documentPath, "utf8").catch(() => null));
 	if (input === null) return null;

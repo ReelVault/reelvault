@@ -2,7 +2,7 @@ import type { MetadataProvider } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import type { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
-import { mapConcurrent } from "@/utils/promise.utils";
+import { mapConcurrent, withTimeout } from "@/utils/promise.utils";
 import { isNotNullish } from "@/utils/type.utils";
 import { trimNameAndOverview } from "./match-ranking.utils";
 import { providerLog } from "./provider-lookup.utils";
@@ -34,10 +34,11 @@ export async function mapProvidersSafely<TEntry, TResult>(
 	fetchOne: (entry: TEntry) => Promise<TResult | null | undefined>,
 	onError: (entry: TEntry, error: unknown) => void,
 	concurrency: number = serverConfig.plugins.providers.concurrency,
+	timeoutMs: number = serverConfig.plugins.providers.requestTimeoutMs,
 ): Promise<TResult[]> {
 	const results = await mapConcurrent(entries, concurrency, async (entry) => {
 		try {
-			return await fetchOne(entry);
+			return await withTimeout(fetchOne(entry), timeoutMs, "provider call");
 		} catch (error) {
 			onError(entry, error);
 

@@ -6,8 +6,10 @@ import type {
 	ProviderMediaType,
 	ProviderResultGenre,
 } from "@reelvault/sdk/plugin";
+import { serverConfig } from "@/config/server/server.config";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { errorMessage } from "@/utils/domain.errors";
+import { withTimeout } from "@/utils/promise.utils";
 import { fetchFromEveryProvider } from "./fan-out.service";
 import { providerCaches } from "./inflight.cache";
 import { discoveryCacheKey } from "./match-ranking.utils";
@@ -104,7 +106,13 @@ export async function fetchImagesByProvider(
 	if (!provider?.getImages) return [];
 
 	try {
-		return (await provider.getImages(type, externalId)).filter((image) => Boolean(image.url));
+		const images = await withTimeout(
+			provider.getImages(type, externalId),
+			serverConfig.plugins.providers.requestTimeoutMs,
+			`provider ${provider.id} images`,
+		);
+
+		return images.filter((image) => Boolean(image.url));
 	} catch (error) {
 		providerLog.logger.error(`Provider ${providerId} image lookup failed`, error);
 

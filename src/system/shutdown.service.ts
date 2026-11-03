@@ -1,6 +1,9 @@
 import { serverConfig } from "@/config/server/server.config";
 import { flushLogs, logger } from "@/utils/logger.utils";
-import { detach } from "@/utils/promise.utils";
+import { detach, PromiseTimeoutError, withTimeout } from "@/utils/promise.utils";
+
+/** Default budget for one stop step; a later step must still get its turn. */
+const DEFAULT_STEP_TIMEOUT_MS = 5_000;
 
 /** Registered by index.ts once the real server is wired up. */
 let activeShutdownHandler: Shutdown | undefined;
@@ -34,6 +37,10 @@ export interface ShutdownStep {
 	readonly name: string;
 	readonly message: string;
 	readonly run: () => unknown;
+	/** Per-step budget; the global shutdown timer is the last resort, not the first. */
+	readonly timeoutMs?: number | undefined;
+	/** Best-effort forceful fallback when the step misses its budget (e.g. abrupt HTTP stop). */
+	readonly onTimeout?: (() => unknown) | undefined;
 }
 
 /**
@@ -81,6 +88,39 @@ export class Shutdown {
 		});
 	}
 
+	/** One step with its own deadline; returns false when it failed or timed out. */
+	private async runStep(step: ShutdownStep): Promise<boolean> {
+		logger.info(step.message);
+		const timeoutMs = step.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+
+		try {
+			await withTimeout(Promise.resolve(step.run()), timeoutMs, `shutdown step ${step.name}`);
+
+			return true;
+		} catch (error) {
+			await this.reportStepFailure(step, error, timeoutMs);
+
+			return false;
+		}
+	}
+
+	private async reportStepFailure(step: ShutdownStep, error: unknown, timeoutMs: number): Promise<void> {
+		if (!(error instanceof PromiseTimeoutError)) {
+			logger.error("Shutdown step failed", error, { step: step.name });
+
+			return;
+		}
+
+		logger.error("Shutdown step timed out", error, { step: step.name, timeoutMs });
+		if (!step.onTimeout) return;
+
+		try {
+			await withTimeout(Promise.resolve(step.onTimeout()), DEFAULT_STEP_TIMEOUT_MS, `shutdown step ${step.name} fallback`);
+		} catch (fallbackError) {
+			logger.error("Shutdown step fallback failed", fallbackError, { step: step.name });
+		}
+	}
+
 	async shutdown(signal: string): Promise<void> {
 		if (this.isShuttingDown) {
 			logger.warn("Shutdown already in progress");
@@ -97,16 +137,12 @@ export class Shutdown {
 		}, serverConfig.shutdown.timeoutMs);
 
 		// A failing step is logged and skipped, so one broken service cannot keep the
-		// database open or the logs unflushed.
+		// database open or the logs unflushed. Each step has its own budget: a slow
+		// HTTP drain must not consume the whole shutdown window and skip FFmpeg,
+		// plugins and the database close.
 		let failedSteps = 0;
 		for (const step of this.steps) {
-			logger.info(step.message);
-			try {
-				await step.run();
-			} catch (error) {
-				failedSteps++;
-				logger.error("Shutdown step failed", error, { step: step.name });
-			}
+			if (!(await this.runStep(step))) failedSteps++;
 		}
 
 		if (failedSteps === 0) logger.info("✅ Graceful shutdown completed");

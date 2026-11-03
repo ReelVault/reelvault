@@ -1,33 +1,48 @@
 import { detach } from "@/utils/promise.utils";
 
 /**
- * One `.unref()`-ed interval with an explicit start/stop lifecycle. Replaces the
- * hand-managed timer fields in the supervisors: double-start is a no-op, the
- * handle is always cleared on stop, and an async callback's rejection is routed
- * to `onError` instead of becoming an unhandled rejection.
+ * One `.unref()`-ed recurring task with an explicit start/stop lifecycle.
+ * A self-rescheduling `setTimeout` (instead of `setInterval`) means a slow
+ * callback never overlaps the next tick, and a function interval can follow a
+ * runtime setting without rebuilding the timer.
  */
 export class RecurringTimer {
-	private handle: ReturnType<typeof setInterval> | undefined;
+	private handle: ReturnType<typeof setTimeout> | undefined;
 	private readonly run: () => void | Promise<void>;
-	private readonly intervalMs: number;
+	private readonly intervalMs: number | (() => number);
 	private readonly onError: ((error: unknown) => void) | undefined;
+	private stopped = true;
 
-	constructor(run: () => void | Promise<void>, intervalMs: number, onError?: (error: unknown) => void) {
+	constructor(run: () => void | Promise<void>, intervalMs: number | (() => number), onError?: (error: unknown) => void) {
 		this.run = run;
 		this.intervalMs = intervalMs;
 		this.onError = onError;
 	}
 
 	get running(): boolean {
-		return this.handle !== undefined;
+		return !this.stopped;
 	}
 
 	start(): void {
-		if (this.handle) return;
+		if (!this.stopped) return;
 
-		this.handle = setInterval(() => {
-			detach(this.runSafely());
-		}, this.intervalMs);
+		this.stopped = false;
+		this.scheduleNext();
+	}
+
+	private scheduleNext(): void {
+		if (this.stopped) return;
+
+		const delayMs = typeof this.intervalMs === "function" ? this.intervalMs() : this.intervalMs;
+		this.handle = setTimeout(() => {
+			this.handle = undefined;
+			detach(
+				(async () => {
+					await this.runSafely();
+					this.scheduleNext();
+				})(),
+			);
+		}, delayMs);
 		this.handle.unref();
 	}
 
@@ -40,9 +55,12 @@ export class RecurringTimer {
 	}
 
 	stop(): void {
-		if (!this.handle) return;
+		if (this.stopped) return;
 
-		clearInterval(this.handle);
-		this.handle = undefined;
+		this.stopped = true;
+		if (this.handle) {
+			clearTimeout(this.handle);
+			this.handle = undefined;
+		}
 	}
 }

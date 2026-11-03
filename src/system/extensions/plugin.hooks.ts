@@ -73,7 +73,9 @@ export class PluginHookBus {
 				const result = await withTimeout(Promise.resolve(handler({ candidate: frozenInput })), this.timeoutMs, `Plugin ${name} hook`);
 				if (result) {
 					transformed = result;
-					frozenInput = deepFreeze(result);
+					// Freeze a clone for the next hook: freezing the plugin's own
+					// object would mutate state it may reuse across calls.
+					frozenInput = deepFreeze(structuredClone(result));
 				}
 			} catch (error) {
 				if (error instanceof PluginHookRejection) {

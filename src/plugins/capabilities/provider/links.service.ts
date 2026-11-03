@@ -1,6 +1,8 @@
 import type { MetadataProvider, ProviderSeasonResult } from "@reelvault/sdk/plugin";
+import { serverConfig } from "@/config/server/server.config";
 import { metadataProviderSettingsService } from "@/plugins/capabilities/metadata-provider-settings.service";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
+import { withTimeout } from "@/utils/promise.utils";
 import { fetchFromEveryProvider, fetchFromProviders } from "./fan-out.service";
 import { providerCaches } from "./inflight.cache";
 import type { ProviderEpisodeDetails, ProviderLink, ProviderSeasonDetails } from "./provider.types";
@@ -73,7 +75,11 @@ export async function fetchSeasonByProvider(
 	if (cached) return cached[0]?.metadata ?? null;
 
 	const details = await fetchFromProviderLinks([{ providerId, externalId }], (provider, linkExternalId) =>
-		provider.getSeasonDetails(linkExternalId, seasonNumber),
+		withTimeout(
+			provider.getSeasonDetails(linkExternalId, seasonNumber),
+			serverConfig.plugins.providers.requestTimeoutMs,
+			`provider ${provider.id} season`,
+		),
 	);
 	providerCaches().season.set(key, details);
 

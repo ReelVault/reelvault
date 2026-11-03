@@ -79,11 +79,21 @@ export async function runInstall(
 				setJob(state, "restarting", 97, note);
 			}
 		} finally {
-			await download.cleanup();
+			// A cleanup failure (EBUSY/EPERM on a Windows temp dir) must not turn a
+			// successful install into a recorded failure.
+			try {
+				await download.cleanup();
+			} catch (cleanupError) {
+				state.logger.warn("Update download cleanup failed", { target, error: cleanupError });
+			}
 		}
 	} catch (error) {
 		if (state.cancelController?.signal.aborted) {
-			await finishCancelledInstall(state, target, historyId);
+			try {
+				await finishCancelledInstall(state, target, historyId);
+			} catch (historyError) {
+				state.logger.warn("Could not record the cancelled update", { target, error: historyError });
+			}
 
 			return;
 		}
@@ -95,7 +105,13 @@ export async function runInstall(
 		// staging cleanup must never mask the original failure
 		removeScratchDirectories(state, [STAGING_DIR, PENDING_DIR]);
 		adminFailureNotificationService.notifyUpdateFailed(target, release.version);
-		await updateHistoryService.fail(historyId, errorCode);
+		try {
+			await updateHistoryService.fail(historyId, errorCode);
+		} catch (historyError) {
+			// `runInstall` is detached: it must not reject into an unhandled rejection
+			// because the status write failed after the original failure was logged.
+			state.logger.warn("Could not record the failed update", { target, error: historyError });
+		}
 	}
 }
 

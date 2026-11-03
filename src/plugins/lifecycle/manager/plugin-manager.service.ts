@@ -31,6 +31,7 @@ export class PluginManager {
 			lifecycleMutex: new KeyedMutex(),
 			disabledStatuses: new Map<string, PluginStatus>(),
 			integrityIssues: new Set<string>(),
+			lifecycleTimedOut: false,
 		};
 	}
 

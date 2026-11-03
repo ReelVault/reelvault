@@ -3,6 +3,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { DomainError } from "@/utils/domain.errors";
 import type { MemoryCache } from "@/utils/memory.cache";
+import { withTimeout } from "./promise.utils";
 
 const IPV4_MAPPED_IPV6_REGEX = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/;
 const IPV6_ZONE_ID_REGEX = /^%.*$/;
@@ -157,6 +158,8 @@ export interface GuardedFetchOptions extends RequestInit {
 const DEFAULT_ALLOWED_PROTOCOLS = ["https:"] as const;
 const DEFAULT_MAX_REDIRECTS = 4;
 const TRAILING_COLON = /:$/;
+/** `lookup` takes no signal; a broken resolver must not hold the update/plugin path forever. */
+const DNS_LOOKUP_TIMEOUT_MS = 10_000;
 
 /** Fetch-spec redirect statuses — every hop is re-validated before it is followed. */
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
@@ -165,8 +168,8 @@ async function resolveHostAddresses(hostname: string, dnsCache: MemoryCache<stri
 	const cached = dnsCache?.get(hostname);
 	if (cached) return cached;
 
-	const results: LookupAddress[] = await lookup(hostname, { all: true, order: "ipv4first" });
-	const addresses = results.map((entry) => entry.address);
+	const results = await withTimeout(lookup(hostname, { all: true, order: "ipv4first" }), DNS_LOOKUP_TIMEOUT_MS, `DNS lookup ${hostname}`);
+	const addresses: string[] = results.map((entry: LookupAddress) => entry.address);
 	dnsCache?.set(hostname, addresses);
 
 	return addresses;

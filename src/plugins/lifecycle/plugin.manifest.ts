@@ -26,6 +26,8 @@ import {
 import { SCHEMA_MAX_BYTES, validatePluginSchema } from "./manifest/schema.validator";
 
 const CAPABILITY_NAMES: ReadonlySet<string> = PLUGIN_CAPABILITY_SET;
+/** A manifest is a small descriptor; a package cannot make boot buffer a 500 MB JSON file. */
+const MAX_MANIFEST_BYTES = 256 * 1024;
 
 export function validatePluginManifest(value: unknown): asserts value is PluginManifest {
 	if (!isRecord(value)) throw new DomainError("validation", "Plugin manifest must be an object", { code: "plugin.manifest_not_object" });
@@ -92,7 +94,7 @@ export async function loadPluginManifest(pluginDir: string, options?: { fresh?: 
 	const cached = manifestCache.get(manifestPath);
 	if (!options?.fresh && cached?.signature === signature) return cached.manifest;
 
-	const manifest = await readJsonFile<unknown>(manifestPath);
+	const manifest = await readJsonFile<unknown>(manifestPath, { maxSize: MAX_MANIFEST_BYTES });
 	if (!manifest)
 		throw new DomainError("validation", `Plugin is missing a valid plugin.json: ${manifestPath}`, { code: "plugin.manifest_missing" });
 

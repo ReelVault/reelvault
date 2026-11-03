@@ -34,7 +34,7 @@ import { serverRescueService } from "./system/server-rescue.service";
 import { Shutdown, type ShutdownStep, setActiveShutdown } from "./system/shutdown.service";
 import { flushLogs, logger, setLogLevel } from "./utils/logger.utils";
 import { isUsableOriginEntry } from "./utils/origin-trust.utils";
-import { detach } from "./utils/promise.utils";
+import { detach, detachCatching, withTimeout } from "./utils/promise.utils";
 import { loadBuiltInWorkers } from "./workers/built-in.loader";
 import { workerService } from "./workers/worker.service";
 
@@ -43,6 +43,39 @@ const FFMPEG_MAJOR_VERSION_REGEX = /^n?(\d+)/;
 
 /** Wildcard binds are reachable from any network the host is on. */
 const PUBLIC_BIND_HOSTS: ReadonlySet<string> = new Set(["0.0.0.0", "::", "*"]);
+
+// Per-step shutdown budgets. The global 30 s timer is the last resort: one slow
+// step must not skip the FFmpeg kill, plugin unload or database close.
+const SHUTDOWN_FAST_STEP_MS = 3_000;
+const SHUTDOWN_HTTP_STEP_MS = 8_000;
+const SHUTDOWN_WORKERS_STEP_MS = 12_000;
+const SHUTDOWN_STREAMING_STEP_MS = 8_000;
+const SHUTDOWN_PLUGINS_STEP_MS = 8_000;
+const SHUTDOWN_LOG_FLUSH_MS = 5_000;
+
+/**
+ * Boot-failure paths run before the shutdown timer exists. A full disk or a
+ * blocked stdout pipe must not keep a failed process alive forever.
+ */
+async function flushLogsBounded(): Promise<void> {
+	try {
+		await withTimeout(flushLogs(), SHUTDOWN_LOG_FLUSH_MS, "flush logs before exit");
+	} catch {
+		// The process is already exiting; losing the last lines is better than hanging.
+	}
+}
+
+/** Registers the scan callbacks and starts watcher reconciliation without holding up `app.listen`. */
+function registerLibraryWatchers(): void {
+	logger.info("Initializing library watchers...");
+	// A watched change rescans the path; the periodic fallback rescans the whole library.
+	libraryWatcherService.registerScanner((libraryId, pathId) => librariesService.scanPath(libraryId, pathId));
+	libraryWatcherService.registerLibraryScanner((libraryId) => librariesService.scan(libraryId));
+	// Watcher startup stats every configured path. A dead mount used to delay
+	// `app.listen` by 15 s per path; let the HTTP listener come up first and
+	// finish reconciliation in the background.
+	detachCatching(libraryWatcherService.init(), (error) => logger.warn("Library watcher initialization failed", { error }));
+}
 
 /** Seeds the media-stats summary once; after this boot every media-file write keeps it current. */
 async function buildMediaStatsIfMissing(): Promise<void> {
@@ -147,17 +180,13 @@ async function setupServer(): Promise<void> {
 		serverRescueService.registerStateListener(async (state) => await realtimeService.sendToAdmins("system.rescue_state", state));
 		serverRescueService.init();
 
-		logger.info("Initializing library watchers...");
-		// A watched change rescans the path; the periodic fallback rescans the whole library.
-		libraryWatcherService.registerScanner((libraryId, pathId) => librariesService.scanPath(libraryId, pathId));
-		libraryWatcherService.registerLibraryScanner((libraryId) => librariesService.scan(libraryId));
-		await libraryWatcherService.init();
+		registerLibraryWatchers();
 
 		// Fire-and-forget: a slow or unreachable GitHub must never delay boot.
 		scheduleStartupUpdateCheck();
 	} catch (error) {
 		logger.error("Failed to start server", error);
-		await flushLogs();
+		await flushLogsBounded();
 		process.exit(1);
 	}
 }
@@ -173,19 +202,77 @@ const shutdownSteps: ShutdownStep[] = [
 	// Realtime first: app.stop() waits for open sockets to drain, and a connected
 	// events WebSocket never closes on its own — stopping the server before telling
 	// clients to go away deadlocked shutdown until the timeout.
-	{ name: "realtime", message: "Closing realtime connections...", run: () => realtimeService.shutdown() },
-	{ name: "http", message: "Stopping server...", run: () => app.stop() },
-	{ name: "library-watchers", message: "Stopping library watchers...", run: () => libraryWatcherService.shutdown() },
-	{ name: "resource-allocator", message: "Shutting down resource allocator...", run: () => resourceAllocator.shutdown() },
-	{ name: "server-rescue", message: "Stopping server rescue monitor...", run: () => serverRescueService.shutdown() },
-	{ name: "workers", message: "Shutting down queue system...", run: () => workerService.shutdown() },
+	{
+		name: "realtime",
+		message: "Closing realtime connections...",
+		run: () => realtimeService.shutdown(),
+		timeoutMs: SHUTDOWN_FAST_STEP_MS,
+	},
+	{
+		name: "http",
+		message: "Stopping server...",
+		run: () => app.stop(),
+		timeoutMs: SHUTDOWN_HTTP_STEP_MS,
+		// A playlist request may legitimately outlive the budget; close the
+		// remaining sockets abruptly instead of skipping every later step.
+		onTimeout: () => app.stop(true),
+	},
+	{
+		name: "library-watchers",
+		message: "Stopping library watchers...",
+		run: () => libraryWatcherService.shutdown(),
+		timeoutMs: SHUTDOWN_FAST_STEP_MS,
+	},
+	{
+		name: "resource-allocator",
+		message: "Shutting down resource allocator...",
+		run: () => resourceAllocator.shutdown(),
+		timeoutMs: SHUTDOWN_FAST_STEP_MS,
+	},
+	{
+		name: "server-rescue",
+		message: "Stopping server rescue monitor...",
+		run: () => serverRescueService.shutdown(),
+		timeoutMs: SHUTDOWN_FAST_STEP_MS,
+	},
+	{
+		name: "workers",
+		message: "Shutting down queue system...",
+		run: () => workerService.shutdown(),
+		timeoutMs: SHUTDOWN_WORKERS_STEP_MS,
+	},
 	// Retention sweeps query the database, so they stop before it closes.
-	{ name: "download-sweeps", message: "Stopping download retention sweeps...", run: () => downloadsService.shutdown() },
-	{ name: "streaming", message: "Closing streaming sessions...", run: () => streamingManager.shutdown() },
-	{ name: "ffmpeg", message: "Terminating FFmpeg processes...", run: () => ffMpegService.killAll() },
+	{
+		name: "download-sweeps",
+		message: "Stopping download retention sweeps...",
+		run: () => downloadsService.shutdown(),
+		timeoutMs: SHUTDOWN_FAST_STEP_MS,
+	},
+	{
+		name: "streaming",
+		message: "Closing streaming sessions...",
+		run: () => streamingManager.shutdown(),
+		timeoutMs: SHUTDOWN_STREAMING_STEP_MS,
+	},
+	{
+		name: "ffmpeg",
+		message: "Terminating FFmpeg processes...",
+		run: () => ffMpegService.killAll(),
+		timeoutMs: SHUTDOWN_FAST_STEP_MS,
+	},
 	// Plugins get their onDisable/onUnload/dispose while the database is still open.
-	{ name: "plugins", message: "Unloading plugins...", run: () => pluginManager.shutdown() },
-	{ name: "database", message: "Closing database...", run: () => databaseFactory.shutdown() },
+	{
+		name: "plugins",
+		message: "Unloading plugins...",
+		run: () => pluginManager.shutdown(),
+		timeoutMs: SHUTDOWN_PLUGINS_STEP_MS,
+	},
+	{
+		name: "database",
+		message: "Closing database...",
+		run: () => databaseFactory.shutdown(),
+		timeoutMs: SHUTDOWN_FAST_STEP_MS,
+	},
 ];
 
 // Setup graceful shutdown
@@ -220,7 +307,7 @@ try {
 		logger.fatal(
 			`Port ${env.APP_PORT} is already in use on ${serverConfig.network.host}. Stop the other process or set APP_PORT to a free port.`,
 		);
-		await flushLogs();
+		await flushLogsBounded();
 		process.exit(1);
 	}
 
