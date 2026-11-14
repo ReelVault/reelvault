@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T03:54:21.792Z",
+	"updatedAt": "2026-11-14T04:02:19.381Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -104,6 +104,19 @@
 			"todo": 85,
 			"accepted": 0,
 			"compileErrors": 17,
+			"maxTests": 10,
+			"typecheck": true
+		},
+		"src/utils/origin-trust.utils.ts": {
+			"checkedAt": "2026-11-14T04:02:19.381Z",
+			"lastRunId": "2644d375-a514-42fa-aa39-f89615a78c09",
+			"coverage": "partial",
+			"scope": "files=origin-trust; max-tests=10",
+			"viable": 373,
+			"killed": 194,
+			"todo": 135,
+			"accepted": 0,
+			"compileErrors": 44,
 			"maxTests": 10,
 			"typecheck": true
 		}
@@ -872,6 +885,22 @@
 			"todo": 85,
 			"accepted": 0,
 			"compileErrors": 17
+		},
+		{
+			"id": "2644d375-a514-42fa-aa39-f89615a78c09",
+			"startedAt": "2026-11-14T03:55:52.525Z",
+			"finishedAt": "2026-11-14T04:02:19.381Z",
+			"commit": "eba4a736",
+			"dirty": false,
+			"coverage": "partial",
+			"scope": "files=origin-trust; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 194,
+			"todo": 135,
+			"accepted": 0,
+			"compileErrors": 44
 		}
 	]
 }
