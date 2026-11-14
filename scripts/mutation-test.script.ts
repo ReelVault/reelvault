@@ -34,6 +34,11 @@
  *   imports and the environment. `--no-cache` disables the cache; `--clear-cache` drops it.
  * - One process may run a shard (`--shard=1/4`), and several shards may run in parallel
  *   from CI without sharing a working tree.
+ * - The committed `.mutation-ledger.json` records which subjects were checked (full or
+ *   partial), how many survivors remain and which survivors were accepted as noise or
+ *   equivalents. `--update-ledger` writes it, `--status` prints it, and `--accept=<id>`
+ *   moves a current survivor into the accepted baseline. Accepted survivors are excluded
+ *   from the score and from `--fail-on-survivors`.
  *
  * This measures **sensitivity, not correctness**. Mutation testing cannot tell an intended
  * change from an unintended one, so a suite can kill every mutant and still assert the wrong
@@ -54,13 +59,27 @@
  *   bun run mutation -- --plan                    # counts and the run budget; no test runs
  *   bun run mutation -- --list                    # every selected mutant; no test runs
  *   bun run mutation -- --json                    # machine-readable report
+ *   bun run mutation -- --update-ledger           # save triage state in .mutation-ledger.json
+ *   bun run mutation -- --status                  # what is checked, accepted and still todo
+ *   bun run mutation -- --accept=<id,id>          # accept known survivors for later runs
  *   bun run mutation -- --no-typecheck            # skip the tsc filter on survivors
  *   bun run mutation -- --fail-on-survivors       # exit 1 when a survivor exists
  *   bun run mutation -- --threshold=85            # exit 1 below an 85% score
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	cpSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve as resolvePath, sep } from "node:path";
 import { type Node, parseSync, visitorKeys } from "oxc-parser";
@@ -89,6 +108,11 @@ const TYPECHECK_TIMEOUT_MS = 120_000;
 /** Bump when the mutators or the site discovery change, so an old verdict is not reused. */
 const CACHE_VERSION = "7";
 
+/** The committed triage ledger: what was checked, what is accepted and what is still todo. */
+const LEDGER_VERSION = 1;
+const DEFAULT_LEDGER_FILE = ".mutation-ledger.json";
+const LEDGER_RUN_LIMIT = 100;
+
 /** The local result cache. It is machine-local and never written into the repository. */
 const CACHE_FILE = join(tmpdir(), "reelvault-mutation-cache.json");
 
@@ -106,6 +130,9 @@ const CACHE_SAVE_INTERVAL = 1000;
 
 /** The header of a unified-diff hunk: `@@ -old +new @@`. */
 const DIFF_HUNK_PATTERN = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+
+/** A comment after an accepted id in `--accept-file`. */
+const ACCEPT_COMMENT_PATTERN = /#.*$/;
 
 /** AST fields that only carry types, never runtime values. */
 const SKIP_CHILD_KEYS = new Set([
@@ -162,6 +189,8 @@ interface Site {
 	after: string;
 	line: number;
 	endLine: number;
+	/** Stable identity among identical sites in the same file, so moved code keeps its ledger entry. */
+	occurrence: number;
 }
 
 type Mutant = Site;
@@ -198,6 +227,10 @@ interface Options {
 	threshold: number | undefined;
 	mutators: Set<string> | undefined;
 	excludeMutators: Set<string> | undefined;
+	ledger: string;
+	updateLedger: boolean;
+	acceptIds: string[];
+	status: boolean;
 }
 
 interface LineRange {
@@ -219,17 +252,88 @@ interface TestReach {
 }
 
 interface Survivor {
+	id: string;
+	fingerprint: string;
 	subject: string;
 	line: number;
 	kind: string;
 	before: string;
 	after: string;
+	occurrence: number;
 	tests: string[];
+}
+
+interface LedgerAccepted {
+	subject: string;
+	kind: string;
+	before: string;
+	after: string;
+	occurrence: number;
+	acceptedAt: string;
+}
+
+interface LedgerSubject {
+	checkedAt: string;
+	lastRunId: string;
+	coverage: "full" | "partial";
+	fullCheckedAt: string | undefined;
+	scope: string;
+	viable: number;
+	killed: number;
+	todo: number;
+	accepted: number;
+	compileErrors: number;
+	skipped: string | undefined;
+	maxTests: number | undefined;
+	maxMutants: number | undefined;
+	typecheck: boolean;
+}
+
+interface LedgerRun {
+	id: string;
+	startedAt: string;
+	finishedAt: string;
+	commit: string | undefined;
+	dirty: boolean | undefined;
+	coverage: "full" | "partial";
+	scope: string;
+	maxTests: number | undefined;
+	maxMutants: number | undefined;
+	typecheck: boolean;
+	subjects: number;
+	killed: number;
+	todo: number;
+	accepted: number;
+	compileErrors: number;
+}
+
+interface MutationLedger {
+	version: number;
+	createdAt: string;
+	updatedAt: string;
+	subjects: Record<string, LedgerSubject>;
+	accepted: Record<string, LedgerAccepted>;
+	runs: LedgerRun[];
+}
+
+interface RecordDetails {
+	cached: boolean;
+	accepted: boolean;
+}
+
+interface ReconcileInput {
+	infos: SubjectInfo[];
+	results: SubjectResult[];
+	options: Options;
+	startedAt: string;
+	finishedAt: string;
+	acceptedBySubject: Map<string, number>;
 }
 
 interface KindStats {
 	killed: number;
 	survived: number;
+	accepted: number;
 	compileErrors: number;
 }
 
@@ -251,6 +355,7 @@ interface SubjectResult {
 	timedOut: number;
 	crashed: number;
 	compileErrors: number;
+	accepted: number;
 	survivors: Survivor[];
 	byKind: Record<string, KindStats>;
 }
@@ -273,6 +378,7 @@ interface Summary {
 	equivalent: number;
 	cached: number;
 	compileErrors: number;
+	accepted: number;
 	skipped: Array<{ subject: string; reason: string }>;
 	survivors: Survivor[];
 	unwatched: string[];
@@ -324,6 +430,7 @@ interface BuildContext {
 interface RunContext {
 	options: Options;
 	environmentHash: string;
+	accepted: Set<string>;
 }
 
 interface BaselineCache {
@@ -586,6 +693,7 @@ function readOptions(): Options {
 	const inDiff = parseInDiff(args);
 	const mutators = parseKindList(value("mutators"), "--mutators");
 	const excludeMutators = parseKindList(value("exclude-mutators"), "--exclude-mutators");
+	const acceptIds = parseAcceptIds(value("accept"), value("accept-file"));
 
 	return {
 		files: parseFiles(value("files")),
@@ -607,7 +715,23 @@ function readOptions(): Options {
 		threshold: parseThreshold(value("threshold")),
 		mutators,
 		excludeMutators,
+		ledger: value("ledger") ?? DEFAULT_LEDGER_FILE,
+		updateLedger: flag("update-ledger") || acceptIds.length > 0,
+		acceptIds,
+		status: flag("status"),
 	};
+}
+
+function parseAcceptIds(raw: string | undefined, file: string | undefined): string[] {
+	const ids = raw === undefined ? [] : raw.split(",");
+	if (file !== undefined) {
+		for (const line of readFileSync(file, "utf8").split("\n")) {
+			const id = line.replace(ACCEPT_COMMENT_PATTERN, "").trim();
+			if (id.length > 0) ids.push(id);
+		}
+	}
+
+	return [...new Set(ids.map((id) => id.trim()).filter((id) => id.length > 0))];
 }
 
 function parseInDiff(args: string[]): string | undefined {
@@ -826,7 +950,7 @@ function addSite(ctx: SiteContext, kind: string, index: number, before: string, 
 	const key = `${index}\0${before}\0${after}`;
 	if (ctx.seen.has(key)) return;
 	ctx.seen.add(key);
-	ctx.sites.push({ kind, index, before, after, line, endLine });
+	ctx.sites.push({ kind, index, before, after, line, endLine, occurrence: 0 });
 }
 
 function addNodeReplacement(ctx: SiteContext, kind: string, node: Node, after: string): void {
@@ -1272,8 +1396,16 @@ function readMutants(source: string, subject: string, filter: MutationFilter): S
 	if (parsed.errors.length > 0) return undefined;
 	const ctx: SiteContext = { source, sites: [], seen: new Set(), lineStarts: lineStarts(source), filter };
 	walkAst(parsed.program, undefined, "", (node, parent, key) => visitNode(node, parent, key, ctx));
+	const sites = ctx.sites.toSorted((left, right) => left.index - right.index);
+	const occurrences = new Map<string, number>();
+	for (const site of sites) {
+		const key = `${site.kind}\0${site.before}\0${site.after}`;
+		const occurrence = occurrences.get(key) ?? 0;
+		site.occurrence = occurrence;
+		occurrences.set(key, occurrence + 1);
+	}
 
-	return ctx.sites.toSorted((left, right) => left.index - right.index);
+	return sites;
 }
 
 /** The source with one mutant applied. The splice is done on the original text. */
@@ -1558,15 +1690,16 @@ function createResult(info: SubjectInfo): SubjectResult {
 		timedOut: 0,
 		crashed: 0,
 		compileErrors: 0,
+		accepted: 0,
 		survivors: [],
 		byKind: {},
 	};
 }
 
-function recordVerdict(result: SubjectResult, info: SubjectInfo, mutant: Mutant, verdict: MutantVerdict, cached: boolean): void {
+function recordVerdict(result: SubjectResult, info: SubjectInfo, mutant: Mutant, verdict: MutantVerdict, details: RecordDetails): void {
 	result.tried++;
-	if (cached) result.cached++;
-	const stats = result.byKind[mutant.kind] ?? { killed: 0, survived: 0, compileErrors: 0 };
+	if (details.cached) result.cached++;
+	const stats = result.byKind[mutant.kind] ?? { killed: 0, survived: 0, accepted: 0, compileErrors: 0 };
 	if (verdict.compileError) {
 		result.compileErrors++;
 		stats.compileErrors++;
@@ -1575,14 +1708,21 @@ function recordVerdict(result: SubjectResult, info: SubjectInfo, mutant: Mutant,
 		if (verdict.timedOut) result.timedOut++;
 		if (verdict.crashed) result.crashed++;
 		stats.killed++;
+	} else if (details.accepted) {
+		result.accepted++;
+		stats.accepted++;
 	} else {
+		const fingerprint = survivorFingerprint(info.subject, mutant);
 		stats.survived++;
 		result.survivors.push({
+			id: survivorId(fingerprint),
+			fingerprint,
 			subject: info.subject,
 			line: mutant.line,
 			kind: mutant.kind,
 			before: mutant.before,
 			after: mutant.after,
+			occurrence: mutant.occurrence,
 			tests: info.covering,
 		});
 	}
@@ -1732,6 +1872,254 @@ function maybeSaveCache(cache: MutationCache, options: Options): void {
 	saveCache(cache, options);
 }
 
+function emptyLedger(): MutationLedger {
+	const now = new Date().toISOString();
+
+	return { version: LEDGER_VERSION, createdAt: now, updatedAt: now, subjects: {}, accepted: {}, runs: [] };
+}
+
+function isMutationLedger(value: unknown): value is MutationLedger {
+	return (
+		isRecord(value) && value.version === LEDGER_VERSION && isRecord(value.subjects) && isRecord(value.accepted) && Array.isArray(value.runs)
+	);
+}
+
+function loadLedger(path: string): MutationLedger {
+	if (!existsSync(path)) return emptyLedger();
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(readFileSync(path, "utf8"));
+	} catch (error) {
+		console.error(`could not read the mutation ledger at ${path}: ${String(error)}`);
+		process.exit(2);
+	}
+	if (!isMutationLedger(parsed)) {
+		console.error(`the mutation ledger at ${path} has an unknown shape or version; restore it or pass --ledger=<path>`);
+		process.exit(2);
+	}
+
+	return parsed;
+}
+
+function writeLedger(path: string, ledger: MutationLedger): void {
+	try {
+		const directory = dirname(path);
+		if (directory !== ".") mkdirSync(directory, { recursive: true });
+		const temporary = `${path}.${process.pid}.tmp`;
+		writeFileSync(temporary, `${JSON.stringify(ledger, null, "\t")}\n`);
+		renameSync(temporary, path);
+	} catch (error) {
+		console.error(`could not write the mutation ledger at ${path}: ${String(error)}`);
+		process.exit(2);
+	}
+}
+
+function acceptedSet(ledger: MutationLedger): Set<string> {
+	return new Set(Object.keys(ledger.accepted));
+}
+
+function survivorFingerprint(subject: string, mutant: Mutant): string {
+	return Bun.hash(`${subject}\0${mutant.kind}\0${mutant.before}\0${mutant.after}\0${mutant.occurrence}`).toString(36);
+}
+
+function survivorId(fingerprint: string): string {
+	return fingerprint.slice(0, 12);
+}
+
+function isFullCoverage(options: Options): boolean {
+	return (
+		options.maxMutants === undefined &&
+		options.maxTests === undefined &&
+		options.inDiff === undefined &&
+		options.diffFile === undefined &&
+		options.shard === undefined &&
+		options.mutators === undefined &&
+		options.excludeMutators === undefined
+	);
+}
+
+function describeScope(options: Options): string {
+	const parts: string[] = [];
+	if (options.files !== undefined) parts.push(`files=${options.files.join(",")}`);
+	if (options.inDiff !== undefined) parts.push(`in-diff=${options.inDiff}`);
+	if (options.diffFile !== undefined) parts.push(`diff-file=${options.diffFile}`);
+	if (options.shard !== undefined) parts.push(`shard=${options.shard.index}/${options.shard.count}`);
+	if (options.maxMutants !== undefined) parts.push(`max-mutants=${options.maxMutants}`);
+	parts.push(options.maxTests === undefined ? "max-tests=all" : `max-tests=${options.maxTests}`);
+	if (options.mutators !== undefined) parts.push(`mutators=${[...options.mutators].join(",")}`);
+	if (options.excludeMutators !== undefined) parts.push(`exclude-mutators=${[...options.excludeMutators].join(",")}`);
+
+	return parts.join("; ");
+}
+
+function tryGit(args: string[]): string | undefined {
+	try {
+		return runGit(args).trim();
+	} catch {
+		return undefined;
+	}
+}
+
+function acceptSurvivors(
+	ledger: MutationLedger,
+	survivors: Survivor[],
+	ids: string[],
+): { accepted: number; bySubject: Map<string, number>; ids: Set<string>; survivors: Survivor[] } {
+	const byId = new Map(survivors.map((survivor) => [survivor.id, survivor]));
+	const bySubject = new Map<string, number>();
+	const acceptedIds = new Set<string>();
+	const acceptedSurvivors: Survivor[] = [];
+	const now = new Date().toISOString();
+	let accepted = 0;
+	for (const raw of ids) {
+		let survivor = byId.get(raw);
+		if (survivor === undefined) {
+			const candidates = survivors.filter((candidate) => candidate.id.startsWith(raw));
+			if (candidates.length > 1) {
+				console.error(`ambiguous survivor id ${raw}; use more characters`);
+				process.exit(2);
+			}
+			survivor = candidates[0];
+		}
+		if (survivor === undefined) {
+			console.error(`no current survivor matches id ${raw}`);
+			process.exit(2);
+		}
+		if (ledger.accepted[survivor.fingerprint] !== undefined) continue;
+		ledger.accepted[survivor.fingerprint] = {
+			subject: survivor.subject,
+			kind: survivor.kind,
+			before: survivor.before,
+			after: survivor.after,
+			occurrence: survivor.occurrence,
+			acceptedAt: now,
+		};
+		bySubject.set(survivor.subject, (bySubject.get(survivor.subject) ?? 0) + 1);
+		acceptedIds.add(survivor.id);
+		acceptedSurvivors.push(survivor);
+		accepted++;
+	}
+
+	return { accepted, bySubject, ids: acceptedIds, survivors: acceptedSurvivors };
+}
+
+function reconcileLedger(ledger: MutationLedger, input: ReconcileInput): void {
+	const runId = crypto.randomUUID();
+	const coverage = isFullCoverage(input.options) ? "full" : "partial";
+	const scope = describeScope(input.options);
+	const results = new Map(input.results.map((result) => [result.subject, result]));
+	for (const info of input.infos) {
+		const result = results.get(info.subject);
+		if (result === undefined) continue;
+		const acceptedNow = input.acceptedBySubject.get(info.subject) ?? 0;
+		const existing = ledger.subjects[info.subject];
+		if (existing?.fullCheckedAt !== undefined && coverage === "partial") {
+			existing.accepted += acceptedNow;
+			existing.todo = Math.max(0, existing.todo - acceptedNow);
+			continue;
+		}
+		ledger.subjects[info.subject] = {
+			checkedAt: input.finishedAt,
+			lastRunId: runId,
+			coverage,
+			fullCheckedAt: coverage === "full" ? input.finishedAt : existing?.fullCheckedAt,
+			scope,
+			viable: info.analysis?.viable.length ?? 0,
+			killed: result.killed,
+			todo: Math.max(0, result.survivors.length - acceptedNow),
+			accepted: result.accepted + acceptedNow,
+			compileErrors: result.compileErrors,
+			skipped: result.skipped,
+			maxTests: input.options.maxTests,
+			maxMutants: input.options.maxMutants,
+			typecheck: input.options.typecheck,
+		};
+	}
+	let killed = 0;
+	let todo = 0;
+	let accepted = 0;
+	let compileErrors = 0;
+	for (const result of input.results) {
+		const acceptedNow = input.acceptedBySubject.get(result.subject) ?? 0;
+		killed += result.killed;
+		todo += Math.max(0, result.survivors.length - acceptedNow);
+		accepted += result.accepted + acceptedNow;
+		compileErrors += result.compileErrors;
+	}
+	const run: LedgerRun = {
+		id: runId,
+		startedAt: input.startedAt,
+		finishedAt: input.finishedAt,
+		commit: tryGit(["rev-parse", "--short", "HEAD"]),
+		dirty: tryGit(["status", "--porcelain", "--untracked-files=no"]) !== "",
+		coverage,
+		scope,
+		maxTests: input.options.maxTests,
+		maxMutants: input.options.maxMutants,
+		typecheck: input.options.typecheck,
+		subjects: input.infos.length,
+		killed,
+		todo,
+		accepted,
+		compileErrors,
+	};
+	ledger.runs.push(run);
+	if (ledger.runs.length > LEDGER_RUN_LIMIT) ledger.runs = ledger.runs.slice(-LEDGER_RUN_LIMIT);
+	ledger.updatedAt = input.finishedAt;
+}
+
+function printLedgerStatus(ledger: MutationLedger, path: string, json: boolean): void {
+	const subjects = Object.entries(ledger.subjects).map(([subject, record]) => ({ subject, ...record }));
+	const full = subjects.filter((subject) => subject.fullCheckedAt !== undefined).length;
+	const partial = subjects.length - full;
+	const done = subjects.filter((subject) => subject.todo === 0).length;
+	let todo = 0;
+	let accepted = 0;
+	for (const subject of subjects) {
+		todo += subject.todo;
+		accepted += subject.accepted;
+	}
+	const todoSubjects = subjects
+		.filter((subject) => subject.todo > 0)
+		.toSorted((left, right) => right.todo - left.todo || left.subject.localeCompare(right.subject));
+	const lastRun = ledger.runs.at(-1);
+	if (json) {
+		console.log(
+			JSON.stringify(
+				{
+					ledger: path,
+					updatedAt: ledger.updatedAt,
+					subjects: { checked: subjects.length, full, partial, done },
+					survivors: { todo, accepted },
+					todo: todoSubjects.map(({ subject, todo: count, coverage }) => ({ subject, todo: count, coverage })),
+					lastRun,
+				},
+				null,
+				2,
+			),
+		);
+
+		return;
+	}
+	console.log(`ledger: ${path}`);
+	console.log(`updated: ${ledger.updatedAt}`);
+	console.log(`subjects checked: ${subjects.length} (full ${full}, partial ${partial}); no todo: ${done}`);
+	console.log(`survivors remaining: ${todo}; accepted: ${accepted}`);
+	if (subjects.length === 0) console.log("no checked subjects yet; run with --update-ledger");
+	if (todoSubjects.length > 0) {
+		console.log("\ntodo by subject:");
+		for (const subject of todoSubjects.slice(0, 20)) {
+			console.log(`  ${String(subject.todo).padStart(4)}  ${subject.subject}  (${subject.coverage})`);
+		}
+		if (todoSubjects.length > 20) console.log(`  ... ${todoSubjects.length - 20} more`);
+	}
+	if (lastRun !== undefined) {
+		console.log(
+			`\nlast run: ${lastRun.finishedAt}  ${lastRun.coverage}  ${lastRun.scope}  killed ${lastRun.killed}, todo ${lastRun.todo}, accepted ${lastRun.accepted}, compile errors ${lastRun.compileErrors}`,
+		);
+	}
+}
+
 function printProgress(result: SubjectResult): void {
 	if (result.skipped !== undefined) {
 		console.log(`  ${result.subject}  skipped: ${result.skipped}`);
@@ -1740,6 +2128,20 @@ function printProgress(result: SubjectResult): void {
 	}
 	const cached = result.cached === 0 ? "" : ` (${result.cached} cached)`;
 	console.log(`  ${result.subject}  killed ${result.killed}/${result.tried}${cached}`);
+}
+
+function applyAcceptance(summary: Summary, acceptance: { accepted: number; ids: Set<string>; survivors: Survivor[] }): void {
+	summary.survived -= acceptance.accepted;
+	summary.accepted += acceptance.accepted;
+	summary.survivors = summary.survivors.filter((survivor) => !acceptance.ids.has(survivor.id));
+	for (const survivor of acceptance.survivors) {
+		const stats = summary.byKind[survivor.kind];
+		if (stats === undefined) continue;
+		stats.survived--;
+		stats.accepted++;
+	}
+	const judged = summary.killed + summary.survived;
+	summary.score = judged === 0 ? null : (summary.killed / judged) * 100;
 }
 
 function printWhenComplete(result: SubjectResult, info: SubjectInfo, printed: Set<string>, quiet: boolean): void {
@@ -1789,7 +2191,8 @@ async function runWorker(id: number, worker: WorkerContext): Promise<void> {
 		const key = cacheKey(task.info, task.mutant, worker.context.environmentHash);
 		const cached = worker.cache.entries.get(key);
 		if (cached !== undefined) {
-			recordVerdict(result, task.info, task.mutant, cached, true);
+			const accepted = worker.context.accepted.has(survivorFingerprint(task.info.subject, task.mutant));
+			recordVerdict(result, task.info, task.mutant, cached, { cached: true, accepted });
 			printWhenComplete(result, task.info, worker.printed, worker.context.options.json);
 			continue;
 		}
@@ -1801,7 +2204,8 @@ async function runWorker(id: number, worker: WorkerContext): Promise<void> {
 		}
 		worker.cache.entries.set(key, verdict);
 		worker.cache.additions++;
-		recordVerdict(result, task.info, task.mutant, verdict, false);
+		const accepted = worker.context.accepted.has(survivorFingerprint(task.info.subject, task.mutant));
+		recordVerdict(result, task.info, task.mutant, verdict, { cached: false, accepted });
 		printWhenComplete(result, task.info, worker.printed, worker.context.options.json);
 		maybeSaveCache(worker.cache, worker.context.options);
 	}
@@ -1816,6 +2220,7 @@ function summarize(results: SubjectResult[], unwatched: string[]): Summary {
 	let equivalent = 0;
 	let cached = 0;
 	let compileErrors = 0;
+	let accepted = 0;
 	const survivors: Survivor[] = [];
 	const skipped: Array<{ subject: string; reason: string }> = [];
 	const byKind: Record<string, KindStats> = {};
@@ -1828,13 +2233,15 @@ function summarize(results: SubjectResult[], unwatched: string[]): Summary {
 		equivalent += result.equivalent;
 		cached += result.cached;
 		compileErrors += result.compileErrors;
+		accepted += result.accepted;
 		survived += result.survivors.length;
 		for (const survivor of result.survivors) survivors.push(survivor);
 		if (result.skipped !== undefined) skipped.push({ subject: result.subject, reason: result.skipped });
 		for (const [kind, stats] of Object.entries(result.byKind)) {
-			const total = byKind[kind] ?? { killed: 0, survived: 0, compileErrors: 0 };
+			const total = byKind[kind] ?? { killed: 0, survived: 0, accepted: 0, compileErrors: 0 };
 			total.killed += stats.killed;
 			total.survived += stats.survived;
+			total.accepted += stats.accepted;
 			total.compileErrors += stats.compileErrors;
 			byKind[kind] = total;
 		}
@@ -1854,6 +2261,7 @@ function summarize(results: SubjectResult[], unwatched: string[]): Summary {
 		equivalent,
 		cached,
 		compileErrors,
+		accepted,
 		skipped,
 		survivors,
 		unwatched,
@@ -1864,8 +2272,9 @@ function summarize(results: SubjectResult[], unwatched: string[]): Summary {
 
 function printList(tasks: Task[]): void {
 	for (const task of tasks) {
+		const fingerprint = survivorFingerprint(task.info.subject, task.mutant);
 		console.log(
-			`${task.info.subject}:${task.mutant.line}  ${task.mutant.kind}  ${JSON.stringify(task.mutant.before)} -> ${JSON.stringify(task.mutant.after)}`,
+			`[${survivorId(fingerprint)}] ${task.info.subject}:${task.mutant.line}  ${task.mutant.kind}  ${JSON.stringify(task.mutant.before)} -> ${JSON.stringify(task.mutant.after)}`,
 		);
 	}
 	console.log(`\nmutants: ${tasks.length}`);
@@ -1890,13 +2299,15 @@ function printPlan(plans: PlanLine[], unwatched: string[]): void {
 function printReport(summary: Summary): void {
 	const score = summary.score === null ? "n/a (no viable mutant was run)" : `${summary.score.toFixed(1)}%`;
 	console.log(
-		`\nmutation score: ${score} (${summary.killed} killed, ${summary.survived} survived; ${summary.timedOut} timed out, ${summary.crashed} crashed; ${summary.compileErrors} compile errors, ${summary.stillborn} stillborn and ${summary.equivalent} equivalent excluded; ${summary.cached} cached)`,
+		`\nmutation score: ${score} (${summary.killed} killed, ${summary.survived} survived; ${summary.timedOut} timed out, ${summary.crashed} crashed; ${summary.compileErrors} compile errors, ${summary.stillborn} stillborn and ${summary.equivalent} equivalent excluded; ${summary.accepted} accepted, ${summary.cached} cached)`,
 	);
 	const kinds = Object.entries(summary.byKind).toSorted(([left], [right]) => left.localeCompare(right));
 	if (kinds.length > 0) {
 		console.log("\nby mutator:");
 		for (const [kind, stats] of kinds) {
-			console.log(`  ${kind}: ${stats.killed} killed, ${stats.survived} survived, ${stats.compileErrors} compile errors`);
+			console.log(
+				`  ${kind}: ${stats.killed} killed, ${stats.survived} survived, ${stats.accepted} accepted, ${stats.compileErrors} compile errors`,
+			);
 		}
 	}
 	if (summary.survivors.length === 0) console.log("\nno survivors");
@@ -1904,7 +2315,7 @@ function printReport(summary: Summary): void {
 		console.log(`\nsurvived (${summary.survivors.length}):`);
 		for (const survivor of summary.survivors) {
 			console.log(
-				`  ${survivor.subject}:${survivor.line}  ${survivor.kind}  ${JSON.stringify(survivor.before)} -> ${JSON.stringify(survivor.after)}  (${survivor.tests.length} covering tests)`,
+				`  [${survivor.id}] ${survivor.subject}:${survivor.line}  ${survivor.kind}  ${JSON.stringify(survivor.before)} -> ${JSON.stringify(survivor.after)}  (${survivor.tests.length} covering tests)`,
 			);
 		}
 	}
@@ -1932,6 +2343,10 @@ function isProductionPath(path: string): boolean {
 
 restoreLegacyRecovery();
 const options = readOptions();
+if (options.status) {
+	printLedgerStatus(loadLedger(options.ledger), options.ledger, options.json);
+	process.exit(0);
+}
 const diffRanges = readDiffRanges(options);
 const filter: MutationFilter = { subject: "", kinds: options.mutators, exclude: options.excludeMutators, ranges: diffRanges };
 const files = TEST_ROOTS.flatMap((root) => collectTypeScript(root));
@@ -1951,13 +2366,18 @@ try {
 	const infos = buildSubjectInfos(subjects, context);
 	const tasks = buildTasks(infos, options);
 	if (options.list) {
-		const mutants = tasks.map((task) => ({
-			subject: task.info.subject,
-			line: task.mutant.line,
-			kind: task.mutant.kind,
-			before: task.mutant.before,
-			after: task.mutant.after,
-		}));
+		const mutants = tasks.map((task) => {
+			const fingerprint = survivorFingerprint(task.info.subject, task.mutant);
+
+			return {
+				id: survivorId(fingerprint),
+				subject: task.info.subject,
+				line: task.mutant.line,
+				kind: task.mutant.kind,
+				before: task.mutant.before,
+				after: task.mutant.after,
+			};
+		});
 		if (options.json) console.log(JSON.stringify({ mutants, unwatched }, null, 2));
 		else printList(tasks);
 	} else if (options.plan) {
@@ -1965,12 +2385,27 @@ try {
 		if (options.json) console.log(JSON.stringify({ plans, unwatched }, null, 2));
 		else printPlan(plans, unwatched);
 	} else {
+		const ledger = loadLedger(options.ledger);
+		const accepted = acceptedSet(ledger);
 		const cache = loadCache(options);
-		const results = await runWorkers(tasks, infos, { options, environmentHash }, cache);
+		const startedAt = new Date().toISOString();
+		const results = await runWorkers(tasks, infos, { options, environmentHash, accepted }, cache);
+		const finishedAt = new Date().toISOString();
 		const summary = summarize(results, unwatched);
+		let acceptedBySubject = new Map<string, number>();
+		if (options.acceptIds.length > 0) {
+			const acceptance = acceptSurvivors(ledger, summary.survivors, options.acceptIds);
+			acceptedBySubject = acceptance.bySubject;
+			applyAcceptance(summary, acceptance);
+			if (!options.json) console.error(`accepted ${acceptance.accepted} survivor(s) in the ledger; the next run skips them`);
+		}
 		if (options.json) console.log(JSON.stringify(summary, null, 2));
 		else printReport(summary);
 		saveCache(cache, options);
+		if (options.updateLedger) {
+			reconcileLedger(ledger, { infos, results, options, startedAt, finishedAt, acceptedBySubject });
+			writeLedger(options.ledger, ledger);
+		}
 		if (options.threshold !== undefined && summary.score !== null && summary.score < options.threshold) process.exitCode = 1;
 		if (options.failOnSurvivors && summary.survived > 0) process.exitCode = 1;
 	}

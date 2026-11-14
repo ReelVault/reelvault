@@ -1,0 +1,77 @@
+{
+	"version": 1,
+	"createdAt": "2026-11-14T02:05:57.185Z",
+	"updatedAt": "2026-11-14T02:05:57.465Z",
+	"subjects": {
+		"src/modules/streaming/ffmpeg/process.manager.ts": {
+			"checkedAt": "2026-11-14T02:05:57.465Z",
+			"lastRunId": "80e27d08-f478-497e-815e-10b0c91519e5",
+			"coverage": "full",
+			"fullCheckedAt": "2026-11-14T02:05:57.465Z",
+			"scope": "files=request-validation.guard,process.manager,cookie-domain,http-range; max-tests=all",
+			"viable": 57,
+			"killed": 27,
+			"todo": 17,
+			"accepted": 0,
+			"compileErrors": 13,
+			"typecheck": true
+		},
+		"src/plugins/capabilities/ffmpeg/request-validation.guard.ts": {
+			"checkedAt": "2026-11-14T02:05:57.465Z",
+			"lastRunId": "80e27d08-f478-497e-815e-10b0c91519e5",
+			"coverage": "full",
+			"fullCheckedAt": "2026-11-14T02:05:57.465Z",
+			"scope": "files=request-validation.guard,process.manager,cookie-domain,http-range; max-tests=all",
+			"viable": 150,
+			"killed": 42,
+			"todo": 85,
+			"accepted": 0,
+			"compileErrors": 23,
+			"typecheck": true
+		},
+		"src/utils/cookie-domain.utils.ts": {
+			"checkedAt": "2026-11-14T02:05:57.465Z",
+			"lastRunId": "80e27d08-f478-497e-815e-10b0c91519e5",
+			"coverage": "full",
+			"fullCheckedAt": "2026-11-14T02:05:57.465Z",
+			"scope": "files=request-validation.guard,process.manager,cookie-domain,http-range; max-tests=all",
+			"viable": 49,
+			"killed": 2,
+			"todo": 24,
+			"accepted": 0,
+			"compileErrors": 23,
+			"typecheck": true
+		},
+		"src/utils/http-range.utils.ts": {
+			"checkedAt": "2026-11-14T02:05:57.465Z",
+			"lastRunId": "80e27d08-f478-497e-815e-10b0c91519e5",
+			"coverage": "full",
+			"fullCheckedAt": "2026-11-14T02:05:57.465Z",
+			"scope": "files=request-validation.guard,process.manager,cookie-domain,http-range; max-tests=all",
+			"viable": 126,
+			"killed": 109,
+			"todo": 15,
+			"accepted": 0,
+			"compileErrors": 2,
+			"typecheck": true
+		}
+	},
+	"accepted": {},
+	"runs": [
+		{
+			"id": "80e27d08-f478-497e-815e-10b0c91519e5",
+			"startedAt": "2026-11-14T02:05:57.186Z",
+			"finishedAt": "2026-11-14T02:05:57.465Z",
+			"commit": "0d509a39",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=request-validation.guard,process.manager,cookie-domain,http-range; max-tests=all",
+			"typecheck": true,
+			"subjects": 4,
+			"killed": 180,
+			"todo": 141,
+			"accepted": 0,
+			"compileErrors": 61
+		}
+	]
+}
