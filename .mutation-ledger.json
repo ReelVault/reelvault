@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T03:12:57.361Z",
+	"updatedAt": "2026-11-14T03:54:21.792Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -95,16 +95,16 @@
 			"typecheck": true
 		},
 		"src/utils/url-guard.utils.ts": {
-			"checkedAt": "2026-11-14T03:12:57.361Z",
-			"lastRunId": "c3e39c30-cddd-4060-8811-f09e45e22240",
+			"checkedAt": "2026-11-14T03:54:21.792Z",
+			"lastRunId": "eefaffaa-3074-48ce-983e-d43fa1d717a9",
 			"coverage": "partial",
-			"scope": "files=url-guard; max-tests=all",
+			"scope": "files=url-guard; max-tests=10",
 			"viable": 438,
-			"killed": 12,
-			"todo": 0,
+			"killed": 336,
+			"todo": 85,
 			"accepted": 0,
-			"compileErrors": 0,
-			"skipped": "covering test is red without a mutation: tests/security/plugin-storage-isolation.test.ts",
+			"compileErrors": 17,
+			"maxTests": 10,
 			"typecheck": true
 		}
 	},
@@ -808,6 +808,70 @@
 			"todo": 0,
 			"accepted": 0,
 			"compileErrors": 0
+		},
+		{
+			"id": "1500413e-9882-43d6-8cc5-4db805aa3c01",
+			"startedAt": "2026-11-14T03:20:00.167Z",
+			"finishedAt": "2026-11-14T03:23:31.541Z",
+			"commit": "383a5c0f",
+			"dirty": false,
+			"coverage": "partial",
+			"scope": "files=url-guard; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 267,
+			"todo": 140,
+			"accepted": 0,
+			"compileErrors": 31
+		},
+		{
+			"id": "24375bd4-4025-48d8-ac98-88400bd7e3a1",
+			"startedAt": "2026-11-14T03:24:30.664Z",
+			"finishedAt": "2026-11-14T03:31:57.664Z",
+			"commit": "383a5c0f",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=url-guard; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 292,
+			"todo": 119,
+			"accepted": 0,
+			"compileErrors": 27
+		},
+		{
+			"id": "ec04fd1b-8296-48e4-ac27-50099424e0a8",
+			"startedAt": "2026-11-14T03:38:43.637Z",
+			"finishedAt": "2026-11-14T03:41:45.473Z",
+			"commit": "383a5c0f",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=url-guard; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 333,
+			"todo": 88,
+			"accepted": 0,
+			"compileErrors": 17
+		},
+		{
+			"id": "eefaffaa-3074-48ce-983e-d43fa1d717a9",
+			"startedAt": "2026-11-14T03:50:28.317Z",
+			"finishedAt": "2026-11-14T03:54:21.792Z",
+			"commit": "383a5c0f",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=url-guard; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 336,
+			"todo": 85,
+			"accepted": 0,
+			"compileErrors": 17
 		}
 	]
 }

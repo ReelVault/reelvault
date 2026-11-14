@@ -1,28 +1,94 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { guardedFetch, isPublicAddress, pinUrlToAddress } from "./url-guard.utils";
 
+const PUBLIC_IPV4 = ["1.1.1.1", "8.8.8.8", "104.20.23.154", "172.32.0.1", "192.169.0.1", "198.20.0.1"];
+const NON_PUBLIC_IPV4 = [
+	"0.0.0.0",
+	"0.255.255.255",
+	"10.0.0.0",
+	"10.255.255.255",
+	"100.64.0.0",
+	"100.127.255.255",
+	"127.0.0.0",
+	"127.255.255.255",
+	"169.254.0.0",
+	"169.254.255.255",
+	"172.16.0.0",
+	"172.31.255.255",
+	"192.0.0.0",
+	"192.0.0.255",
+	"192.0.2.0",
+	"192.0.2.255",
+	"192.88.99.0",
+	"192.88.99.255",
+	"192.168.0.0",
+	"192.168.255.255",
+	"198.18.0.0",
+	"198.19.255.255",
+	"198.51.100.0",
+	"198.51.100.255",
+	"203.0.113.0",
+	"203.0.113.255",
+	"224.0.0.0",
+	"239.255.255.255",
+	"240.0.0.0",
+	"255.255.255.255",
+];
+const PUBLIC_IPV6 = ["2606:4700:10::6814:179a", "2001:4860:4860::8888", "2000::1", "2001:1::1", "2400:cb00::1", "3000::1", "3ffe::1"];
+const NON_PUBLIC_IPV6 = [
+	"::",
+	"::1",
+	"fc00::1",
+	"fdff:ffff::1",
+	"fe80::1",
+	"ff02::1",
+	"2001:db8::1",
+	"2001:2::1",
+	"2001::1",
+	"2001:0:4136:e378:8000:63bf:3fff:fdd2",
+	"2002::1",
+	"2002:7f00:1::",
+	"1fff::1",
+	"3fff::1",
+	"3fff:ffff::1",
+	"4000::1",
+	"5f00::1",
+];
+
+describe("isPublicAddress (IPv4)", () => {
+	test("allows publicly routable IPv4 addresses", () => {
+		for (const ip of PUBLIC_IPV4) expect(isPublicAddress(ip)).toBe(true);
+	});
+
+	test("rejects every reserved IPv4 range at both boundaries", () => {
+		for (const ip of NON_PUBLIC_IPV4) expect(isPublicAddress(ip)).toBe(false);
+	});
+
+	test("classifies IPv4-mapped IPv6 by the embedded address", () => {
+		expect(isPublicAddress("::ffff:8.8.8.8")).toBe(true);
+		expect(isPublicAddress("::FFFF:8.8.8.8")).toBe(true);
+		expect(isPublicAddress("::ffff:127.0.0.1")).toBe(false);
+		expect(isPublicAddress("x::ffff:8.8.8.8")).toBe(false);
+		expect(isPublicAddress("::ffff:8.8.8.8x")).toBe(false);
+	});
+
+	test("rejects strings that are not IP addresses", () => {
+		expect(isPublicAddress("not-an-ip")).toBe(false);
+		expect(isPublicAddress("")).toBe(false);
+	});
+});
+
 describe("isPublicAddress (IPv6)", () => {
 	test("allows global-unicast addresses", () => {
-		expect(isPublicAddress("2606:4700:10::6814:179a")).toBe(true);
-		expect(isPublicAddress("2001:4860:4860::8888")).toBe(true);
+		for (const ip of PUBLIC_IPV6) expect(isPublicAddress(ip)).toBe(true);
 	});
 
-	test("rejects 6to4 and Teredo ranges that embed an IPv4 literal", () => {
-		expect(isPublicAddress("2002:7f00:1::")).toBe(false);
-		expect(isPublicAddress("2002:a9fe:a9fe::")).toBe(false);
-		expect(isPublicAddress("2001::")).toBe(false);
-		expect(isPublicAddress("2001:0:4136:e378:8000:63bf:3fff:fdd2")).toBe(false);
+	test("rejects 6to4, Teredo, documentation and reserved ranges", () => {
+		for (const ip of NON_PUBLIC_IPV6) expect(isPublicAddress(ip)).toBe(false);
 	});
 
-	test("rejects documentation and newly reserved ranges", () => {
-		expect(isPublicAddress("2001:db8::1")).toBe(false);
-		expect(isPublicAddress("2001:2::1")).toBe(false);
-		expect(isPublicAddress("3fff::1")).toBe(false);
-		expect(isPublicAddress("5f00::1")).toBe(false);
-	});
-
-	test("rejects an IPv4-mapped loopback", () => {
-		expect(isPublicAddress("::ffff:127.0.0.1")).toBe(false);
+	test("rejects a zone-id suffix", () => {
+		expect(isPublicAddress("fe80::1%eth0")).toBe(false);
 	});
 });
 
@@ -36,38 +102,40 @@ describe("pinUrlToAddress", () => {
 	});
 });
 
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+	globalThis.fetch = originalFetch;
+});
+
+interface RecordedCall {
+	url: string;
+	headers: Headers;
+	method: string;
+	body: BodyInit | null | undefined;
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+	if (input instanceof URL) return input.href;
+	if (typeof input === "string") return input;
+
+	return input.url;
+}
+
+/** Replaces global fetch with an offline stub — IP-literal hosts never hit DNS. */
+function stubFetch(handler: (url: string) => Response): RecordedCall[] {
+	const calls: RecordedCall[] = [];
+	globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+		const url = requestUrl(input);
+		calls.push({ url, headers: new Headers(init?.headers), method: init?.method ?? "GET", body: init?.body });
+
+		return Promise.resolve(handler(url));
+	}) as typeof fetch;
+
+	return calls;
+}
+
 describe("guardedFetch", () => {
-	const originalFetch = globalThis.fetch;
-
-	afterEach(() => {
-		globalThis.fetch = originalFetch;
-	});
-
-	interface RecordedCall {
-		url: string;
-		headers: Headers;
-	}
-
-	function requestUrl(input: RequestInfo | URL): string {
-		if (input instanceof URL) return input.href;
-		if (typeof input === "string") return input;
-
-		return input.url;
-	}
-
-	/** Replaces global fetch with an offline stub — IP-literal hosts never hit DNS. */
-	function stubFetch(handler: (url: string) => Response): RecordedCall[] {
-		const calls: RecordedCall[] = [];
-		globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-			const url = requestUrl(input);
-			calls.push({ url, headers: new Headers(init?.headers) });
-
-			return Promise.resolve(handler(url));
-		}) as typeof fetch;
-
-		return calls;
-	}
-
 	test("requires https unless the caller opts into more schemes", async () => {
 		await expect(guardedFetch("http://1.1.1.1/file")).rejects.toMatchObject({
 			category: "validation",
@@ -117,6 +185,28 @@ describe("guardedFetch", () => {
 			category: "validation",
 			code: "download.invalid_url",
 		});
+		await expect(guardedFetch("https://user@1.1.1.1/")).rejects.toMatchObject({
+			category: "validation",
+			code: "download.invalid_url",
+		});
+		await expect(guardedFetch("https://:pass@1.1.1.1/")).rejects.toMatchObject({
+			category: "validation",
+			code: "download.invalid_url",
+		});
+	});
+
+	test("rejects a malformed URL", async () => {
+		await expect(guardedFetch("not a url")).rejects.toMatchObject({
+			category: "validation",
+			code: "download.invalid_url",
+		});
+	});
+
+	test("treats an explicit empty protocol list as no allowed protocol", async () => {
+		await expect(guardedFetch("https://1.1.1.1/", { allowedProtocols: [] })).rejects.toMatchObject({
+			category: "validation",
+			code: "download.unsupported_protocol",
+		});
 	});
 
 	test("rejects hosts that resolve to non-public addresses", async () => {
@@ -145,5 +235,52 @@ describe("guardedFetch", () => {
 			code: "download.too_many_redirects",
 		});
 		expect(calls).toHaveLength(2);
+	});
+
+	test("uses four redirect hops by default", async () => {
+		const calls = stubFetch(() => new Response(null, { status: 302, headers: { location: "/again" } }));
+
+		await expect(guardedFetch("https://1.1.1.1/start")).rejects.toMatchObject({
+			category: "validation",
+			code: "download.too_many_redirects",
+		});
+		expect(calls).toHaveLength(5);
+	});
+});
+
+describe("guardedFetch redirects", () => {
+	test.each([301, 302, 303])("downgrades a POST after a %p redirect", async (status) => {
+		const calls = stubFetch((url) =>
+			url.startsWith("https://1.1.1.1/")
+				? new Response(null, { status, headers: { location: "https://8.8.8.8/next" } })
+				: new Response("ok"),
+		);
+
+		await guardedFetch("https://1.1.1.1/start", { method: "POST", body: "payload" });
+
+		expect(calls[1]?.method).toBe("GET");
+		expect(calls[1]?.body).toBeNull();
+	});
+
+	test("keeps a POST after a 307 redirect", async () => {
+		const calls = stubFetch((url) =>
+			url.startsWith("https://1.1.1.1/")
+				? new Response(null, { status: 307, headers: { location: "https://8.8.8.8/next" } })
+				: new Response("ok"),
+		);
+
+		await guardedFetch("https://1.1.1.1/start", { method: "POST", body: "payload" });
+
+		expect(calls[1]?.method).toBe("POST");
+		expect(calls[1]?.body).toBe("payload");
+	});
+
+	test.each([300, 304, 305, 306])("returns a %p response without following it", async (status) => {
+		const calls = stubFetch(() => new Response(null, { status, headers: { location: "https://8.8.8.8/next" } }));
+
+		const response = await guardedFetch("https://1.1.1.1/start");
+
+		expect(response.status).toBe(status);
+		expect(calls).toHaveLength(1);
 	});
 });
