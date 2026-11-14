@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +11,7 @@ import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper
 import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";
 
-const root = join(tmpdir(), `reelvault-process-manager-start-${Date.now()}`);
+const root = join(tmpdir(), `reelvault-process-manager-start-${randomUUID()}`);
 const processCalls = { killed: [] as Subprocess[], waited: [] as Subprocess[] };
 const fakeProcess = spawn(["sleep", "30"]);
 let onStart: (() => void) | undefined;

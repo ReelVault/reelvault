@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T02:45:28.551Z",
+	"updatedAt": "2026-11-14T03:07:26.645Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -53,6 +53,45 @@
 			"todo": 0,
 			"accepted": 12,
 			"compileErrors": 2,
+			"typecheck": true
+		},
+		"src/utils/secret-crypto.utils.ts": {
+			"checkedAt": "2026-11-14T02:51:54.458Z",
+			"lastRunId": "2abf03f9-6c30-45d9-bed8-0e5a37f7363e",
+			"coverage": "full",
+			"fullCheckedAt": "2026-11-14T02:51:54.458Z",
+			"scope": "files=secret-crypto; max-tests=all",
+			"viable": 65,
+			"killed": 57,
+			"todo": 0,
+			"accepted": 4,
+			"compileErrors": 4,
+			"typecheck": true
+		},
+		"src/plugins/lifecycle/manifest/csp.validator.ts": {
+			"checkedAt": "2026-11-14T02:54:33.066Z",
+			"lastRunId": "86d10fab-1cbf-473c-89cb-0a230b950903",
+			"coverage": "full",
+			"fullCheckedAt": "2026-11-14T02:54:33.066Z",
+			"scope": "files=csp.validator; max-tests=all",
+			"viable": 73,
+			"killed": 68,
+			"todo": 0,
+			"accepted": 5,
+			"compileErrors": 0,
+			"typecheck": true
+		},
+		"src/services/admin/admin-logs/files.service.ts": {
+			"checkedAt": "2026-11-14T03:07:26.645Z",
+			"lastRunId": "06a6b2ab-6262-425e-b223-3610c56a9c6f",
+			"coverage": "full",
+			"fullCheckedAt": "2026-11-14T03:07:26.645Z",
+			"scope": "files=admin-logs/files.service; max-tests=all",
+			"viable": 140,
+			"killed": 126,
+			"todo": 0,
+			"accepted": 9,
+			"compileErrors": 5,
 			"typecheck": true
 		}
 	},
@@ -280,6 +319,150 @@
 			"after": "{}",
 			"occurrence": 0,
 			"acceptedAt": "2026-11-14T02:45:28.551Z"
+		},
+		"zc68wr7cox5u": {
+			"subject": "src/utils/secret-crypto.utils.ts",
+			"kind": "string",
+			"before": "\"Unsupported secret payload format\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:51:54.458Z"
+		},
+		"r2tmng2l0kmi": {
+			"subject": "src/utils/secret-crypto.utils.ts",
+			"kind": "template",
+			"before": "`Unsupported secret payload format: ${version ?? \"empty\"}`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:51:54.458Z"
+		},
+		"nvxqfx8ibthc": {
+			"subject": "src/utils/secret-crypto.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:51:54.458Z"
+		},
+		"lfjjipp4w6q6": {
+			"subject": "src/utils/secret-crypto.utils.ts",
+			"kind": "string",
+			"before": "\"empty\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:51:54.458Z"
+		},
+		"1rnp4kx9chzc8": {
+			"subject": "src/plugins/lifecycle/manifest/csp.validator.ts",
+			"kind": "string",
+			"before": "\"Plugin manifest csp must be an object\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:54:33.067Z"
+		},
+		"3cngagljtttqp": {
+			"subject": "src/plugins/lifecycle/manifest/csp.validator.ts",
+			"kind": "template",
+			"before": "`Plugin manifest csp has unsupported directive '${directive}'`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:54:33.067Z"
+		},
+		"2oo30q4vk94ra": {
+			"subject": "src/plugins/lifecycle/manifest/csp.validator.ts",
+			"kind": "template",
+			"before": "`Plugin manifest csp.${directive} must be a non-empty array of sources`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:54:33.067Z"
+		},
+		"2tyko3kjase1z": {
+			"subject": "src/plugins/lifecycle/manifest/csp.validator.ts",
+			"kind": "template",
+			"before": "`Plugin manifest csp.${directive} has an invalid source '${String(source)}'`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:54:33.067Z"
+		},
+		"5ds1m6ukbue": {
+			"subject": "src/plugins/lifecycle/manifest/csp.validator.ts",
+			"kind": "template",
+			"before": "`Plugin manifest csp declares more than ${CSP_MAX_SOURCES} sources`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:54:33.067Z"
+		},
+		"13040npi62sur": {
+			"subject": "src/services/admin/admin-logs/files.service.ts",
+			"kind": "regex",
+			"before": "/^(\\.\\.(\\/|\\\\|$))+/",
+			"after": "/^(\\.\\.(\\/|\\\\|$))*/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T03:07:26.645Z"
+		},
+		"62d889ou9bd7": {
+			"subject": "src/services/admin/admin-logs/files.service.ts",
+			"kind": "condition-true",
+			"before": "serverConfig.paths.logFile",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T03:07:26.645Z"
+		},
+		"1o7cldz11by30": {
+			"subject": "src/services/admin/admin-logs/files.service.ts",
+			"kind": "string",
+			"before": "\"Invalid log file path\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T03:07:26.645Z"
+		},
+		"1gfya4c38pb0d": {
+			"subject": "src/services/admin/admin-logs/files.service.ts",
+			"kind": "string",
+			"before": "\"Log file does not exist\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T03:07:26.645Z"
+		},
+		"64ufypm4q85q": {
+			"subject": "src/services/admin/admin-logs/files.service.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T03:07:26.645Z"
+		},
+		"3srkbqs3ssthl": {
+			"subject": "src/services/admin/admin-logs/files.service.ts",
+			"kind": "template",
+			"before": "`Log file not found: ${fileId ?? filename}`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T03:07:26.645Z"
+		},
+		"13aabgl5825zj": {
+			"subject": "src/services/admin/admin-logs/files.service.ts",
+			"kind": "condition-true",
+			"before": "remaining.length === 0",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T03:07:26.645Z"
+		},
+		"1dser9pp3ytkm": {
+			"subject": "src/services/admin/admin-logs/files.service.ts",
+			"kind": "template",
+			"before": "`Log file not found: ${fileId}`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T03:07:26.645Z"
+		},
+		"34q2tqiuk0hmg": {
+			"subject": "src/services/admin/admin-logs/files.service.ts",
+			"kind": "template",
+			"before": "`Log file could not be deleted: ${fileId}`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T03:07:26.645Z"
 		}
 	},
 	"runs": [
@@ -447,6 +630,156 @@
 			"todo": 0,
 			"accepted": 4,
 			"compileErrors": 1
+		},
+		{
+			"id": "57832b9e-e6a1-4b13-8f38-0bf0757b8eef",
+			"startedAt": "2026-11-14T02:47:57.987Z",
+			"finishedAt": "2026-11-14T02:49:58.269Z",
+			"commit": "47c30069",
+			"dirty": false,
+			"coverage": "full",
+			"scope": "files=secret-crypto; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 46,
+			"todo": 13,
+			"accepted": 0,
+			"compileErrors": 6
+		},
+		{
+			"id": "43fd689d-eb98-468d-8243-ed6848246ac8",
+			"startedAt": "2026-11-14T02:50:37.410Z",
+			"finishedAt": "2026-11-14T02:51:46.669Z",
+			"commit": "47c30069",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=secret-crypto; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 57,
+			"todo": 4,
+			"accepted": 0,
+			"compileErrors": 4
+		},
+		{
+			"id": "2abf03f9-6c30-45d9-bed8-0e5a37f7363e",
+			"startedAt": "2026-11-14T02:51:53.922Z",
+			"finishedAt": "2026-11-14T02:51:54.458Z",
+			"commit": "47c30069",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=secret-crypto; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 57,
+			"todo": 0,
+			"accepted": 4,
+			"compileErrors": 4
+		},
+		{
+			"id": "f6bdb01b-5731-45af-8557-e34080d115c8",
+			"startedAt": "2026-11-14T02:53:24.886Z",
+			"finishedAt": "2026-11-14T02:54:24.115Z",
+			"commit": "47c30069",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=csp.validator; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 68,
+			"todo": 5,
+			"accepted": 0,
+			"compileErrors": 0
+		},
+		{
+			"id": "86d10fab-1cbf-473c-89cb-0a230b950903",
+			"startedAt": "2026-11-14T02:54:32.522Z",
+			"finishedAt": "2026-11-14T02:54:33.066Z",
+			"commit": "47c30069",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=csp.validator; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 68,
+			"todo": 0,
+			"accepted": 5,
+			"compileErrors": 0
+		},
+		{
+			"id": "0f8b39a8-6217-4fde-b08c-e427af42ea93",
+			"startedAt": "2026-11-14T02:56:13.757Z",
+			"finishedAt": "2026-11-14T03:00:43.747Z",
+			"commit": "47c30069",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=admin-logs/files.service; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 101,
+			"todo": 26,
+			"accepted": 0,
+			"compileErrors": 13
+		},
+		{
+			"id": "f92e3669-54c8-48ae-95e3-e1d6f92e5b9a",
+			"startedAt": "2026-11-14T03:01:32.154Z",
+			"finishedAt": "2026-11-14T03:02:11.326Z",
+			"commit": "47c30069",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=admin-logs/files.service; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 6,
+			"todo": 1,
+			"accepted": 0,
+			"compileErrors": 0
+		},
+		{
+			"id": "e26f1bed-7817-4996-a1e8-26b533081b37",
+			"startedAt": "2026-11-14T03:03:21.923Z",
+			"finishedAt": "2026-11-14T03:04:58.549Z",
+			"commit": "47c30069",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=admin-logs/files.service; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 125,
+			"todo": 10,
+			"accepted": 0,
+			"compileErrors": 5
+		},
+		{
+			"id": "233dd703-e782-4ff9-962a-2c9e8b3d7682",
+			"startedAt": "2026-11-14T03:05:14.702Z",
+			"finishedAt": "2026-11-14T03:07:12.547Z",
+			"commit": "47c30069",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=admin-logs/files.service; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 126,
+			"todo": 9,
+			"accepted": 0,
+			"compileErrors": 5
+		},
+		{
+			"id": "06a6b2ab-6262-425e-b223-3610c56a9c6f",
+			"startedAt": "2026-11-14T03:07:26.092Z",
+			"finishedAt": "2026-11-14T03:07:26.645Z",
+			"commit": "47c30069",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=admin-logs/files.service; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 126,
+			"todo": 0,
+			"accepted": 9,
+			"compileErrors": 5
 		}
 	]
 }

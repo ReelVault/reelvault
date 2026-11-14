@@ -59,6 +59,26 @@ describe("secret crypto utils", () => {
 		);
 	});
 
+	test.each(["v1.abc.def", "v1.abc.def.ghi.jkl", ""])("rejects a payload with the wrong part count: %p", (payload) => {
+		expect(() => decryptSecret(payload, "master-secret-used-for-derivation")).toThrow(
+			expect.objectContaining({ category: "internal", code: "secret.unsupported_payload" }),
+		);
+	});
+
+	test("derives the pinned HKDF key from the versioned salt and info", () => {
+		expect(deriveSecretKey("master").toString("hex")).toBe("a4e4414b73fb21c43543c59f7f793ea5bab7b82510e277ee4506359ca98dce1c");
+	});
+
+	test("emits the versioned payload with a 12-byte IV", () => {
+		const payload = encryptSecret("value", "master");
+		const [version, iv, encrypted, authTag] = payload.split(".");
+
+		expect(version).toBe("v1");
+		expect(Buffer.from(iv ?? "", "base64url").length).toBe(12);
+		expect(encrypted).not.toBe("");
+		expect(authTag).not.toBe("");
+	});
+
 	test("derives stable keys from the same master secret", () => {
 		expect(deriveSecretKey("master").equals(deriveSecretKey("master"))).toBe(true);
 		expect(deriveSecretKey("master").equals(deriveSecretKey("other"))).toBe(false);

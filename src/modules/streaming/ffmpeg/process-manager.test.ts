@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ import { SessionReservationTracker } from "@/modules/streaming/runtime/session-s
 import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
 import { ProcessManager } from "./process.manager";
 
-const root = join(tmpdir(), `reelvault-process-manager-${Date.now()}`);
+const root = join(tmpdir(), `reelvault-process-manager-${randomUUID()}`);
 
 const config: TranscodeConfig = {
 	maxSessions: 1,
