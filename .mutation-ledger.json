@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T03:07:26.645Z",
+	"updatedAt": "2026-11-14T03:12:57.361Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -92,6 +92,19 @@
 			"todo": 0,
 			"accepted": 9,
 			"compileErrors": 5,
+			"typecheck": true
+		},
+		"src/utils/url-guard.utils.ts": {
+			"checkedAt": "2026-11-14T03:12:57.361Z",
+			"lastRunId": "c3e39c30-cddd-4060-8811-f09e45e22240",
+			"coverage": "partial",
+			"scope": "files=url-guard; max-tests=all",
+			"viable": 438,
+			"killed": 12,
+			"todo": 0,
+			"accepted": 0,
+			"compileErrors": 0,
+			"skipped": "covering test is red without a mutation: tests/security/plugin-storage-isolation.test.ts",
 			"typecheck": true
 		}
 	},
@@ -780,6 +793,21 @@
 			"todo": 0,
 			"accepted": 9,
 			"compileErrors": 5
+		},
+		{
+			"id": "c3e39c30-cddd-4060-8811-f09e45e22240",
+			"startedAt": "2026-11-14T03:08:28.591Z",
+			"finishedAt": "2026-11-14T03:12:57.361Z",
+			"commit": "e33ace48",
+			"dirty": false,
+			"coverage": "partial",
+			"scope": "files=url-guard; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 12,
+			"todo": 0,
+			"accepted": 0,
+			"compileErrors": 0
 		}
 	]
 }

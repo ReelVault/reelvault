@@ -2003,16 +2003,52 @@ function acceptSurvivors(
 	return { accepted, bySubject, ids: acceptedIds, survivors: acceptedSurvivors };
 }
 
+interface SkippedSubjectUpdate {
+	ledger: MutationLedger;
+	info: SubjectInfo;
+	result: SubjectResult;
+	existing: LedgerSubject | undefined;
+	runId: string;
+	scope: string;
+	input: ReconcileInput;
+}
+
+function recordSkippedSubject(update: SkippedSubjectUpdate): void {
+	const { ledger, info, result, existing, runId, scope, input } = update;
+	if (existing?.fullCheckedAt !== undefined) return;
+	ledger.subjects[info.subject] = {
+		checkedAt: input.finishedAt,
+		lastRunId: runId,
+		coverage: "partial",
+		fullCheckedAt: undefined,
+		scope,
+		viable: info.analysis?.viable.length ?? 0,
+		killed: existing?.killed ?? 0,
+		todo: existing?.todo ?? 0,
+		accepted: existing?.accepted ?? 0,
+		compileErrors: existing?.compileErrors ?? 0,
+		skipped: result.skipped,
+		maxTests: input.options.maxTests,
+		maxMutants: input.options.maxMutants,
+		typecheck: input.options.typecheck,
+	};
+}
+
 function reconcileLedger(ledger: MutationLedger, input: ReconcileInput): void {
 	const runId = crypto.randomUUID();
 	const coverage = isFullCoverage(input.options) ? "full" : "partial";
 	const scope = describeScope(input.options);
 	const results = new Map(input.results.map((result) => [result.subject, result]));
+	const skipped = input.results.some((result) => result.skipped !== undefined);
 	for (const info of input.infos) {
 		const result = results.get(info.subject);
 		if (result === undefined) continue;
 		const acceptedNow = input.acceptedBySubject.get(info.subject) ?? 0;
 		const existing = ledger.subjects[info.subject];
+		if (result.skipped !== undefined) {
+			recordSkippedSubject({ ledger, info, result, existing, runId, scope, input });
+			continue;
+		}
 		if (existing?.fullCheckedAt !== undefined && coverage === "partial") {
 			existing.accepted += acceptedNow;
 			existing.todo = Math.max(0, existing.todo - acceptedNow);
@@ -2052,7 +2088,7 @@ function reconcileLedger(ledger: MutationLedger, input: ReconcileInput): void {
 		finishedAt: input.finishedAt,
 		commit: tryGit(["rev-parse", "--short", "HEAD"]),
 		dirty: tryGit(["status", "--porcelain", "--untracked-files=no"]) !== "",
-		coverage,
+		coverage: skipped ? "partial" : coverage,
 		scope,
 		maxTests: input.options.maxTests,
 		maxMutants: input.options.maxMutants,
@@ -2072,7 +2108,8 @@ function printLedgerStatus(ledger: MutationLedger, path: string, json: boolean):
 	const subjects = Object.entries(ledger.subjects).map(([subject, record]) => ({ subject, ...record }));
 	const full = subjects.filter((subject) => subject.fullCheckedAt !== undefined).length;
 	const partial = subjects.length - full;
-	const done = subjects.filter((subject) => subject.todo === 0).length;
+	const skippedSubjects = subjects.filter((subject) => subject.skipped !== undefined).length;
+	const done = subjects.filter((subject) => subject.todo === 0 && subject.skipped === undefined).length;
 	let todo = 0;
 	let accepted = 0;
 	for (const subject of subjects) {
@@ -2089,7 +2126,7 @@ function printLedgerStatus(ledger: MutationLedger, path: string, json: boolean):
 				{
 					ledger: path,
 					updatedAt: ledger.updatedAt,
-					subjects: { checked: subjects.length, full, partial, done },
+					subjects: { checked: subjects.length, full, partial, done, skipped: skippedSubjects },
 					survivors: { todo, accepted },
 					todo: todoSubjects.map(({ subject, todo: count, coverage }) => ({ subject, todo: count, coverage })),
 					lastRun,
@@ -2103,7 +2140,7 @@ function printLedgerStatus(ledger: MutationLedger, path: string, json: boolean):
 	}
 	console.log(`ledger: ${path}`);
 	console.log(`updated: ${ledger.updatedAt}`);
-	console.log(`subjects checked: ${subjects.length} (full ${full}, partial ${partial}); no todo: ${done}`);
+	console.log(`subjects checked: ${subjects.length} (full ${full}, partial ${partial}); no todo: ${done}; skipped: ${skippedSubjects}`);
 	console.log(`survivors remaining: ${todo}; accepted: ${accepted}`);
 	if (subjects.length === 0) console.log("no checked subjects yet; run with --update-ledger");
 	if (todoSubjects.length > 0) {
