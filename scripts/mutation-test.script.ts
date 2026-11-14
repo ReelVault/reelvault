@@ -3,47 +3,67 @@
  *
  * Every production module that a test reaches, directly or through other modules and
  * test helpers, is a subject. For each subject the script applies one mutant at a time
- * (an operator flipped, a condition negated, a literal nudged, a call swapped) and runs
- * the test files that reach the subject. A mutant that a test kills is behavior the suite
- * notices; a survivor is a spot nobody watches.
+ * (an operator flipped, a condition negated, a literal nudged, a call swapped, a block
+ * emptied) and runs the test files that reach the subject. A mutant that a test kills is
+ * behavior the suite notices; a survivor is a spot nobody watches.
  *
  * The measurement follows these rules:
+ * - The source is parsed with `oxc-parser`; only real value positions become mutants.
+ *   Type-only nodes are skipped, so a change the transpiler erases is never reported.
  * - A mutant that does not transpile is stillborn. It is dropped before any test runs.
  * - A mutant whose transpiled output equals the original's is equivalent: the change is
  *   erased by the transpiler (a type, a type argument), so no test can observe it. It is
  *   dropped too, so a type-only change never counts as a survivor.
  * - A subject whose covering tests already fail on the untouched source is skipped and
- *   reported, so a red suite cannot inflate the score. A timeout on the untouched source
- *   is reported as a timeout.
- * - A run that times out counts as killed (a hang is a visible change) and is counted apart
- *   from assertion failures.
- * - Mutants are spread evenly over the module, so a long file is not judged by its first lines.
- * - Covering tests are the test files that reach the subject through imports, the one named
- *   after it first, then the nearest ones.
- * - One run at a time: a lock file records the process that holds the mutants in place.
+ *   reported, so a red suite cannot inflate the score. A timeout or crash on the untouched
+ *   source is reported as such.
+ * - A run that times out or crashes counts as killed (a hang or crash is a visible change)
+ *   and is counted apart from assertion failures.
+ * - A survivor that makes `tsc --noEmit` fail is a compile error, not a survivor: the
+ *   code could never ship in that shape, so it is excluded from the score. `--no-typecheck`
+ *   turns the check off; the baseline type check runs once.
+ * - Every viable mutant runs by default. The nearest 10 covering test files run per mutant;
+ *   `--max-tests=all` runs every test that reaches it, and `--max-tests=N` narrows the list.
+ *   `--max-mutants=N` caps the mutants per module when a full run is too long.
+ * - `--in-diff=<base>` mutates only the lines added against a Git base, like
+ *   `cargo-mutants --in-diff`. Untracked files count as fully changed.
+ * - Each worker mutates a private copy of the repository, so `--jobs` runs mutants in
+ *   parallel without touching the working tree, and a test that reads a source file sees
+ *   the mutant.
+ * - Results are cached by the subject, the mutant, the covering tests, the subject's local
+ *   imports and the environment. `--no-cache` disables the cache; `--clear-cache` drops it.
+ * - One process may run a shard (`--shard=1/4`), and several shards may run in parallel
+ *   from CI without sharing a working tree.
  *
  * This measures **sensitivity, not correctness**. Mutation testing cannot tell an intended
  * change from an unintended one, so a suite can kill every mutant and still assert the wrong
  * value. A survivor is not automatically a missing test either: an unreachable branch can
  * survive without a behavior change. Use the report to find blind spots, never as a certificate.
  *
- * The script rewrites one production file at a time and restores it after every run,
- * including on Ctrl-C (its test process is killed too). Run it on its own: a test that reads
- * a file while a mutant is in place fails for the wrong reason. It is a local tool, not a CI gate.
- *
  * Usage:
- *   bun run mutation                            # every module a test reaches
- *   bun run mutation -- --files=ffmpeg          # only modules whose path matches
- *   bun run mutation -- --max-mutants=12        # more mutants per module
- *   bun run mutation -- --max-tests=5           # more covering test files per mutant
- *   bun run mutation -- --plan                  # counts and the run budget; no test runs
- *   bun run mutation -- --json                  # machine-readable report
+ *   bun run mutation                              # every viable mutant, nearest 10 covering tests
+ *   bun run mutation -- --in-diff=main            # only lines changed against main
+ *   bun run mutation -- --files=ffmpeg            # only modules whose path matches
+ *   bun run mutation -- --max-mutants=12          # cap mutants per module
+ *   bun run mutation -- --max-tests=5             # cap covering test files per mutant
+ *   bun run mutation -- --max-tests=all           # every test file that reaches the mutant
+ *   bun run mutation -- --jobs=4                  # parallel sandbox workers
+ *   bun run mutation -- --shard=1/4               # one CI shard
+ *   bun run mutation -- --mutators=block,string   # only selected mutators
+ *   bun run mutation -- --exclude-mutators=block  # drop noisy mutators
+ *   bun run mutation -- --plan                    # counts and the run budget; no test runs
+ *   bun run mutation -- --list                    # every selected mutant; no test runs
+ *   bun run mutation -- --json                    # machine-readable report
+ *   bun run mutation -- --no-typecheck            # skip the tsc filter on survivors
+ *   bun run mutation -- --fail-on-survivors       # exit 1 when a survivor exists
+ *   bun run mutation -- --threshold=85            # exit 1 below an 85% score
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve as resolvePath } from "node:path";
+import { basename, dirname, join, relative, resolve as resolvePath, sep } from "node:path";
+import { type Node, parseSync, visitorKeys } from "oxc-parser";
 
 /** The folder the production code lives in. Its modules are the subjects. */
 const SOURCE_ROOT = "src";
@@ -54,95 +74,97 @@ const TEST_ROOTS = [SOURCE_ROOT, "tests"];
 /** The alias the production code and the tests import through. */
 const SOURCE_ALIAS = "@/";
 
-const DEFAULT_MAX_MUTANTS = 6;
-const DEFAULT_MAX_TESTS = 3;
-
 /** A test file may run this long before bun itself fails it. */
-const TEST_TIMEOUT_MS = 30_000;
+const DEFAULT_TEST_TIMEOUT_MS = 30_000;
+
+/** The nearest covering test files a mutant tries before it is declared a survivor. `--max-tests=all` removes the cap. */
+const DEFAULT_MAX_TESTS = 10;
 
 /** A `bun test` process still alive after this long is killed, and the mutant counts as killed. */
-const RUN_TIMEOUT_MS = 60_000;
+const DEFAULT_RUN_TIMEOUT_MS = 60_000;
 
-/** Static `from "x"`, side-effect `import "x"` and dynamic `import("x")`. */
-const IMPORT_PATTERN = /\b(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
+/** A survivor's `tsc --noEmit` check gets this long before it is treated as a compile error. */
+const TYPECHECK_TIMEOUT_MS = 120_000;
 
-const WORD_PATTERN = /[\w$]/;
+/** Bump when the mutators or the site discovery change, so an old verdict is not reused. */
+const CACHE_VERSION = "7";
 
-/** Marks a string, template or regular-expression literal while the scan is in code. */
-const LITERAL_MARK = "literal";
+/** The local result cache. It is machine-local and never written into the repository. */
+const CACHE_FILE = join(tmpdir(), "reelvault-mutation-cache.json");
 
-/** After one of these punctuation marks a `/` opens a regular expression rather than dividing. */
-const EXPRESSION_START_PUNCTUATION = new Set([
-	"(",
-	",",
-	"=",
-	":",
-	"[",
-	"!",
-	"&",
-	"|",
-	"?",
-	"{",
-	"}",
-	";",
-	"+",
-	"-",
-	"*",
-	"%",
-	"<",
-	">",
-	"~",
-	"^",
+/** An older version wrote originals here before mutating files in place. Restore them once. */
+const LEGACY_RECOVERY_FILE = join(tmpdir(), "reelvault-mutation.json");
+
+/** Files and folders a worker's private copy does not need, and the copy would make huge. */
+const SANDBOX_EXCLUDES = new Set([".git", ".VSCodeCounter", ".stryker-tmp", "benchmark-results", "coverage", "node_modules", "reports"]);
+
+/** Files whose contents can change a verdict without changing the subject or a test. */
+const ENVIRONMENT_FILES = ["package.json", "tsconfig.json", "bunfig.toml", ".env", "bun.lock"];
+
+/** How many new verdicts are written to disk between saves. */
+const CACHE_SAVE_INTERVAL = 1000;
+
+/** The header of a unified-diff hunk: `@@ -old +new @@`. */
+const DIFF_HUNK_PATTERN = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+
+/** AST fields that only carry types, never runtime values. */
+const SKIP_CHILD_KEYS = new Set([
+	"attributes",
+	"implements",
+	"returnType",
+	"superTypeArguments",
+	"typeAnnotation",
+	"typeArguments",
+	"typeParameters",
 ]);
 
-const EXPRESSION_START_KEYWORDS = new Set([
-	"return",
-	"typeof",
-	"case",
-	"do",
-	"else",
-	"in",
-	"of",
-	"new",
-	"delete",
-	"void",
-	"throw",
-	"instanceof",
+/** TS wrappers whose expression still runs. Other `TS*` nodes are type-only. */
+const TS_VALUE_NODES = new Set([
+	"TSAsExpression",
+	"TSEnumBody",
+	"TSEnumDeclaration",
+	"TSEnumMember",
+	"TSInstantiationExpression",
+	"TSModuleBlock",
+	"TSModuleDeclaration",
+	"TSNonNullExpression",
+	"TSParameterProperty",
+	"TSSatisfiesExpression",
+	"TSTypeAssertion",
 ]);
 
-/** The call a swapped-call mutant puts in place of the original. */
-const CALL_SWAPS: Record<string, string> = {
-	"Math.min": "Math.max",
-	"Math.max": "Math.min",
-	"Math.floor": "Math.ceil",
-	"Math.ceil": "Math.floor",
-	".some": ".every",
-	".every": ".some",
-};
-
-/** The file that names the process holding the mutants in place, and the originals to put back. */
-const RECOVERY_FILE = join(tmpdir(), "reelvault-mutation.json");
-
-/** The originals of the files that currently hold a mutant. */
-const pending = new Map<string, string>();
-
-/** The test process in flight, so an interrupt kills it instead of leaving it to run against a mutant. */
-let activeChild: ChildProcess | undefined;
-
-type MutationClass = "stillborn" | "equivalent" | "viable";
+type BooleanNode = Extract<Extract<Node, { type: "Literal" }>, { value: boolean }>;
+type CallNode = Extract<Node, { type: "CallExpression" }>;
+type LiteralNode = Extract<Node, { type: "Literal" }>;
+type MemberNode = Extract<Node, { type: "MemberExpression" }>;
+type NullNode = Extract<LiteralNode, { value: null }>;
+type NumericNode = Extract<LiteralNode, { value: number }>;
+type StringNode = Extract<LiteralNode, { value: string }>;
+type TemplateNode = Extract<Node, { type: "TemplateLiteral" }>;
+type ArrayNode = Extract<Node, { type: "ArrayExpression" }>;
+type ArrowNode = Extract<Node, { type: "ArrowFunctionExpression" }>;
+type AwaitNode = Extract<Node, { type: "AwaitExpression" }>;
+type BlockNode = Extract<Node, { type: "BlockStatement" }>;
+type ObjectNode = Extract<Node, { type: "ObjectExpression" }>;
+type ReturnNode = Extract<Node, { type: "ReturnStatement" }>;
+type ThrowNode = Extract<Node, { type: "ThrowStatement" }>;
+type ConditionalNode = Extract<Node, { type: "ConditionalExpression" }>;
+type AssignmentNode = Extract<Node, { type: "AssignmentExpression" }>;
+type BinaryNode = Extract<Node, { type: "BinaryExpression" }>;
+type LogicalNode = Extract<Node, { type: "LogicalExpression" }>;
+type UnaryNode = Extract<Node, { type: "UnaryExpression" }>;
+type UpdateNode = Extract<Node, { type: "UpdateExpression" }>;
 
 interface Site {
 	kind: string;
 	index: number;
 	before: string;
 	after: string;
-}
-
-interface Mutant extends Site {
 	line: number;
+	endLine: number;
 }
 
-type SiteFinder = (masked: string, source: string) => Site[];
+type Mutant = Site;
 
 interface Analysis {
 	viable: Mutant[];
@@ -151,12 +173,43 @@ interface Analysis {
 	baseline: string;
 }
 
+interface Shard {
+	index: number;
+	count: number;
+}
+
 interface Options {
 	files: string[] | undefined;
-	maxMutants: number;
-	maxTests: number;
+	maxMutants: number | undefined;
+	maxTests: number | undefined;
+	jobs: number;
+	testTimeoutMs: number;
+	runTimeoutMs: number;
 	json: boolean;
 	plan: boolean;
+	list: boolean;
+	inDiff: string | undefined;
+	diffFile: string | undefined;
+	shard: Shard | undefined;
+	cache: boolean;
+	clearCache: boolean;
+	typecheck: boolean;
+	failOnSurvivors: boolean;
+	threshold: number | undefined;
+	mutators: Set<string> | undefined;
+	excludeMutators: Set<string> | undefined;
+}
+
+interface LineRange {
+	start: number;
+	end: number;
+}
+
+interface MutationFilter {
+	subject: string;
+	kinds: Set<string> | undefined;
+	exclude: Set<string> | undefined;
+	ranges: Map<string, LineRange[]> | undefined;
 }
 
 interface TestReach {
@@ -174,15 +227,32 @@ interface Survivor {
 	tests: string[];
 }
 
+interface KindStats {
+	killed: number;
+	survived: number;
+	compileErrors: number;
+}
+
+interface FileStats {
+	subject: string;
+	killed: number;
+	survived: number;
+	skipped: string | undefined;
+}
+
 interface SubjectResult {
 	subject: string;
 	skipped: string | undefined;
 	stillborn: number;
 	equivalent: number;
 	tried: number;
+	cached: number;
 	killed: number;
 	timedOut: number;
+	crashed: number;
+	compileErrors: number;
 	survivors: Survivor[];
+	byKind: Record<string, KindStats>;
 }
 
 interface PlanLine {
@@ -190,6 +260,7 @@ interface PlanLine {
 	viable: number;
 	sampled: number;
 	tests: string[];
+	skipped: string | undefined;
 }
 
 interface Summary {
@@ -197,68 +268,421 @@ interface Summary {
 	killed: number;
 	survived: number;
 	timedOut: number;
+	crashed: number;
 	stillborn: number;
 	equivalent: number;
+	cached: number;
+	compileErrors: number;
 	skipped: Array<{ subject: string; reason: string }>;
 	survivors: Survivor[];
 	unwatched: string[];
+	byKind: Record<string, KindStats>;
+	files: FileStats[];
 }
 
 interface RunOutcome {
 	passed: boolean;
 	timedOut: boolean;
+	crashed: boolean;
 }
 
-type MutantVerdict = { killed: false } | { killed: true; timedOut: boolean };
+interface MutantVerdict {
+	killed: boolean;
+	timedOut: boolean;
+	crashed: boolean;
+	compileError: boolean;
+	killedBy: string | undefined;
+	skipReason: string | undefined;
+}
+
+interface SubjectInfo {
+	subject: string;
+	source: string;
+	analysis: Analysis | undefined;
+	covering: string[];
+	skipped: string | undefined;
+	taskCount: number;
+	sourceHash: string;
+	testsHash: string;
+	dependencyHash: string;
+}
+
+interface Task {
+	info: SubjectInfo;
+	mutant: Mutant;
+}
+
+interface BuildContext {
+	reaches: TestReach[];
+	graph: Map<string, string[]>;
+	filter: MutationFilter;
+	options: Options;
+	fileHashes: Map<string, string>;
+	hashing: boolean;
+}
+
+interface RunContext {
+	options: Options;
+	environmentHash: string;
+}
+
+interface BaselineCache {
+	tests: Map<string, Promise<RunOutcome>>;
+}
+
+interface WorkerContext {
+	tasks: Task[];
+	queue: { index: number };
+	results: Map<string, SubjectResult>;
+	baselineSandbox: string;
+	baselineCache: BaselineCache;
+	cache: MutationCache;
+	context: RunContext;
+	printed: Set<string>;
+}
+
+interface MutationCache {
+	entries: Map<string, MutantVerdict>;
+	additions: number;
+}
 
 interface RecoveryRecord {
 	pid: number;
 	originals: Array<[string, string]>;
 }
 
-/** Hooks the exit paths: an interrupted run puts every original back and stops its test process. */
-function stopRun(): void {
-	activeChild?.kill("SIGKILL");
-	activeChild = undefined;
-	restorePending();
+interface OperatorMutation {
+	kind: string;
+	after: string;
 }
 
-process.on("exit", stopRun);
+interface OperatorSite {
+	start: number;
+	end: number;
+	operator: string;
+	after: string;
+}
+
+/** One site finder appends every mutation it sees to the context. */
+interface SiteContext {
+	source: string;
+	sites: Site[];
+	seen: Set<string>;
+	lineStarts: number[];
+	filter: MutationFilter;
+}
+
+/**
+ * The operator, literal, statement and call mutators. A kind is the stable name used by
+ * `--mutators`, `--exclude-mutators` and the report.
+ */
+const BINARY_MUTATIONS: Readonly<Record<string, readonly OperatorMutation[]>> = {
+	"!==": [{ kind: "inequality", after: "===" }],
+	"!=": [{ kind: "loose-inequality", after: "==" }],
+	"===": [{ kind: "equality", after: "!==" }],
+	"==": [{ kind: "loose-equality", after: "!=" }],
+	">": [{ kind: "greater", after: ">=" }],
+	">=": [{ kind: "at-least", after: ">" }],
+	"<": [{ kind: "less", after: "<=" }],
+	"<=": [{ kind: "at-most", after: "<" }],
+	"+": [{ kind: "arithmetic-add", after: "-" }],
+	"-": [{ kind: "arithmetic-subtract", after: "+" }],
+	"*": [{ kind: "arithmetic-multiply", after: "/" }],
+	"/": [{ kind: "arithmetic-divide", after: "*" }],
+	"%": [{ kind: "arithmetic-modulo", after: "*" }],
+	"**": [{ kind: "arithmetic-exponent", after: "*" }],
+	"<<": [{ kind: "shift-left", after: ">>" }],
+	">>": [{ kind: "shift-right", after: "<<" }],
+	">>>": [{ kind: "shift-right-unsigned", after: ">>" }],
+	"&": [{ kind: "bitwise-and", after: "|" }],
+	"|": [{ kind: "bitwise-or", after: "&" }],
+	"^": [{ kind: "bitwise-xor", after: "&" }],
+};
+
+const LOGICAL_MUTATIONS: Readonly<Record<string, readonly OperatorMutation[]>> = {
+	"&&": [{ kind: "and", after: "||" }],
+	"||": [{ kind: "or", after: "&&" }],
+	"??": [{ kind: "nullish", after: "||" }],
+};
+
+const ASSIGNMENT_MUTATIONS: Readonly<Record<string, readonly OperatorMutation[]>> = {
+	"+=": [{ kind: "assignment-add", after: "-=" }],
+	"-=": [{ kind: "assignment-subtract", after: "+=" }],
+	"*=": [{ kind: "assignment-multiply", after: "/=" }],
+	"/=": [{ kind: "assignment-divide", after: "*=" }],
+	"%=": [{ kind: "assignment-modulo", after: "*=" }],
+	"**=": [{ kind: "assignment-exponent", after: "*=" }],
+	"<<=": [{ kind: "assignment-shift-left", after: ">>=" }],
+	">>=": [{ kind: "assignment-shift-right", after: "<<=" }],
+	">>>=": [{ kind: "assignment-shift-right-unsigned", after: ">>=" }],
+	"&=": [{ kind: "assignment-bitwise-and", after: "|=" }],
+	"|=": [{ kind: "assignment-bitwise-or", after: "&=" }],
+	"^=": [{ kind: "assignment-bitwise-xor", after: "&=" }],
+	"&&=": [{ kind: "assignment-and", after: "||=" }],
+	"||=": [{ kind: "assignment-or", after: "&&=" }],
+	"??=": [{ kind: "assignment-nullish", after: "||=" }],
+};
+
+const UNARY_MUTATIONS: Readonly<Record<string, readonly OperatorMutation[]>> = {
+	"!": [{ kind: "negation", after: "" }],
+	"+": [{ kind: "unary-plus", after: "-" }],
+	"-": [{ kind: "unary-minus", after: "+" }],
+	"~": [{ kind: "bitwise-not", after: "" }],
+	typeof: [{ kind: "typeof", after: "" }],
+	void: [{ kind: "void", after: "" }],
+	delete: [{ kind: "delete", after: "" }],
+};
+
+const UPDATE_MUTATIONS: Readonly<Record<string, readonly OperatorMutation[]>> = {
+	"++": [{ kind: "increment", after: "--" }],
+	"--": [{ kind: "decrement", after: "++" }],
+};
+
+/** A call whose callee is swapped as a whole. */
+const CALL_SWAPS: Readonly<Record<string, string>> = {
+	"Math.ceil": "Math.floor",
+	"Math.floor": "Math.ceil",
+	"Math.max": "Math.min",
+	"Math.min": "Math.max",
+};
+
+/** A call whose method suffix is swapped. */
+const CALL_SUFFIX_SWAPS: ReadonlyArray<readonly [string, string]> = [
+	[".every", ".some"],
+	[".some", ".every"],
+];
+
+/** Every kind the CLI accepts. */
+const KNOWN_MUTATOR_KINDS = new Set<string>([
+	...Object.values(BINARY_MUTATIONS).flatMap((mutations) => mutations.map((mutation) => mutation.kind)),
+	...Object.values(LOGICAL_MUTATIONS).flatMap((mutations) => mutations.map((mutation) => mutation.kind)),
+	...Object.values(ASSIGNMENT_MUTATIONS).flatMap((mutations) => mutations.map((mutation) => mutation.kind)),
+	...Object.values(UNARY_MUTATIONS).flatMap((mutations) => mutations.map((mutation) => mutation.kind)),
+	...Object.values(UPDATE_MUTATIONS).flatMap((mutations) => mutations.map((mutation) => mutation.kind)),
+	"array",
+	"arrow-body",
+	"await-remove",
+	"block",
+	"call-swap",
+	"condition-false",
+	"condition-negation",
+	"condition-true",
+	"conditional-swap",
+	"falsy",
+	"null",
+	"number",
+	"object",
+	"optional-chain",
+	"regex",
+	"return-value",
+	"string",
+	"template",
+	"throw-value",
+	"truthy",
+]);
+
+/** The child processes in flight, so an interrupt kills them instead of leaving them running. */
+const activeChildren = new Set<ChildProcess>();
+
+/** The private repository copies in use, so an interrupt removes them. */
+const sandboxes = new Set<string>();
+
+const transpiler = new Bun.Transpiler({ loader: "ts" });
+
+/** Hooks the exit paths: stop every test process and remove every private copy. */
+function cleanup(): void {
+	for (const child of activeChildren) child.kill("SIGKILL");
+	activeChildren.clear();
+	for (const directory of sandboxes) rmSync(directory, { recursive: true, force: true });
+	sandboxes.clear();
+}
+
+process.on("exit", cleanup);
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
 	process.on(signal, () => {
-		stopRun();
+		cleanup();
 		process.exit(130);
 	});
 }
 
-const transpiler = new Bun.Transpiler({ loader: "ts" });
-
-/** Every production or test module of the repository that a rule below accepts. */
-function isTestPath(path: string): boolean {
-	return path.endsWith(".test.ts");
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
 
-function isProductionPath(path: string): boolean {
-	return path.startsWith(`${SOURCE_ROOT}/`) && !isTestPath(path);
+function isNode(value: unknown): value is Node {
+	if (!isRecord(value)) return false;
+
+	return typeof value.type === "string" && typeof value.start === "number" && typeof value.end === "number";
+}
+
+function isPair(value: unknown): value is [string, string] {
+	return Array.isArray(value) && value.length === 2 && typeof value[0] === "string" && typeof value[1] === "string";
+}
+
+function isRecoveryRecord(value: unknown): value is RecoveryRecord {
+	return isRecord(value) && typeof value.pid === "number" && Array.isArray(value.originals) && value.originals.every(isPair);
+}
+
+function isVerdict(value: unknown): value is MutantVerdict {
+	if (!isRecord(value)) return false;
+
+	return (
+		typeof value.killed === "boolean" &&
+		typeof value.timedOut === "boolean" &&
+		typeof value.crashed === "boolean" &&
+		typeof value.compileError === "boolean" &&
+		(value.killedBy === undefined || typeof value.killedBy === "string") &&
+		(value.skipReason === undefined || typeof value.skipReason === "string")
+	);
+}
+
+function isCacheFile(value: unknown): value is { version: string; entries: Record<string, unknown> } {
+	return isRecord(value) && value.version === CACHE_VERSION && isRecord(value.entries);
+}
+
+function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+
+		return true;
+	} catch (error) {
+		return error instanceof Error && "code" in error && error.code === "EPERM";
+	}
+}
+
+/** The record an earlier version left, or undefined when there is none or it cannot be read. */
+function readRecovery(): RecoveryRecord | undefined {
+	if (!existsSync(LEGACY_RECOVERY_FILE)) return undefined;
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(LEGACY_RECOVERY_FILE, "utf8"));
+
+		return isRecoveryRecord(parsed) ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Puts back files an older in-place run left mutated, then removes the record. */
+function restoreLegacyRecovery(): void {
+	const record = readRecovery();
+	if (record === undefined) return;
+	if (record.pid !== process.pid && isProcessAlive(record.pid)) {
+		console.error(`another mutation run (pid ${record.pid}) is active; wait for it to finish`);
+		process.exit(1);
+	}
+	for (const [file, original] of record.originals) writeFileSync(file, original);
+	rmSync(LEGACY_RECOVERY_FILE, { force: true });
+	console.log(`restored ${record.originals.length} file(s) left mutated by an interrupted run`);
 }
 
 function readOptions(): Options {
 	const args = process.argv.slice(2);
-	const value = (name: string) => args.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
+	const value = (name: string): string | undefined => {
+		const prefix = `--${name}=`;
+
+		return args.find((arg) => arg.startsWith(prefix))?.slice(prefix.length);
+	};
+	const flag = (name: string): boolean => args.includes(`--${name}`);
+	const inDiff = parseInDiff(args);
+	const mutators = parseKindList(value("mutators"), "--mutators");
+	const excludeMutators = parseKindList(value("exclude-mutators"), "--exclude-mutators");
 
 	return {
-		files: value("files")?.split(","),
-		maxMutants: positiveInt(value("max-mutants"), DEFAULT_MAX_MUTANTS),
-		maxTests: positiveInt(value("max-tests"), DEFAULT_MAX_TESTS),
-		json: args.includes("--json"),
-		plan: args.includes("--plan"),
+		files: parseFiles(value("files")),
+		maxMutants: parseLimit(value("max-mutants"), undefined, "--max-mutants"),
+		maxTests: parseLimit(value("max-tests"), DEFAULT_MAX_TESTS, "--max-tests"),
+		jobs: positiveInt(value("jobs"), 1, "--jobs"),
+		testTimeoutMs: positiveInt(value("timeout"), DEFAULT_TEST_TIMEOUT_MS, "--timeout"),
+		runTimeoutMs: positiveInt(value("run-timeout"), DEFAULT_RUN_TIMEOUT_MS, "--run-timeout"),
+		json: flag("json"),
+		plan: flag("plan"),
+		list: flag("list"),
+		inDiff,
+		diffFile: value("diff-file"),
+		shard: parseShard(value("shard")),
+		cache: !flag("no-cache"),
+		clearCache: flag("clear-cache"),
+		typecheck: !flag("no-typecheck"),
+		failOnSurvivors: flag("fail-on-survivors"),
+		threshold: parseThreshold(value("threshold")),
+		mutators,
+		excludeMutators,
 	};
 }
 
-function positiveInt(raw: string | undefined, fallback: number): number {
-	const parsed = Number(raw);
+function parseInDiff(args: string[]): string | undefined {
+	const argument = args.find((arg) => arg === "--in-diff" || arg.startsWith("--in-diff="));
+	if (argument === undefined) return undefined;
+	const value = argument.slice("--in-diff=".length);
 
-	return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+	return value === "" ? "HEAD" : value;
+}
+
+function parseFiles(raw: string | undefined): string[] | undefined {
+	if (raw === undefined) return undefined;
+
+	return raw
+		.split(",")
+		.map((part) => part.trim())
+		.filter((part) => part.length > 0);
+}
+
+function parseKindList(raw: string | undefined, flagName: string): Set<string> | undefined {
+	if (raw === undefined) return undefined;
+	const kinds = raw
+		.split(",")
+		.map((kind) => kind.trim())
+		.filter((kind) => kind.length > 0);
+	for (const kind of kinds) {
+		if (!KNOWN_MUTATOR_KINDS.has(kind)) {
+			console.error(`Unknown mutator in ${flagName}: ${kind}\n\nKnown mutators:\n${[...KNOWN_MUTATOR_KINDS].toSorted().join(", ")}`);
+			process.exit(2);
+		}
+	}
+
+	return new Set(kinds);
+}
+
+function positiveInt(raw: string | undefined, fallback: number, name: string): number {
+	if (raw === undefined) return fallback;
+	const parsed = Number(raw);
+	if (!Number.isInteger(parsed) || parsed <= 0) {
+		console.error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
+		process.exit(2);
+	}
+
+	return parsed;
+}
+
+function parseLimit(raw: string | undefined, fallback: number | undefined, name: string): number | undefined {
+	if (raw === undefined) return fallback;
+	if (raw === "all") return undefined;
+
+	return positiveInt(raw, 0, name);
+}
+
+function parseThreshold(raw: string | undefined): number | undefined {
+	if (raw === undefined) return undefined;
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+		console.error(`--threshold must be between 0 and 100, got ${JSON.stringify(raw)}`);
+		process.exit(2);
+	}
+
+	return parsed;
+}
+
+function parseShard(raw: string | undefined): Shard | undefined {
+	if (raw === undefined) return undefined;
+	const [indexText, countText] = raw.split("/");
+	const index = Number(indexText);
+	const count = Number(countText);
+	if (!(Number.isInteger(index) && Number.isInteger(count)) || count < 1 || index < 1 || index > count) {
+		console.error(`--shard must look like 1/4, got ${JSON.stringify(raw)}`);
+		process.exit(2);
+	}
+
+	return { index, count };
 }
 
 /** Every `.ts` file below a folder, as repository-relative paths. Declaration files are not modules. */
@@ -281,7 +705,7 @@ function resolveLocalImport(specifier: string, fromFile: string): string | undef
 	else if (specifier.startsWith(SOURCE_ALIAS)) base = resolvePath(SOURCE_ROOT, specifier.slice(SOURCE_ALIAS.length));
 	else return undefined;
 
-	for (const candidate of [`${base}.ts`, join(base, "index.ts")]) {
+	for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
 		if (existsSync(candidate)) return relative(process.cwd(), candidate);
 	}
 
@@ -290,10 +714,25 @@ function resolveLocalImport(specifier: string, fromFile: string): string | undef
 
 /** The repository files one module imports directly. Commented-out imports do not count. */
 function readLocalImports(file: string): string[] {
-	const source = maskCode(readFileSync(file, "utf8"), false);
+	const source = readFileSync(file, "utf8");
+	const parsed = parseSync(file, source, { lang: "ts" });
+	if (parsed.errors.length > 0) return [];
+	const specifiers: string[] = [];
+	for (const entry of parsed.module.staticImports) {
+		const runtime = entry.entries.length === 0 || entry.entries.some((specifier) => !specifier.isType);
+		if (runtime) specifiers.push(entry.moduleRequest.value);
+	}
+	for (const statement of parsed.module.staticExports) {
+		for (const entry of statement.entries) {
+			if (entry.moduleRequest === null || entry.isType) continue;
+			specifiers.push(entry.moduleRequest.value);
+		}
+	}
+	for (const entry of parsed.module.dynamicImports)
+		specifiers.push(source.slice(entry.moduleRequest.start + 1, entry.moduleRequest.end - 1));
 	const imports = new Set<string>();
-	for (const match of source.matchAll(IMPORT_PATTERN)) {
-		const target = resolveLocalImport(match[1] ?? "", file);
+	for (const specifier of specifiers) {
+		const target = resolveLocalImport(specifier, file);
 		if (target !== undefined) imports.add(target);
 	}
 
@@ -323,271 +762,31 @@ function reachedModules(start: string, graph: Map<string, string[]>): Map<string
 
 /**
  * The test files that reach the subject, the one named after it first, then the ones in its
- * folder, then the rest. Within each rank, fewer import hops come first. The limit keeps one
- * mutant from running the whole suite.
+ * folder, then the rest. Within each rank, fewer import hops come first. The default limit
+ * keeps a mutant from running the whole suite; `--max-tests=all` removes it.
  */
-function coveringTests(subject: string, reaches: TestReach[], limit: number): string[] {
+function coveringTests(subject: string, reaches: TestReach[], limit: number | undefined): string[] {
 	const name = basename(subject, ".ts");
-	const rank = (path: string): 0 | 1 | 2 => {
-		if (basename(path) === `${name}.test.ts`) return 0;
+	const rank = (reach: TestReach): 0 | 1 | 2 | 3 => {
+		if (basename(reach.path) === `${name}.test.ts`) return 0;
+		if ((reach.reached.get(subject) ?? 0) === 1) return 1;
 
-		return dirname(path) === dirname(subject) ? 1 : 2;
+		return dirname(reach.path) === dirname(subject) ? 2 : 3;
 	};
-
-	return reaches
+	const ordered = reaches
 		.filter((reach) => reach.reached.has(subject))
 		.toSorted(
 			(left, right) =>
-				rank(left.path) - rank(right.path) ||
+				rank(left) - rank(right) ||
 				(left.reached.get(subject) ?? 0) - (right.reached.get(subject) ?? 0) ||
 				left.path.localeCompare(right.path),
-		)
-		.slice(0, limit)
-		.map((reach) => reach.path);
-}
+		);
+	const selected = limit === undefined ? ordered : ordered.slice(0, limit);
 
-/**
- * The source with comments blanked, and with string, template and regular-expression literals
- * blanked too when `blankLiterals` is set. Length and line breaks are kept, so an index in the
- * masked text is the same position in the file.
- */
-function maskCode(source: string, blankLiterals: boolean): string {
-	const state: MaskState = { source, masked: source.split(""), blankLiterals };
-	scanCode(state, 0, false);
-
-	return state.masked.join("");
-}
-
-interface MaskState {
-	source: string;
-	masked: string[];
-	blankLiterals: boolean;
-}
-
-/**
- * Scans code from `from`. Inside a template substitution it stops after the `}` that closes the
- * substitution and returns the index after it, so a template nested in a substitution is found.
- */
-function scanCode(state: MaskState, from: number, inSubstitution: boolean): number {
-	const { source } = state;
-	let depth = 0;
-	let previous = "";
-	let index = from;
-	while (index < source.length) {
-		const commentEnd = commentEndAt(source, index);
-		if (commentEnd !== undefined) {
-			index = blankRange(state, index, commentEnd, false);
-			continue;
-		}
-
-		const literalEnd = literalEndAt(state, index, previous);
-		if (literalEnd !== undefined) {
-			index = literalEnd;
-			previous = LITERAL_MARK;
-			continue;
-		}
-
-		const char = source.charAt(index);
-		if (WORD_PATTERN.test(char)) {
-			const start = index;
-			index = wordEnd(source, index);
-			previous = source.slice(start, index);
-			continue;
-		}
-
-		if (char === "{") depth++;
-		else if (char === "}") {
-			if (inSubstitution && depth === 0) return index + 1;
-			depth--;
-		}
-		if (char.trim() !== "") previous = char;
-		index++;
-	}
-
-	return index;
-}
-
-/** The end of the comment that starts at `index`, or undefined when no comment starts there. */
-function commentEndAt(source: string, index: number): number | undefined {
-	if (source.startsWith("//", index)) return lineEnd(source, index);
-	if (source.startsWith("/*", index)) return blockCommentEnd(source, index);
-
-	return undefined;
-}
-
-/** The end of the string, template or regular expression that starts at `index`, or undefined. */
-function literalEndAt(state: MaskState, index: number, previous: string): number | undefined {
-	const { source } = state;
-	switch (source.charAt(index)) {
-		case '"':
-		case "'":
-			return blankRange(state, index, quotedEnd(source, index), true);
-		case "`":
-			return scanTemplate(state, index);
-		case "/":
-			return regexMayStart(previous) ? blankRange(state, index, regexEnd(source, index), true) : undefined;
-		default:
-			return undefined;
-	}
-}
-
-/** Scans the template literal that opens at `from`. Its text is blanked; each `${...}` substitution is scanned as code. */
-function scanTemplate(state: MaskState, from: number): number {
-	const { source } = state;
-	let textStart = from;
-	let index = from + 1;
-	while (index < source.length) {
-		const char = source.charAt(index);
-		if (char === "\\") index += 2;
-		else if (char === "`") return blankRange(state, textStart, index + 1, true);
-		else if (char === "$" && source.charAt(index + 1) === "{") {
-			blankRange(state, textStart, index, true);
-			index = scanCode(state, index + 2, true);
-			textStart = index;
-		} else index++;
-	}
-	blankRange(state, textStart, source.length, true);
-
-	return source.length;
-}
-
-/** Blanks `[from, to)` unless it is a literal and literals are kept. Returns `to`. */
-function blankRange(state: MaskState, from: number, to: number, isLiteral: boolean): number {
-	if (isLiteral && !state.blankLiterals) return to;
-	for (let index = from; index < to; index++) {
-		if (state.masked[index] !== "\n") state.masked[index] = " ";
-	}
-
-	return to;
-}
-
-function lineEnd(source: string, from: number): number {
-	const newline = source.indexOf("\n", from);
-
-	return newline === -1 ? source.length : newline;
-}
-
-function blockCommentEnd(source: string, from: number): number {
-	const close = source.indexOf("*/", from + 2);
-
-	return close === -1 ? source.length : close + 2;
-}
-
-function quotedEnd(source: string, from: number): number {
-	const quote = source.charAt(from);
-	let index = from + 1;
-	while (index < source.length) {
-		const char = source.charAt(index);
-		if (char === "\\") index += 2;
-		else if (char === quote) return index + 1;
-		else if (char === "\n") return index;
-		else index++;
-	}
-
-	return source.length;
-}
-
-function regexEnd(source: string, from: number): number {
-	let inClass = false;
-	let index = from + 1;
-	while (index < source.length) {
-		const char = source.charAt(index);
-		index += char === "\\" ? 2 : 1;
-		if (char === "\n") return index - 1;
-		if (char === "[") inClass = true;
-		else if (char === "]") inClass = false;
-		else if (char === "/" && !inClass) return wordEnd(source, index);
-	}
-
-	return source.length;
-}
-
-function wordEnd(source: string, from: number): number {
-	let index = from;
-	while (index < source.length && WORD_PATTERN.test(source.charAt(index))) index++;
-
-	return index;
-}
-
-function regexMayStart(previous: string): boolean {
-	return previous === "" || EXPRESSION_START_PUNCTUATION.has(previous) || EXPRESSION_START_KEYWORDS.has(previous);
+	return selected.map((reach) => reach.path);
 }
 
 /** A finder for every match of `pattern` in the code. The replacement is computed from the matched text. */
-function patternSites(kind: string, pattern: RegExp, replacement: (matched: string) => string): SiteFinder {
-	return (masked, source) => {
-		const sites: Site[] = [];
-		for (const match of masked.matchAll(pattern)) {
-			const index = match.index;
-			const before = match[0];
-			if (source.slice(index, index + before.length) !== before) continue;
-			sites.push({ kind, index, before, after: replacement(before) });
-		}
-
-		return sites;
-	};
-}
-
-/** Every `if (...)` condition, negated as a whole. The masked text keeps strings and comments out of the parenthesis count. */
-function conditionSites(masked: string, source: string): Site[] {
-	const sites: Site[] = [];
-	for (const match of masked.matchAll(/\bif\s*\(/g)) {
-		const open = match.index + match[0].length - 1;
-		const close = closingParen(masked, open);
-		if (close === undefined) continue;
-		const condition = source.slice(open + 1, close);
-		if (condition.trim() === "") continue;
-		sites.push({ kind: "if-negation", index: open + 1, before: condition, after: `!(${condition})` });
-	}
-
-	return sites;
-}
-
-function closingParen(masked: string, open: number): number | undefined {
-	let depth = 0;
-	for (let index = open; index < masked.length; index++) {
-		const char = masked.charAt(index);
-		if (char === "(") depth++;
-		else if (char === ")") {
-			depth--;
-			if (depth === 0) return index;
-		}
-	}
-
-	return undefined;
-}
-
-const SITE_FINDERS: SiteFinder[] = [
-	patternSites("equality", /(?<![=!<>])===(?!=)/g, () => "!=="),
-	patternSites("inequality", /!==/g, () => "==="),
-	patternSites("at-least", /(?<![=!<>])>=/g, () => ">"),
-	patternSites("greater", /(?<![=!<>-])>(?![>=])/g, () => ">="),
-	patternSites("at-most", /(?<!<)<=/g, () => "<"),
-	patternSites("less", /(?<![<=])<(?![<=])/g, () => "<="),
-	patternSites("and", /&&/g, () => "||"),
-	patternSites("or", /\|\|/g, () => "&&"),
-	patternSites("nullish", /\?\?(?!=)/g, () => "||"),
-	patternSites("optional-chain", /\?\.(?!\d)/g, () => "."),
-	patternSites("truthy", /\btrue\b/g, () => "false"),
-	patternSites("falsy", /\bfalse\b/g, () => "true"),
-	patternSites("negation", /(?<![\w$)\]])!(?!=)/g, () => ""),
-	patternSites("number", /(?<![\w$.])\d+(?![\w$.])/g, (text) => String(Number(text) + 1)),
-	patternSites("call-swap", /\bMath\.(?:min|max|floor|ceil)\b|\.(?:some|every)\b/g, (text) => CALL_SWAPS[text] ?? text),
-	conditionSites,
-];
-
-/** Every mutation site in the code of a module, in source order. */
-function readMutants(source: string): Mutant[] {
-	const masked = maskCode(source, true);
-	const starts = lineStarts(source);
-	const mutants: Mutant[] = [];
-	for (const finder of SITE_FINDERS) {
-		for (const site of finder(masked, source)) mutants.push({ ...site, line: lineAt(starts, site.index) });
-	}
-
-	return mutants.toSorted((left, right) => left.index - right.index);
-}
-
 function lineStarts(source: string): number[] {
 	const starts = [0];
 	for (let index = source.indexOf("\n"); index !== -1; index = source.indexOf("\n", index + 1)) starts.push(index + 1);
@@ -608,6 +807,475 @@ function lineAt(starts: number[], index: number): number {
 	return low + 1;
 }
 
+/** True when the mutation kind is enabled and the mutated span overlaps the active diff. */
+function siteAllowed(ctx: SiteContext, kind: string, startLine: number, endLine: number): boolean {
+	if (ctx.filter.kinds !== undefined && !ctx.filter.kinds.has(kind)) return false;
+	if (ctx.filter.exclude?.has(kind) === true) return false;
+	if (ctx.filter.ranges === undefined) return true;
+	const ranges = ctx.filter.ranges.get(ctx.filter.subject);
+	if (ranges === undefined) return false;
+
+	return ranges.some((range) => startLine <= range.end && endLine >= range.start);
+}
+
+function addSite(ctx: SiteContext, kind: string, index: number, before: string, after: string): void {
+	if (before === after) return;
+	const line = lineAt(ctx.lineStarts, index);
+	const endLine = lineAt(ctx.lineStarts, index + before.length);
+	if (!siteAllowed(ctx, kind, line, endLine)) return;
+	const key = `${index}\0${before}\0${after}`;
+	if (ctx.seen.has(key)) return;
+	ctx.seen.add(key);
+	ctx.sites.push({ kind, index, before, after, line, endLine });
+}
+
+function addNodeReplacement(ctx: SiteContext, kind: string, node: Node, after: string): void {
+	addSite(ctx, kind, node.start, ctx.source.slice(node.start, node.end), after);
+}
+
+/** Finds an operator between two offsets while ignoring comments. */
+function findCodeOperator(source: string, start: number, end: number, operator: string): number | undefined {
+	let index = start;
+	while (index < end) {
+		if (source.startsWith("//", index)) {
+			const newline = source.indexOf("\n", index);
+			index = newline === -1 ? end : newline + 1;
+			continue;
+		}
+		if (source.startsWith("/*", index)) {
+			const close = source.indexOf("*/", index + 2);
+			index = close === -1 ? end : close + 2;
+			continue;
+		}
+		if (source.startsWith(operator, index)) return index;
+		index++;
+	}
+
+	return undefined;
+}
+
+function addOperatorSite(ctx: SiteContext, kind: string, site: OperatorSite): void {
+	const index = findCodeOperator(ctx.source, site.start, site.end, site.operator);
+	if (index === undefined) return;
+	addSite(ctx, kind, index, site.operator, site.after);
+}
+
+function addOperatorMutations(ctx: SiteContext, mutations: readonly OperatorMutation[] | undefined, site: OperatorSite): void {
+	if (mutations === undefined) return;
+	for (const mutation of mutations) addOperatorSite(ctx, mutation.kind, { ...site, after: mutation.after });
+}
+
+function addBinaryMutations(node: BinaryNode, ctx: SiteContext): void {
+	addOperatorMutations(ctx, BINARY_MUTATIONS[node.operator], {
+		start: node.left.end,
+		end: node.right.start,
+		operator: node.operator,
+		after: "",
+	});
+}
+
+function addLogicalMutations(node: LogicalNode, ctx: SiteContext): void {
+	addOperatorMutations(ctx, LOGICAL_MUTATIONS[node.operator], {
+		start: node.left.end,
+		end: node.right.start,
+		operator: node.operator,
+		after: "",
+	});
+}
+
+function addAssignmentMutations(node: AssignmentNode, ctx: SiteContext): void {
+	addOperatorMutations(ctx, ASSIGNMENT_MUTATIONS[node.operator], {
+		start: node.left.end,
+		end: node.right.start,
+		operator: node.operator,
+		after: "",
+	});
+}
+
+function addUnaryMutations(node: UnaryNode, ctx: SiteContext): void {
+	addOperatorMutations(ctx, UNARY_MUTATIONS[node.operator], {
+		start: node.start,
+		end: node.argument.start,
+		operator: node.operator,
+		after: "",
+	});
+}
+
+function addUpdateMutations(node: UpdateNode, ctx: SiteContext): void {
+	const start = node.prefix ? node.start : node.argument.end;
+	const end = node.prefix ? node.argument.start : node.end;
+	addOperatorMutations(ctx, UPDATE_MUTATIONS[node.operator], { start, end, operator: node.operator, after: "" });
+}
+
+/** A condition is worth negating, and forcing to either constant is a second, independent check. */
+function addConditionMutations(test: Node, ctx: SiteContext): void {
+	const before = ctx.source.slice(test.start, test.end);
+	if (before === "true") {
+		addSite(ctx, "condition-false", test.start, before, "false");
+
+		return;
+	}
+	if (before === "false") {
+		addSite(ctx, "condition-true", test.start, before, "true");
+
+		return;
+	}
+	addSite(ctx, "condition-negation", test.start, before, `!(${before})`);
+	addSite(ctx, "condition-true", test.start, before, "true");
+	addSite(ctx, "condition-false", test.start, before, "false");
+}
+
+function addConditionalMutations(node: ConditionalNode, ctx: SiteContext): void {
+	addConditionMutations(node.test, ctx);
+	const consequent = ctx.source.slice(node.consequent.start, node.consequent.end);
+	const alternate = ctx.source.slice(node.alternate.start, node.alternate.end);
+	addSite(ctx, "conditional-swap", node.consequent.start, consequent, alternate);
+}
+
+function addBlockMutation(node: BlockNode, ctx: SiteContext): void {
+	if (node.body.length === 0) return;
+	addNodeReplacement(ctx, "block", node, "{}");
+}
+
+function addReturnMutation(node: ReturnNode, ctx: SiteContext): void {
+	if (node.argument === null) return;
+	const before = ctx.source.slice(node.argument.start, node.argument.end);
+	if (before === "undefined" || before.startsWith("void ")) return;
+	addNodeReplacement(ctx, "return-value", node.argument, "undefined");
+}
+
+function addThrowMutation(node: ThrowNode, ctx: SiteContext): void {
+	const before = ctx.source.slice(node.argument.start, node.argument.end);
+	if (before === "undefined" || before.startsWith("void ")) return;
+	addNodeReplacement(ctx, "throw-value", node.argument, "undefined");
+}
+
+function addArrowMutation(node: ArrowNode, ctx: SiteContext): void {
+	if (!node.expression) return;
+	const before = ctx.source.slice(node.body.start, node.body.end);
+	if (before === "undefined" || before.startsWith("void ")) return;
+	addNodeReplacement(ctx, "arrow-body", node.body, "undefined");
+}
+
+function addAwaitMutation(node: AwaitNode, ctx: SiteContext): void {
+	const after = ctx.source.slice(node.argument.start, node.argument.end);
+	addSite(ctx, "await-remove", node.start, ctx.source.slice(node.start, node.end), after);
+}
+
+function addArrayMutation(node: ArrayNode, ctx: SiteContext): void {
+	addNodeReplacement(ctx, "array", node, node.elements.length === 0 ? "[1]" : "[]");
+}
+
+function addObjectMutation(node: ObjectNode, ctx: SiteContext): void {
+	addNodeReplacement(ctx, "object", node, node.properties.length === 0 ? "{ a: 1 }" : "{}");
+}
+
+function addTemplateMutation(node: TemplateNode, parent: Node | undefined, ctx: SiteContext): void {
+	if (parent?.type === "TaggedTemplateExpression") return;
+	const text = node.quasis.map((quasi) => quasi.value.raw).join("");
+	addNodeReplacement(ctx, "template", node, text.length === 0 ? '"Stryker was here!"' : '""');
+}
+
+function addCallSwap(node: CallNode, ctx: SiteContext): void {
+	const callee = ctx.source.slice(node.callee.start, node.callee.end);
+	const exact = CALL_SWAPS[callee];
+	if (exact !== undefined) {
+		addNodeReplacement(ctx, "call-swap", node.callee, exact);
+
+		return;
+	}
+	for (const [from, to] of CALL_SUFFIX_SWAPS) {
+		if (!callee.endsWith(from)) continue;
+		addNodeReplacement(ctx, "call-swap", node.callee, `${callee.slice(0, -from.length)}${to}`);
+
+		return;
+	}
+}
+
+function addOptionalMember(node: MemberNode, ctx: SiteContext): void {
+	if (node.computed) {
+		addOperatorSite(ctx, "optional-chain", {
+			start: node.object.end,
+			end: node.property.start,
+			operator: "?.[",
+			after: "[",
+		});
+
+		return;
+	}
+	addOperatorSite(ctx, "optional-chain", {
+		start: node.object.end,
+		end: node.property.start,
+		operator: "?.",
+		after: ".",
+	});
+}
+
+function addOptionalCall(node: CallNode, ctx: SiteContext): void {
+	addOperatorSite(ctx, "optional-chain", {
+		start: node.callee.end,
+		end: node.end,
+		operator: "?.",
+		after: "",
+	});
+}
+
+function isModuleSpecifier(parent: Node | undefined, key: string): boolean {
+	if (parent === undefined) return false;
+	if (parent.type === "CallExpression") {
+		const callee = parent.callee;
+
+		return callee.type === "Identifier" && callee.name === "require";
+	}
+	if (key !== "source") return false;
+
+	return (
+		parent.type === "ImportDeclaration" ||
+		parent.type === "ExportAllDeclaration" ||
+		parent.type === "ExportNamedDeclaration" ||
+		parent.type === "ImportExpression"
+	);
+}
+
+function addStringMutation(node: StringNode, parent: Node | undefined, key: string, ctx: SiteContext): void {
+	if (isModuleSpecifier(parent, key)) return;
+	if (parent !== undefined && "directive" in parent) return;
+	addNodeReplacement(ctx, "string", node, node.value.length === 0 ? '"Stryker was here!"' : '""');
+}
+
+function addBooleanMutation(node: BooleanNode, ctx: SiteContext): void {
+	addNodeReplacement(ctx, "truthy", node, node.value ? "false" : "true");
+}
+
+function addNumberMutation(node: NumericNode, ctx: SiteContext): void {
+	if (!Number.isFinite(node.value)) return;
+	addNodeReplacement(ctx, "number", node, String(node.value + 1));
+	addNodeReplacement(ctx, "number", node, String(node.value - 1));
+	if (node.value !== 0) addNodeReplacement(ctx, "number", node, "0");
+}
+
+function addNullMutation(node: NullNode, ctx: SiteContext): void {
+	addNodeReplacement(ctx, "null", node, "undefined");
+}
+
+function compileRegex(pattern: string, flags: string): RegExp | undefined {
+	try {
+		return new RegExp(pattern, flags);
+	} catch {
+		return undefined;
+	}
+}
+
+function isValidRegex(pattern: string, flags: string): boolean {
+	return compileRegex(pattern, flags) !== undefined;
+}
+
+function addRegexMutation(node: LiteralNode, regex: { pattern: string; flags: string }, ctx: SiteContext): void {
+	const pattern = regex.pattern;
+	const candidates = new Set<string>();
+	candidates.add(pattern.startsWith("^") ? pattern.slice(1) : `^${pattern}`);
+	candidates.add(pattern.endsWith("$") ? pattern.slice(0, -1) : `${pattern}$`);
+	candidates.add(pattern.replaceAll(String.raw`\d`, String.raw`\D`));
+	candidates.add(pattern.replaceAll(String.raw`\w`, String.raw`\W`));
+	candidates.add(pattern.replaceAll(String.raw`\s`, String.raw`\S`));
+	candidates.add(pattern.replaceAll("+", "*"));
+	candidates.add(pattern.replaceAll("*", "+"));
+	for (const candidate of candidates) {
+		if (candidate === pattern || candidate.length === 0) continue;
+		if (!isValidRegex(candidate, regex.flags)) continue;
+		addNodeReplacement(ctx, "regex", node, `/${candidate}/${regex.flags}`);
+	}
+}
+
+function addLiteralMutation(node: LiteralNode, parent: Node | undefined, key: string, ctx: SiteContext): void {
+	if ("regex" in node) {
+		addRegexMutation(node, node.regex, ctx);
+
+		return;
+	}
+	if (typeof node.value === "boolean") {
+		addBooleanMutation(node, ctx);
+
+		return;
+	}
+	if (node.value === null) {
+		addNullMutation(node, ctx);
+
+		return;
+	}
+	if (typeof node.value === "number") {
+		addNumberMutation(node, ctx);
+
+		return;
+	}
+	if (typeof node.value === "string") addStringMutation(node, parent, key, ctx);
+}
+
+/** Walks the runtime children of the AST. Type-only fields are skipped before they are visited. */
+function walkAst(
+	node: Node,
+	parent: Node | undefined,
+	key: string,
+	visit: (node: Node, parent: Node | undefined, key: string) => void,
+): void {
+	if ("directive" in node) return;
+	if (node.type.startsWith("TS") && !TS_VALUE_NODES.has(node.type)) return;
+	visit(node, parent, key);
+	for (const childKey of visitorKeys[node.type] ?? []) {
+		if (SKIP_CHILD_KEYS.has(childKey)) continue;
+		const child: unknown = Reflect.get(node, childKey);
+		if (Array.isArray(child)) {
+			for (const item of child) if (isNode(item)) walkAst(item, node, childKey, visit);
+		} else if (isNode(child)) {
+			walkAst(child, node, childKey, visit);
+		}
+	}
+}
+
+function visitOperatorNode(node: Node, ctx: SiteContext): boolean {
+	if (node.type === "BinaryExpression") {
+		addBinaryMutations(node, ctx);
+
+		return true;
+	}
+	if (node.type === "LogicalExpression") {
+		addLogicalMutations(node, ctx);
+
+		return true;
+	}
+	if (node.type === "AssignmentExpression") {
+		addAssignmentMutations(node, ctx);
+
+		return true;
+	}
+	if (node.type === "UnaryExpression") {
+		addUnaryMutations(node, ctx);
+
+		return true;
+	}
+	if (node.type === "UpdateExpression") {
+		addUpdateMutations(node, ctx);
+
+		return true;
+	}
+
+	return false;
+}
+
+function visitConditionNode(node: Node, ctx: SiteContext): boolean {
+	if (node.type === "ConditionalExpression") {
+		addConditionalMutations(node, ctx);
+
+		return true;
+	}
+	if (node.type === "IfStatement") {
+		addConditionMutations(node.test, ctx);
+
+		return true;
+	}
+	if (node.type === "WhileStatement") {
+		addConditionMutations(node.test, ctx);
+
+		return true;
+	}
+	if (node.type === "DoWhileStatement") {
+		addConditionMutations(node.test, ctx);
+
+		return true;
+	}
+	if (node.type === "ForStatement") {
+		if (node.test !== null) addConditionMutations(node.test, ctx);
+
+		return true;
+	}
+
+	return false;
+}
+
+function visitLiteralNode(node: Node, parent: Node | undefined, key: string, ctx: SiteContext): boolean {
+	if (node.type === "Literal") {
+		addLiteralMutation(node, parent, key, ctx);
+
+		return true;
+	}
+	if (node.type === "TemplateLiteral") {
+		addTemplateMutation(node, parent, ctx);
+
+		return true;
+	}
+	if (node.type === "ArrayExpression") {
+		addArrayMutation(node, ctx);
+
+		return true;
+	}
+	if (node.type === "ObjectExpression") {
+		addObjectMutation(node, ctx);
+
+		return true;
+	}
+
+	return false;
+}
+
+function visitStructuralNode(node: Node, ctx: SiteContext): boolean {
+	if (node.type === "CallExpression") {
+		addCallSwap(node, ctx);
+		if (node.optional) addOptionalCall(node, ctx);
+
+		return true;
+	}
+	if (node.type === "MemberExpression") {
+		if (node.optional) addOptionalMember(node, ctx);
+
+		return true;
+	}
+	if (node.type === "ArrowFunctionExpression") {
+		addArrowMutation(node, ctx);
+
+		return true;
+	}
+	if (node.type === "AwaitExpression") {
+		addAwaitMutation(node, ctx);
+
+		return true;
+	}
+	if (node.type === "BlockStatement") {
+		addBlockMutation(node, ctx);
+
+		return true;
+	}
+	if (node.type === "ReturnStatement") {
+		addReturnMutation(node, ctx);
+
+		return true;
+	}
+	if (node.type === "ThrowStatement") {
+		addThrowMutation(node, ctx);
+
+		return true;
+	}
+
+	return false;
+}
+
+function visitNode(node: Node, parent: Node | undefined, key: string, ctx: SiteContext): void {
+	if (visitOperatorNode(node, ctx)) return;
+	if (visitConditionNode(node, ctx)) return;
+	if (visitLiteralNode(node, parent, key, ctx)) return;
+	visitStructuralNode(node, ctx);
+}
+
+/** Every mutation site in a module, in source order. Undefined when the source does not parse. */
+function readMutants(source: string, subject: string, filter: MutationFilter): Site[] | undefined {
+	if (filter.ranges !== undefined && !filter.ranges.has(subject)) return [];
+	const parsed = parseSync(subject, source, { lang: "ts" });
+	if (parsed.errors.length > 0) return undefined;
+	const ctx: SiteContext = { source, sites: [], seen: new Set(), lineStarts: lineStarts(source), filter };
+	walkAst(parsed.program, undefined, "", (node, parent, key) => visitNode(node, parent, key, ctx));
+
+	return ctx.sites.toSorted((left, right) => left.index - right.index);
+}
+
 /** The source with one mutant applied. The splice is done on the original text. */
 function applyMutant(source: string, mutant: Site): string {
 	return source.slice(0, mutant.index) + mutant.after + source.slice(mutant.index + mutant.before.length);
@@ -621,36 +1289,29 @@ function transpileOrUndefined(source: string): string | undefined {
 	}
 }
 
-/** Stillborn when the mutant does not transpile; equivalent when its output is the original's; viable otherwise. */
-function classify(mutated: string, baseline: string): MutationClass {
-	const output = transpileOrUndefined(mutated);
-	if (output === undefined) return "stillborn";
-
-	return output === baseline ? "equivalent" : "viable";
-}
-
-/** The viable mutants of a module, with the counts of the dropped ones. Undefined when the untouched source does not transpile. */
-function analyse(source: string): Analysis | undefined {
+/** The viable mutants of a module, with the counts of the dropped ones. Undefined when the untouched source does not transpile or parse. */
+function analyse(source: string, subject: string, filter: MutationFilter): Analysis | undefined {
+	if (filter.ranges !== undefined && !filter.ranges.has(subject)) return { viable: [], stillborn: 0, equivalent: 0, baseline: "" };
 	const baseline = transpileOrUndefined(source);
 	if (baseline === undefined) return undefined;
-
+	const mutants = readMutants(source, subject, filter);
+	if (mutants === undefined) return undefined;
 	const viable: Mutant[] = [];
 	let stillborn = 0;
 	let equivalent = 0;
-	for (const mutant of readMutants(source)) {
-		const verdict = classify(applyMutant(source, mutant), baseline);
-		if (verdict === "viable") viable.push(mutant);
-		else if (verdict === "equivalent") equivalent++;
-		else stillborn++;
+	for (const mutant of mutants) {
+		const output = transpileOrUndefined(applyMutant(source, mutant));
+		if (output === undefined) stillborn++;
+		else if (output === baseline) equivalent++;
+		else viable.push(mutant);
 	}
 
 	return { viable, stillborn, equivalent, baseline };
 }
 
 /** Mutants spread evenly over the module, so a long file is not judged by its first lines. */
-function sampleEvenly(mutants: Mutant[], limit: number): Mutant[] {
-	if (mutants.length <= limit) return mutants;
-
+function sampleEvenly(mutants: Mutant[], limit: number | undefined): Mutant[] {
+	if (limit === undefined || mutants.length <= limit) return mutants;
 	const sample: Mutant[] = [];
 	for (let slot = 0; slot < limit; slot++) {
 		const mutant = mutants[Math.floor((slot * mutants.length) / limit)];
@@ -660,164 +1321,590 @@ function sampleEvenly(mutants: Mutant[], limit: number): Mutant[] {
 	return sample;
 }
 
-/** Runs one test file in its own bun process. Exit code 0 is a pass; bun exits 1 on any failure. */
-function runTest(file: string): Promise<RunOutcome> {
-	return new Promise((resolve, reject) => {
+/** The lines added to each file by a diff. A file missing from the map has no changed lines. */
+function addRange(ranges: Map<string, LineRange[]>, file: string, start: number, end: number): void {
+	const existing = ranges.get(file);
+	if (existing === undefined) ranges.set(file, [{ start, end }]);
+	else existing.push({ start, end });
+}
+
+function parseDiff(text: string): Map<string, LineRange[]> {
+	const ranges = new Map<string, LineRange[]>();
+	let file: string | undefined;
+	for (const line of text.split("\n")) {
+		if (line.startsWith("+++ b/")) {
+			file = line.slice("+++ b/".length);
+			continue;
+		}
+		if (line.startsWith("+++ /dev/null")) {
+			file = undefined;
+			continue;
+		}
+		if (file === undefined || !line.startsWith("@@ ")) continue;
+		const match = DIFF_HUNK_PATTERN.exec(line);
+		if (match === null) continue;
+		const startText = match[1];
+		if (startText === undefined) continue;
+		const start = Number(startText);
+		const count = match[2] === undefined ? 1 : Number(match[2]);
+		if (Number.isInteger(start) && Number.isInteger(count) && count > 0) addRange(ranges, file, start, start + count - 1);
+	}
+
+	return ranges;
+}
+
+function runGit(args: string[]): string {
+	const result = Bun.spawnSync({
+		cmd: ["git", ...args],
+		cwd: process.cwd(),
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${String(result.stderr).trim()}`);
+
+	return String(result.stdout);
+}
+
+/** Changed lines against a Git base, or the contents of an explicit diff file. */
+function readDiffRanges(options: Options): Map<string, LineRange[]> | undefined {
+	if (options.diffFile !== undefined) return parseDiff(readFileSync(options.diffFile, "utf8"));
+	if (options.inDiff === undefined) return undefined;
+	const ranges = parseDiff(runGit(["diff", "-U0", options.inDiff, "--", "*.ts"]));
+	const untracked = runGit(["ls-files", "--others", "--exclude-standard", "--", "*.ts"])
+		.split("\n")
+		.filter((line) => line.length > 0);
+	for (const file of untracked) {
+		if (!file.endsWith(".ts") || file.endsWith(".d.ts")) continue;
+		const lines = readFileSync(file, "utf8").split("\n").length;
+		addRange(ranges, file, 1, lines);
+	}
+
+	return ranges;
+}
+
+function createSandbox(id: string): string {
+	const directory = join(tmpdir(), `reelvault-mutation-${process.pid}-${id}`);
+	rmSync(directory, { recursive: true, force: true });
+	cpSync(process.cwd(), directory, {
+		recursive: true,
+		filter: (source) => {
+			const path = relative(process.cwd(), source);
+			if (path === "") return true;
+			const topLevel = path.split(sep)[0] ?? "";
+
+			return !SANDBOX_EXCLUDES.has(topLevel);
+		},
+	});
+	const modules = join(process.cwd(), "node_modules");
+	if (existsSync(modules)) symlinkSync(modules, join(directory, "node_modules"), "dir");
+	sandboxes.add(directory);
+
+	return directory;
+}
+
+/** Runs one test file in a private copy. Exit code 0 is a pass; bun exits 1 on any failure. */
+function runTest(file: string, sandbox: string, options: Options): Promise<RunOutcome> {
+	return new Promise((resolve) => {
 		let timedOut = false;
-		const child = spawn(process.execPath, ["test", file, "--timeout", String(TEST_TIMEOUT_MS)], {
-			env: { ...process.env, CI: "1" },
+		const child = spawn(process.execPath, ["test", file, "--timeout", String(options.testTimeoutMs), "--bail=1"], {
+			cwd: sandbox,
+			env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
 			stdio: "ignore",
 		});
-		activeChild = child;
+		activeChildren.add(child);
 		const timer = setTimeout(() => {
 			timedOut = true;
 			child.kill("SIGKILL");
-		}, RUN_TIMEOUT_MS);
-		const finish = () => {
+		}, options.runTimeoutMs);
+		let settled = false;
+		const finish = (outcome: RunOutcome): void => {
+			if (settled) return;
+			settled = true;
 			clearTimeout(timer);
-			activeChild = undefined;
+			activeChildren.delete(child);
+			resolve(outcome);
 		};
-		child.on("error", (error) => {
-			finish();
-			reject(error);
-		});
-		child.on("close", (code) => {
-			finish();
-			resolve({ passed: code === 0 && !timedOut, timedOut });
-		});
+		child.on("error", () => finish({ passed: false, timedOut: false, crashed: true }));
+		child.on("close", (code, signal) =>
+			finish({
+				passed: code === 0 && !timedOut && signal === null,
+				timedOut,
+				crashed: signal !== null && !timedOut,
+			}),
+		);
 	});
 }
 
-/** The outcome of a test file on the untouched source. Each file runs once and is remembered. */
-async function isGreen(test: string, cache: Map<string, RunOutcome>): Promise<RunOutcome> {
-	const known = cache.get(test);
+/** One test file on the untouched source. Every subject in this worker that covers it shares the promise. */
+function greenOutcome(test: string, sandbox: string, cache: BaselineCache, options: Options): Promise<RunOutcome> {
+	const known = cache.tests.get(test);
 	if (known !== undefined) return known;
-
-	const outcome = await runTest(test);
-	cache.set(test, outcome);
+	const outcome = runTest(test, sandbox, options);
+	cache.tests.set(test, outcome);
 
 	return outcome;
 }
 
-/** Applies one mutant, runs the covering tests until one fails, and always restores the original. */
-async function judgeMutant(subject: string, source: string, mutant: Mutant, covering: string[]): Promise<MutantVerdict> {
-	pending.set(subject, source);
-	syncRecovery();
-	try {
-		writeFileSync(subject, applyMutant(source, mutant));
-		for (const test of covering) {
-			const outcome = await runTest(test);
-			if (!outcome.passed) return { killed: true, timedOut: outcome.timedOut };
-		}
+function baselineFailure(test: string, outcome: RunOutcome): string {
+	if (outcome.timedOut) return `covering test timed out on the untouched source: ${test}`;
+	if (outcome.crashed) return `covering test crashed on the untouched source: ${test}`;
 
-		return { killed: false };
-	} finally {
-		writeFileSync(subject, source);
-		pending.delete(subject);
-		syncRecovery();
+	return `covering test is red without a mutation: ${test}`;
+}
+
+/**
+ * Applies one mutant in a private copy, runs the covering tests until one fails, and always
+ * restores the copy. A test is checked on the untouched source immediately before it is used,
+ * so a subject with one killing test does not pay for the other covering tests' baselines.
+ */
+/** Runs the project's own TypeScript checker over a mutated worker copy. */
+function typecheckSurvivor(sandbox: string): Promise<boolean> {
+	const tsc = join(sandbox, "node_modules", "typescript", "bin", "tsc");
+	if (!existsSync(tsc)) return Promise.resolve(true);
+
+	return new Promise((resolve) => {
+		const child = spawn(process.execPath, [tsc, "--noEmit", "--pretty", "false"], {
+			cwd: sandbox,
+			stdio: "ignore",
+		});
+		activeChildren.add(child);
+		const timer = setTimeout(() => child.kill("SIGKILL"), TYPECHECK_TIMEOUT_MS);
+		let settled = false;
+		const finish = (clean: boolean): void => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			activeChildren.delete(child);
+			resolve(clean);
+		};
+		child.on("error", () => finish(false));
+		child.on("close", (code) => finish(code === 0));
+	});
+}
+
+/** The untouched source must pass the checker once; otherwise the filter would report stale errors. */
+function typecheckAvailable(): boolean {
+	const sandbox = createSandbox("typecheck");
+	const tsc = join(sandbox, "node_modules", "typescript", "bin", "tsc");
+	if (!existsSync(tsc)) {
+		console.warn("type checking is unavailable: typescript/bin/tsc was not found; rerun with --no-typecheck");
+
+		return false;
 	}
+	const result = Bun.spawnSync({
+		cmd: [process.execPath, tsc, "--noEmit", "--pretty", "false"],
+		cwd: sandbox,
+		stdout: "ignore",
+		stderr: "pipe",
+	});
+	if (result.exitCode === 0) return true;
+	const details = String(result.stderr).trim().split("\n").slice(0, 5).join("\n");
+	console.warn(`type checking is unavailable: the untouched source does not pass tsc --noEmit; rerun with --no-typecheck\n${details}`);
+
+	return false;
 }
 
-function skipped(subject: string, reason: string): SubjectResult {
-	return { subject, skipped: reason, stillborn: 0, equivalent: 0, tried: 0, killed: 0, timedOut: 0, survivors: [] };
-}
-
-async function measureSubject(
-	subject: string,
-	covering: string[],
+async function judgeMutant(
+	sandbox: string,
+	baselineSandbox: string,
+	task: Task,
+	baselineCache: BaselineCache,
 	options: Options,
-	green: Map<string, RunOutcome>,
-): Promise<SubjectResult> {
-	const source = readFileSync(subject, "utf8");
-	const analysis = analyse(source);
-	if (analysis === undefined) return skipped(subject, "the untouched source does not transpile");
+): Promise<MutantVerdict> {
+	const target = join(sandbox, task.info.subject);
+	writeFileSync(target, applyMutant(task.info.source, task.mutant));
+	try {
+		for (const test of task.info.covering) {
+			const baseline = await greenOutcome(test, baselineSandbox, baselineCache, options);
+			if (!baseline.passed) {
+				return {
+					killed: false,
+					timedOut: false,
+					crashed: false,
+					compileError: false,
+					killedBy: undefined,
+					skipReason: baselineFailure(test, baseline),
+				};
+			}
+			const outcome = await runTest(test, sandbox, options);
+			if (!outcome.passed) {
+				return {
+					killed: true,
+					timedOut: outcome.timedOut,
+					crashed: outcome.crashed,
+					compileError: false,
+					killedBy: test,
+					skipReason: undefined,
+				};
+			}
+		}
+		const compileError = options.typecheck ? !(await typecheckSurvivor(sandbox)) : false;
 
-	for (const test of covering) {
-		const outcome = await isGreen(test, green);
-		if (outcome.passed) continue;
-		const reason = outcome.timedOut
-			? `covering test timed out on the untouched source: ${test}`
-			: `covering test is red without a mutation: ${test}`;
-
-		return skipped(subject, reason);
+		return { killed: false, timedOut: false, crashed: false, compileError, killedBy: undefined, skipReason: undefined };
+	} finally {
+		writeFileSync(target, task.info.source);
 	}
+}
 
-	const sampled = sampleEvenly(analysis.viable, options.maxMutants);
-	const result: SubjectResult = {
-		subject,
-		skipped: undefined,
-		stillborn: analysis.stillborn,
-		equivalent: analysis.equivalent,
-		tried: sampled.length,
+function createResult(info: SubjectInfo): SubjectResult {
+	return {
+		subject: info.subject,
+		skipped: info.skipped,
+		stillborn: info.analysis?.stillborn ?? 0,
+		equivalent: info.analysis?.equivalent ?? 0,
+		tried: 0,
+		cached: 0,
 		killed: 0,
 		timedOut: 0,
+		crashed: 0,
+		compileErrors: 0,
 		survivors: [],
+		byKind: {},
 	};
-	for (const mutant of sampled) {
-		const verdict = await judgeMutant(subject, source, mutant, covering);
-		if (verdict.killed) {
-			result.killed++;
-			if (verdict.timedOut) result.timedOut++;
-		} else {
-			result.survivors.push({ subject, line: mutant.line, kind: mutant.kind, before: mutant.before, after: mutant.after, tests: covering });
+}
+
+function recordVerdict(result: SubjectResult, info: SubjectInfo, mutant: Mutant, verdict: MutantVerdict, cached: boolean): void {
+	result.tried++;
+	if (cached) result.cached++;
+	const stats = result.byKind[mutant.kind] ?? { killed: 0, survived: 0, compileErrors: 0 };
+	if (verdict.compileError) {
+		result.compileErrors++;
+		stats.compileErrors++;
+	} else if (verdict.killed) {
+		result.killed++;
+		if (verdict.timedOut) result.timedOut++;
+		if (verdict.crashed) result.crashed++;
+		stats.killed++;
+	} else {
+		stats.survived++;
+		result.survivors.push({
+			subject: info.subject,
+			line: mutant.line,
+			kind: mutant.kind,
+			before: mutant.before,
+			after: mutant.after,
+			tests: info.covering,
+		});
+	}
+	result.byKind[mutant.kind] = stats;
+}
+
+function cacheKey(info: SubjectInfo, mutant: Mutant, environmentHash: string): string {
+	return Bun.hash(
+		`${CACHE_VERSION}\0${info.subject}\0${info.sourceHash}\0${mutant.kind}\0${mutant.index}\0${mutant.before}\0${mutant.after}\0${info.testsHash}\0${info.dependencyHash}\0${environmentHash}`,
+	).toString(36);
+}
+
+function hashFile(file: string, cache: Map<string, string>): string {
+	const known = cache.get(file);
+	if (known !== undefined) return known;
+	if (!existsSync(file)) {
+		cache.set(file, "missing");
+
+		return "missing";
+	}
+	const hash = Bun.hash(readFileSync(file, "utf8")).toString(36);
+	cache.set(file, hash);
+
+	return hash;
+}
+
+function dependencyClosure(start: string, graph: Map<string, string[]>): string[] {
+	const seen = new Set([start]);
+	const queue = [start];
+	for (const current of queue) {
+		for (const next of graph.get(current) ?? []) {
+			if (seen.has(next)) continue;
+			seen.add(next);
+			queue.push(next);
 		}
 	}
 
-	return result;
+	return [...seen].toSorted();
 }
 
-/** The run budget of one subject, without running a test. */
-function planSubject(subject: string, covering: string[], options: Options): PlanLine {
-	const analysis = analyse(readFileSync(subject, "utf8"));
-	const viable = analysis?.viable.length ?? 0;
-	const sampled = Math.min(viable, options.maxMutants);
+function computeEnvironmentHash(options: Options, fileHashes: Map<string, string>): string {
+	const hashes = ENVIRONMENT_FILES.map((file) => hashFile(file, fileHashes));
+	const variables = Object.entries(process.env)
+		.filter(([key]) => key.startsWith("REELVAULT_") || key === "CI" || key === "NODE_ENV" || key === "TZ")
+		.toSorted(([left], [right]) => left.localeCompare(right))
+		.map(([key, value]) => `${key}=${value ?? ""}`);
 
-	return { subject, viable, sampled, tests: covering };
+	return Bun.hash(
+		`${Bun.version}\0${process.platform}\0${hashes.join("\0")}\0${variables.join("\0")}\0${options.testTimeoutMs}\0${options.runTimeoutMs}\0${options.typecheck}`,
+	).toString(36);
+}
+
+interface SubjectHashes {
+	sourceHash: string;
+	testsHash: string;
+	dependencyHash: string;
+}
+
+function computeSubjectHashes(
+	subject: string,
+	source: string,
+	covering: string[],
+	analysis: Analysis | undefined,
+	context: BuildContext,
+): SubjectHashes {
+	if (analysis === undefined || analysis.viable.length === 0 || !context.hashing) {
+		return { sourceHash: "", testsHash: "", dependencyHash: "" };
+	}
+	const testsHash = Bun.hash(covering.map((test) => hashFile(test, context.fileHashes)).join("\0")).toString(36);
+	const dependencies = new Set(dependencyClosure(subject, context.graph));
+	for (const test of covering) {
+		for (const file of dependencyClosure(test, context.graph)) dependencies.add(file);
+	}
+	const dependencyHash = Bun.hash(
+		[...dependencies]
+			.toSorted()
+			.map((file) => hashFile(file, context.fileHashes))
+			.join("\0"),
+	).toString(36);
+
+	return { sourceHash: Bun.hash(source).toString(36), testsHash, dependencyHash };
+}
+
+function buildSubjectInfos(subjects: string[], context: BuildContext): SubjectInfo[] {
+	const infos: SubjectInfo[] = [];
+	for (const subject of subjects) {
+		const source = readFileSync(subject, "utf8");
+		const filter = { ...context.filter, subject };
+		const analysis = analyse(source, subject, filter);
+		const covering =
+			analysis === undefined || analysis.viable.length === 0 ? [] : coveringTests(subject, context.reaches, context.options.maxTests);
+		const skipped = analysis === undefined ? "the untouched source does not parse or transpile" : undefined;
+		const hashes = computeSubjectHashes(subject, source, covering, analysis, context);
+		infos.push({ subject, source, analysis, covering, skipped, taskCount: 0, ...hashes });
+	}
+
+	return infos;
+}
+
+function buildTasks(infos: SubjectInfo[], options: Options): Task[] {
+	const tasks: Task[] = [];
+	for (const info of infos) {
+		if (info.analysis === undefined) continue;
+		for (const mutant of sampleEvenly(info.analysis.viable, options.maxMutants)) tasks.push({ info, mutant });
+	}
+	const shard = options.shard;
+	const sharded = shard === undefined ? tasks : tasks.filter((_task, index) => index % shard.count === shard.index - 1);
+	const counts = new Map<string, number>();
+	for (const task of sharded) counts.set(task.info.subject, (counts.get(task.info.subject) ?? 0) + 1);
+	for (const info of infos) info.taskCount = counts.get(info.subject) ?? 0;
+
+	return sharded;
+}
+
+function loadCache(options: Options): MutationCache {
+	const cache: MutationCache = { entries: new Map(), additions: 0 };
+	if (options.clearCache) rmSync(CACHE_FILE, { force: true });
+	if (!options.cache) return cache;
+	if (!existsSync(CACHE_FILE)) return cache;
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(CACHE_FILE, "utf8"));
+		if (!isCacheFile(parsed)) return cache;
+		for (const [key, value] of Object.entries(parsed.entries)) {
+			if (isVerdict(value) && value.skipReason === undefined) cache.entries.set(key, value);
+		}
+	} catch {
+		return cache;
+	}
+
+	return cache;
+}
+
+function saveCache(cache: MutationCache, options: Options): void {
+	if (!options.cache) return;
+	try {
+		const temporary = `${CACHE_FILE}.${process.pid}.tmp`;
+		writeFileSync(temporary, JSON.stringify({ version: CACHE_VERSION, entries: Object.fromEntries(cache.entries) }));
+		renameSync(temporary, CACHE_FILE);
+		cache.additions = 0;
+	} catch (error) {
+		console.error(`could not write the mutation cache: ${String(error)}`);
+	}
+}
+
+function maybeSaveCache(cache: MutationCache, options: Options): void {
+	if (cache.additions < CACHE_SAVE_INTERVAL) return;
+	saveCache(cache, options);
+}
+
+function printProgress(result: SubjectResult): void {
+	if (result.skipped !== undefined) {
+		console.log(`  ${result.subject}  skipped: ${result.skipped}`);
+
+		return;
+	}
+	const cached = result.cached === 0 ? "" : ` (${result.cached} cached)`;
+	console.log(`  ${result.subject}  killed ${result.killed}/${result.tried}${cached}`);
+}
+
+function printWhenComplete(result: SubjectResult, info: SubjectInfo, printed: Set<string>, quiet: boolean): void {
+	if (quiet) return;
+	if (printed.has(info.subject)) return;
+	if (result.skipped === undefined && info.taskCount === 0) return;
+	if (result.skipped === undefined && result.tried < info.taskCount) return;
+	printed.add(info.subject);
+	printProgress(result);
+}
+
+async function runWorkers(tasks: Task[], infos: SubjectInfo[], context: RunContext, cache: MutationCache): Promise<SubjectResult[]> {
+	const results = new Map<string, SubjectResult>();
+	for (const info of infos) results.set(info.subject, createResult(info));
+	if (tasks.length === 0) return [...results.values()];
+	const workerCount = Math.min(context.options.jobs, tasks.length);
+	const shared = { tasks, queue: { index: 0 }, results };
+	const printed = new Set<string>();
+	await Promise.all(
+		Array.from({ length: workerCount }, async (_value, index) => {
+			await runWorker(index, {
+				...shared,
+				baselineSandbox: createSandbox(`baseline-${index}`),
+				baselineCache: { tests: new Map() },
+				cache,
+				context,
+				printed,
+			});
+		}),
+	);
+	for (const info of infos) {
+		const result = results.get(info.subject);
+		if (result !== undefined) printWhenComplete(result, info, printed, context.options.json);
+	}
+
+	return [...results.values()];
+}
+
+async function runWorker(id: number, worker: WorkerContext): Promise<void> {
+	const sandbox = createSandbox(String(id));
+	for (;;) {
+		const index = worker.queue.index++;
+		const task = worker.tasks[index];
+		if (task === undefined) return;
+		const result = worker.results.get(task.info.subject);
+		if (result === undefined || result.skipped !== undefined) continue;
+		const key = cacheKey(task.info, task.mutant, worker.context.environmentHash);
+		const cached = worker.cache.entries.get(key);
+		if (cached !== undefined) {
+			recordVerdict(result, task.info, task.mutant, cached, true);
+			printWhenComplete(result, task.info, worker.printed, worker.context.options.json);
+			continue;
+		}
+		const verdict = await judgeMutant(sandbox, worker.baselineSandbox, task, worker.baselineCache, worker.context.options);
+		if (verdict.skipReason !== undefined) {
+			result.skipped = verdict.skipReason;
+			printWhenComplete(result, task.info, worker.printed, worker.context.options.json);
+			continue;
+		}
+		worker.cache.entries.set(key, verdict);
+		worker.cache.additions++;
+		recordVerdict(result, task.info, task.mutant, verdict, false);
+		printWhenComplete(result, task.info, worker.printed, worker.context.options.json);
+		maybeSaveCache(worker.cache, worker.context.options);
+	}
 }
 
 function summarize(results: SubjectResult[], unwatched: string[]): Summary {
-	const killed = results.reduce((total, result) => total + result.killed, 0);
-	const survivors = results.flatMap((result) => result.survivors);
-	const judged = killed + survivors.length;
+	let killed = 0;
+	let survived = 0;
+	let timedOut = 0;
+	let crashed = 0;
+	let stillborn = 0;
+	let equivalent = 0;
+	let cached = 0;
+	let compileErrors = 0;
+	const survivors: Survivor[] = [];
+	const skipped: Array<{ subject: string; reason: string }> = [];
+	const byKind: Record<string, KindStats> = {};
+	const files: FileStats[] = [];
+	for (const result of results) {
+		killed += result.killed;
+		timedOut += result.timedOut;
+		crashed += result.crashed;
+		stillborn += result.stillborn;
+		equivalent += result.equivalent;
+		cached += result.cached;
+		compileErrors += result.compileErrors;
+		survived += result.survivors.length;
+		for (const survivor of result.survivors) survivors.push(survivor);
+		if (result.skipped !== undefined) skipped.push({ subject: result.subject, reason: result.skipped });
+		for (const [kind, stats] of Object.entries(result.byKind)) {
+			const total = byKind[kind] ?? { killed: 0, survived: 0, compileErrors: 0 };
+			total.killed += stats.killed;
+			total.survived += stats.survived;
+			total.compileErrors += stats.compileErrors;
+			byKind[kind] = total;
+		}
+		if (result.tried > 0 || result.skipped !== undefined) {
+			files.push({ subject: result.subject, killed: result.killed, survived: result.survivors.length, skipped: result.skipped });
+		}
+	}
+	const judged = killed + survived;
 
 	return {
 		score: judged === 0 ? null : (killed / judged) * 100,
 		killed,
-		survived: survivors.length,
-		timedOut: results.reduce((total, result) => total + result.timedOut, 0),
-		stillborn: results.reduce((total, result) => total + result.stillborn, 0),
-		equivalent: results.reduce((total, result) => total + result.equivalent, 0),
-		skipped: results.flatMap((result) => (result.skipped === undefined ? [] : [{ subject: result.subject, reason: result.skipped }])),
+		survived,
+		timedOut,
+		crashed,
+		stillborn,
+		equivalent,
+		cached,
+		compileErrors,
+		skipped,
 		survivors,
 		unwatched,
+		byKind,
+		files,
 	};
 }
 
-function printProgress(result: SubjectResult): void {
-	if (result.skipped === undefined) console.log(`  ${result.subject}  killed ${result.killed}/${result.tried}`);
-	else console.log(`  ${result.subject}  skipped: ${result.skipped}`);
+function printList(tasks: Task[]): void {
+	for (const task of tasks) {
+		console.log(
+			`${task.info.subject}:${task.mutant.line}  ${task.mutant.kind}  ${JSON.stringify(task.mutant.before)} -> ${JSON.stringify(task.mutant.after)}`,
+		);
+	}
+	console.log(`\nmutants: ${tasks.length}`);
 }
 
 function printPlan(plans: PlanLine[], unwatched: string[]): void {
-	for (const plan of plans) console.log(`  ${plan.subject}  viable ${plan.viable}  sampled ${plan.sampled}  tests ${plan.tests.length}`);
-	const mutants = plans.reduce((total, plan) => total + plan.sampled, 0);
-	const runs = plans.reduce((total, plan) => total + plan.sampled * plan.tests.length, 0);
-	const testFiles = new Set(plans.flatMap((plan) => plan.tests)).size;
-	console.log(`\nsubjects: ${plans.length}; unwatched modules: ${unwatched.length}`);
-	console.log(`mutants: ${mutants} at most; test runs: ${runs} at most; green checks: ${testFiles} test files`);
+	let mutants = 0;
+	let runs = 0;
+	const testFiles = new Set<string>();
+	for (const plan of plans) {
+		const suffix = plan.skipped === undefined ? "" : `  skipped: ${plan.skipped}`;
+		console.log(`  ${plan.subject}  viable ${plan.viable}  selected ${plan.sampled}  tests ${plan.tests.length}${suffix}`);
+		mutants += plan.sampled;
+		runs += plan.sampled * plan.tests.length;
+		for (const test of plan.tests) testFiles.add(test);
+	}
+	console.log(`\nsubjects with mutants: ${plans.length}; unwatched modules: ${unwatched.length}`);
+	console.log(`mutants: ${mutants}; test runs: ${runs} at most; green checks: ${testFiles.size} test files`);
 	console.log("each mutant stops at its first killing test, so the real count of test runs is lower");
 }
 
 function printReport(summary: Summary): void {
 	const score = summary.score === null ? "n/a (no viable mutant was run)" : `${summary.score.toFixed(1)}%`;
 	console.log(
-		`\nmutation score: ${score} (${summary.killed} killed, ${summary.survived} survived; ${summary.timedOut} of the killed timed out; ${summary.stillborn} stillborn and ${summary.equivalent} equivalent excluded)`,
+		`\nmutation score: ${score} (${summary.killed} killed, ${summary.survived} survived; ${summary.timedOut} timed out, ${summary.crashed} crashed; ${summary.compileErrors} compile errors, ${summary.stillborn} stillborn and ${summary.equivalent} equivalent excluded; ${summary.cached} cached)`,
 	);
-	if (summary.survivors.length > 0) {
+	const kinds = Object.entries(summary.byKind).toSorted(([left], [right]) => left.localeCompare(right));
+	if (kinds.length > 0) {
+		console.log("\nby mutator:");
+		for (const [kind, stats] of kinds) {
+			console.log(`  ${kind}: ${stats.killed} killed, ${stats.survived} survived, ${stats.compileErrors} compile errors`);
+		}
+	}
+	if (summary.survivors.length === 0) console.log("\nno survivors");
+	else {
 		console.log(`\nsurvived (${summary.survivors.length}):`);
 		for (const survivor of summary.survivors) {
 			console.log(
-				`  ${survivor.subject}:${survivor.line}  ${survivor.kind}  ${JSON.stringify(survivor.before)} -> ${JSON.stringify(survivor.after)}`,
+				`  ${survivor.subject}:${survivor.line}  ${survivor.kind}  ${JSON.stringify(survivor.before)} -> ${JSON.stringify(survivor.after)}  (${survivor.tests.length} covering tests)`,
 			);
 		}
 	}
@@ -825,73 +1912,28 @@ function printReport(summary: Summary): void {
 	console.log(`unwatched modules (no test reaches them): ${summary.unwatched.length}`);
 }
 
-/** Puts back every original a run still holds, then clears the record. */
-function restorePending(): void {
-	for (const [file, original] of pending) writeFileSync(file, original);
-	pending.clear();
-	syncRecovery();
+function planLine(info: SubjectInfo): PlanLine {
+	return {
+		subject: info.subject,
+		viable: info.analysis?.viable.length ?? 0,
+		sampled: info.taskCount,
+		tests: info.covering,
+		skipped: info.skipped,
+	};
 }
 
-/** Writes the record while mutants are in place, and removes it when none are. */
-function syncRecovery(): void {
-	if (pending.size === 0) rmSync(RECOVERY_FILE, { force: true });
-	else writeFileSync(RECOVERY_FILE, JSON.stringify({ pid: process.pid, originals: [...pending] } satisfies RecoveryRecord));
+function isTestPath(path: string): boolean {
+	return path.endsWith(".test.ts");
 }
 
-function isPair(value: unknown): value is [string, string] {
-	return Array.isArray(value) && value.length === 2 && typeof value[0] === "string" && typeof value[1] === "string";
+function isProductionPath(path: string): boolean {
+	return path.startsWith(`${SOURCE_ROOT}/`) && !isTestPath(path);
 }
 
-function isRecoveryRecord(value: unknown): value is RecoveryRecord {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"pid" in value &&
-		typeof value.pid === "number" &&
-		"originals" in value &&
-		Array.isArray(value.originals) &&
-		value.originals.every(isPair)
-	);
-}
-
-/** The record an earlier run left, or undefined when there is none or it cannot be read. */
-function readRecovery(): RecoveryRecord | undefined {
-	if (!existsSync(RECOVERY_FILE)) return undefined;
-	try {
-		const parsed: unknown = JSON.parse(readFileSync(RECOVERY_FILE, "utf8"));
-
-		return isRecoveryRecord(parsed) ? parsed : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-function isProcessAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-
-		return true;
-	} catch (error) {
-		return error instanceof Error && "code" in error && error.code === "EPERM";
-	}
-}
-
-/** Puts back the originals an interrupted run left mutated, and refuses to start while another run holds the files. */
-function claimWorkspace(): void {
-	const record = readRecovery();
-	if (record !== undefined && record.pid !== process.pid && isProcessAlive(record.pid)) {
-		console.error(`another mutation run (pid ${record.pid}) is active; wait for it to finish`);
-		process.exit(1);
-	}
-	if (record !== undefined) {
-		for (const [file, original] of record.originals) writeFileSync(file, original);
-		console.log(`restored ${record.originals.length} file(s) left mutated by an interrupted run`);
-	}
-	rmSync(RECOVERY_FILE, { force: true });
-}
-
-claimWorkspace();
+restoreLegacyRecovery();
 const options = readOptions();
+const diffRanges = readDiffRanges(options);
+const filter: MutationFilter = { subject: "", kinds: options.mutators, exclude: options.excludeMutators, ranges: diffRanges };
 const files = TEST_ROOTS.flatMap((root) => collectTypeScript(root));
 const graph = new Map(files.map((file): [string, string[]] => [file, readLocalImports(file)]));
 const reaches: TestReach[] = files.filter((file) => isTestPath(file)).map((path) => ({ path, reached: reachedModules(path, graph) }));
@@ -901,20 +1943,37 @@ const subjects = [...reachedAll]
 	.filter((subject) => options.files === undefined || options.files.some((pattern) => subject.includes(pattern)))
 	.toSorted();
 
-if (options.plan) {
-	const plans: PlanLine[] = subjects.map((subject) => planSubject(subject, coveringTests(subject, reaches, options.maxTests), options));
-	if (options.json) console.log(JSON.stringify({ plans, unwatched }, null, 2));
-	else printPlan(plans, unwatched);
-} else {
-	const green = new Map<string, RunOutcome>();
-	const results: SubjectResult[] = [];
-	for (const subject of subjects) {
-		const result = await measureSubject(subject, coveringTests(subject, reaches, options.maxTests), options, green);
-		results.push(result);
-		if (!options.json) printProgress(result);
+try {
+	if (!(options.plan || options.list) && options.typecheck) options.typecheck = typecheckAvailable();
+	const fileHashes = new Map<string, string>();
+	const environmentHash = computeEnvironmentHash(options, fileHashes);
+	const context: BuildContext = { reaches, graph, filter, options, fileHashes, hashing: !(options.plan || options.list) };
+	const infos = buildSubjectInfos(subjects, context);
+	const tasks = buildTasks(infos, options);
+	if (options.list) {
+		const mutants = tasks.map((task) => ({
+			subject: task.info.subject,
+			line: task.mutant.line,
+			kind: task.mutant.kind,
+			before: task.mutant.before,
+			after: task.mutant.after,
+		}));
+		if (options.json) console.log(JSON.stringify({ mutants, unwatched }, null, 2));
+		else printList(tasks);
+	} else if (options.plan) {
+		const plans = infos.map((info) => planLine(info)).filter((plan) => plan.viable > 0 || plan.skipped !== undefined);
+		if (options.json) console.log(JSON.stringify({ plans, unwatched }, null, 2));
+		else printPlan(plans, unwatched);
+	} else {
+		const cache = loadCache(options);
+		const results = await runWorkers(tasks, infos, { options, environmentHash }, cache);
+		const summary = summarize(results, unwatched);
+		if (options.json) console.log(JSON.stringify(summary, null, 2));
+		else printReport(summary);
+		saveCache(cache, options);
+		if (options.threshold !== undefined && summary.score !== null && summary.score < options.threshold) process.exitCode = 1;
+		if (options.failOnSurvivors && summary.survived > 0) process.exitCode = 1;
 	}
-
-	const summary = summarize(results, unwatched);
-	if (options.json) console.log(JSON.stringify(summary, null, 2));
-	else printReport(summary);
+} finally {
+	cleanup();
 }

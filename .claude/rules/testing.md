@@ -63,7 +63,7 @@ expect(await readFile(path)).toEqual(before); // the file was not rewritten
 
 Before you finish a test, break the code path it covers: flip one condition or change one code, confirm the test fails, then restore the code. A test that still passes protects nothing.
 
-`bun run mutation` measures this across the suite. It rewrites the implementation and counts the mutants the suite kills. It reports **sensitivity, not correctness** — a suite can kill every mutant and still assert the wrong value, because mutation testing cannot tell an intended change from an unintended one. Use it to find dead weight, never as a certificate.
+`bun run mutation` measures this across the suite. It mutates a private copy of the implementation and counts the mutants the suite kills; a survivor that breaks `tsc --noEmit` is excluded as a compile error. It reports **sensitivity, not correctness** — a suite can kill every mutant and still assert the wrong value, because mutation testing cannot tell an intended change from an unintended one. Use it to find dead weight, never as a certificate. `--in-diff=<base>` scopes a run to the lines a change adds, `--plan` prints the budget, and `--list` prints the selected mutants.
 
 ### 3. Outcome — assert what happened, not how
 
