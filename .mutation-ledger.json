@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T12:51:54.290Z",
+	"updatedAt": "2026-11-14T13:08:17.272Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -121,17 +121,17 @@
 			"typecheck": true
 		},
 		"src/services/admin/admin-users.service.ts": {
-			"checkedAt": "2026-11-14T12:45:05.762Z",
-			"lastRunId": "e6f5a064-deeb-4756-a651-dc5a2095a3eb",
+			"checkedAt": "2026-11-14T13:08:17.272Z",
+			"lastRunId": "7be4af10-2daa-456c-9f00-4800b535ca49",
 			"coverage": "partial",
 			"scope": "files=admin-users.service; max-tests=10",
 			"viable": 350,
-			"killed": 162,
-			"todo": 101,
-			"accepted": 0,
-			"compileErrors": 87,
+			"killed": 288,
+			"todo": 0,
+			"accepted": 62,
+			"compileErrors": 0,
 			"maxTests": 10,
-			"typecheck": true
+			"typecheck": false
 		},
 		"src/utils/response-body.cache.ts": {
 			"checkedAt": "2026-11-14T12:51:54.290Z",
@@ -808,6 +808,502 @@
 			"after": "||",
 			"occurrence": 1,
 			"acceptedAt": "2026-11-14T12:51:54.290Z"
+		},
+		"top07vblr0v5": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"AdminUsersService\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"ty5u0u6ipwsa": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"AdminUsersService\"",
+			"after": "\"\"",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"13cmqsubl7w86": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"getAll\", async () => {\n\t\t\tconst pagination = resolvePageParams(query, { defaultLimit: 25 });\n\t\t\tconst { total, data } = await usersRepository.findForAdministration({\n\t\t\t\tsearch: query.q?.trim(),\n\t\t\t\trole: query.role,\n\t\t\t\tbanned: query.status === undefined ? undefined : query.status === \"blocked\",\n\t\t\t\tlimit: pagination.limit,\n\t\t\t\toffset: pagination.offset,\n\t\t\t});\n\n\t\t\treturn {\n\t\t\t\t...buildAdminPagination({ total, page: pagination.page, limit: pagination.limit }),\n\t\t\t\tdata: await this.toAdminUsers(data),\n\t\t\t};\n\t\t})",
+			"after": "runSafely(this, \"getAll\", async () => {\n\t\t\tconst pagination = resolvePageParams(query, { defaultLimit: 25 });\n\t\t\tconst { total, data } = await usersRepository.findForAdministration({\n\t\t\t\tsearch: query.q?.trim(),\n\t\t\t\trole: query.role,\n\t\t\t\tbanned: query.status === undefined ? undefined : query.status === \"blocked\",\n\t\t\t\tlimit: pagination.limit,\n\t\t\t\toffset: pagination.offset,\n\t\t\t});\n\n\t\t\treturn {\n\t\t\t\t...buildAdminPagination({ total, page: pagination.page, limit: pagination.limit }),\n\t\t\t\tdata: await this.toAdminUsers(data),\n\t\t\t};\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2ls0v0g2flv66": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"getAll\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"y7bk24llegrn": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"getSessions\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\n\t\t\tconst page = await sessionsRepository.findActivePageByUserId(userId, query);\n\n\t\t\treturn {\n\t\t\t\t...page,\n\t\t\t\tdata: page.data.map((session) => ({\n\t\t\t\t\tid: session.id,\n\t\t\t\t\tipAddress: session.ipAddress,\n\t\t\t\t\tuserAgent: session.userAgent,\n\t\t\t\t\tcreatedAt: session.createdAt.toISOString(),\n\t\t\t\t\tupdatedAt: session.updatedAt.toISOString(),\n\t\t\t\t\texpiresAt: session.expiresAt.toISOString(),\n\t\t\t\t})),\n\t\t\t};\n\t\t})",
+			"after": "runSafely(this, \"getSessions\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\n\t\t\tconst page = await sessionsRepository.findActivePageByUserId(userId, query);\n\n\t\t\treturn {\n\t\t\t\t...page,\n\t\t\t\tdata: page.data.map((session) => ({\n\t\t\t\t\tid: session.id,\n\t\t\t\t\tipAddress: session.ipAddress,\n\t\t\t\t\tuserAgent: session.userAgent,\n\t\t\t\t\tcreatedAt: session.createdAt.toISOString(),\n\t\t\t\t\tupdatedAt: session.updatedAt.toISOString(),\n\t\t\t\t\texpiresAt: session.expiresAt.toISOString(),\n\t\t\t\t})),\n\t\t\t};\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3og6k0zadqrpv": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"getSessions\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"11xrqu1kmfxvx": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"revokeSession\", async () => {\n\t\t\tconst revoked = await sessionsRepository.deleteForUser({ userId, sessionId });\n\t\t\tassertFound(revoked || undefined, \"Session\", sessionId);\n\n\t\t\trecordAuditSafe({ action: \"delete\", resourceType: \"user_session\", resourceId: sessionId, after: { userId }, context }, this.logger);\n\n\t\t\treturn { success: true };\n\t\t})",
+			"after": "runSafely(this, \"revokeSession\", async () => {\n\t\t\tconst revoked = await sessionsRepository.deleteForUser({ userId, sessionId });\n\t\t\tassertFound(revoked || undefined, \"Session\", sessionId);\n\n\t\t\trecordAuditSafe({ action: \"delete\", resourceType: \"user_session\", resourceId: sessionId, after: { userId }, context }, this.logger);\n\n\t\t\treturn { success: true };\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"1fcwl0gzsqrh": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"revokeSession\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"35gk7xrnsk9c0": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"revokeSessionsForUsers\", async () => {\n\t\t\tconst revokedSessions = await sessionsRepository.deleteForUsers(userIds);\n\n\t\t\trecordAuditSafe(\n\t\t\t\t{ action: \"delete\", resourceType: \"user_session\", resourceId: \"bulk\", after: { userIds, revokedSessions }, context },\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn { revokedSessions };\n\t\t})",
+			"after": "runSafely(this, \"revokeSessionsForUsers\", async () => {\n\t\t\tconst revokedSessions = await sessionsRepository.deleteForUsers(userIds);\n\n\t\t\trecordAuditSafe(\n\t\t\t\t{ action: \"delete\", resourceType: \"user_session\", resourceId: \"bulk\", after: { userIds, revokedSessions }, context },\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn { revokedSessions };\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2pp0y2pzl87d2": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"revokeSessionsForUsers\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"vqbf2xdy9rta": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"getById\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\n\t\t\treturn toAdminUser(user, await this.activityOf(userId));\n\t\t})",
+			"after": "runSafely(this, \"getById\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\n\t\t\treturn toAdminUser(user, await this.activityOf(userId));\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2pf28jsgtmwci": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"getById\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"ygcw2sp9zexj": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"getByIdWithProfiles\", async () => {\n\t\t\tconst [user, profiles] = await Promise.all([usersRepository.findById(userId), profilesRepository.findByUserId(userId)]);\n\t\t\tassertFound(user, \"User\", userId);\n\n\t\t\treturn { user: toAdminUser(user), profiles: profiles.map((item) => toAdminUserProfile(item)) };\n\t\t})",
+			"after": "runSafely(this, \"getByIdWithProfiles\", async () => {\n\t\t\tconst [user, profiles] = await Promise.all([usersRepository.findById(userId), profilesRepository.findByUserId(userId)]);\n\t\t\tassertFound(user, \"User\", userId);\n\n\t\t\treturn { user: toAdminUser(user), profiles: profiles.map((item) => toAdminUserProfile(item)) };\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2ajakohe6ufsr": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"getByIdWithProfiles\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"t81z200nhinf": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"create\", async () => {\n\t\t\tassertPresent(context?.headers, \"Request headers are required to create an admin user\");\n\t\t\tconst existing = await usersRepository.findByEmail(body.email);\n\t\t\tif (existing) throw new DomainError(\"conflict\", \"User with this email already exists\", { code: \"admin.user_email_conflict\" });\n\n\t\t\tconst result = await betterAuthApi.createUser({\n\t\t\t\tname: body.name,\n\t\t\t\temail: body.email,\n\t\t\t\tpassword: body.password,\n\t\t\t\trole: body.role ?? \"user\",\n\t\t\t\theaders: context.headers,\n\t\t\t});\n\n\t\t\tconst user = await usersRepository.findById(result.user.id);\n\t\t\tassertFound(user, \"User\", result.user.id);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"create\",\n\t\t\t\t\tresourceType: \"user\",\n\t\t\t\t\tresourceId: user.id,\n\t\t\t\t\tafter: user,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn toAdminUser(user);\n\t\t})",
+			"after": "runSafely(this, \"create\", async () => {\n\t\t\tassertPresent(context?.headers, \"Request headers are required to create an admin user\");\n\t\t\tconst existing = await usersRepository.findByEmail(body.email);\n\t\t\tif (existing) throw new DomainError(\"conflict\", \"User with this email already exists\", { code: \"admin.user_email_conflict\" });\n\n\t\t\tconst result = await betterAuthApi.createUser({\n\t\t\t\tname: body.name,\n\t\t\t\temail: body.email,\n\t\t\t\tpassword: body.password,\n\t\t\t\trole: body.role ?? \"user\",\n\t\t\t\theaders: context.headers,\n\t\t\t});\n\n\t\t\tconst user = await usersRepository.findById(result.user.id);\n\t\t\tassertFound(user, \"User\", result.user.id);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"create\",\n\t\t\t\t\tresourceType: \"user\",\n\t\t\t\t\tresourceId: user.id,\n\t\t\t\t\tafter: user,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn toAdminUser(user);\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2b2zr9h1mp5gw": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"create\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2n21wbajsh2kl": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"User with this email already exists\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"29f6kwfpkg504": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2we911znre773": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"setPassword\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\t\t\tassertPresent(context?.headers, \"Request headers are required to set a user password\");\n\n\t\t\t// awaits: sequential — sessions are revoked only after the password has changed\n\t\t\tawait betterAuthApi.setUserPassword({ userId, newPassword: body.newPassword, headers: context.headers });\n\t\t\t// A stolen session token must not survive a password reset.\n\t\t\tawait sessionsRepository.deleteAllForUser(userId);\n\t\t\trealtimeService.disconnectUser(userId);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"update\",\n\t\t\t\t\tresourceType: \"user\",\n\t\t\t\t\tresourceId: userId,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn { success: true };\n\t\t})",
+			"after": "runSafely(this, \"setPassword\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\t\t\tassertPresent(context?.headers, \"Request headers are required to set a user password\");\n\n\t\t\t// awaits: sequential — sessions are revoked only after the password has changed\n\t\t\tawait betterAuthApi.setUserPassword({ userId, newPassword: body.newPassword, headers: context.headers });\n\t\t\t// A stolen session token must not survive a password reset.\n\t\t\tawait sessionsRepository.deleteAllForUser(userId);\n\t\t\trealtimeService.disconnectUser(userId);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"update\",\n\t\t\t\t\tresourceType: \"user\",\n\t\t\t\t\tresourceId: userId,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn { success: true };\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3anmqajaj1sii": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"setPassword\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"lccz8vqm0xt8": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"update\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\t\t\tif (user.id === context?.actorUserId && (body.role === \"user\" || body.banned)) {\n\t\t\t\tthrow new DomainError(\"forbidden\", \"You cannot remove your own administrative access\", { code: \"admin.self_demotion_forbidden\" });\n\t\t\t}\n\n\t\t\tif (user.role === \"admin\" && body.role === \"user\") {\n\t\t\t\tawait this.assertNotLastAdmin(user);\n\t\t\t}\n\n\t\t\tassertPresent(context?.headers, \"Request headers are required to update an admin user\");\n\t\t\tif (body.role !== undefined && body.role !== user.role) {\n\t\t\t\tawait betterAuthApi.setRole({ userId, role: body.role, headers: context.headers });\n\t\t\t}\n\n\t\t\tif (body.banned === true && !user.banned) {\n\t\t\t\tawait betterAuthApi.banUser({ userId, banReason: body.banReason ?? undefined, headers: context.headers });\n\t\t\t\trealtimeService.disconnectUser(userId);\n\t\t\t}\n\n\t\t\tif (body.banned === false && user.banned) {\n\t\t\t\tawait betterAuthApi.unbanUser({ userId, headers: context.headers });\n\t\t\t}\n\n\t\t\tconst updated = await usersRepository.findById(userId);\n\t\t\tassertFound(updated, \"User\", userId);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"update\",\n\t\t\t\t\tresourceType: \"user\",\n\t\t\t\t\tresourceId: userId,\n\t\t\t\t\tbefore: user,\n\t\t\t\t\tafter: updated,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn toAdminUser(updated);\n\t\t})",
+			"after": "runSafely(this, \"update\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\t\t\tif (user.id === context?.actorUserId && (body.role === \"user\" || body.banned)) {\n\t\t\t\tthrow new DomainError(\"forbidden\", \"You cannot remove your own administrative access\", { code: \"admin.self_demotion_forbidden\" });\n\t\t\t}\n\n\t\t\tif (user.role === \"admin\" && body.role === \"user\") {\n\t\t\t\tawait this.assertNotLastAdmin(user);\n\t\t\t}\n\n\t\t\tassertPresent(context?.headers, \"Request headers are required to update an admin user\");\n\t\t\tif (body.role !== undefined && body.role !== user.role) {\n\t\t\t\tawait betterAuthApi.setRole({ userId, role: body.role, headers: context.headers });\n\t\t\t}\n\n\t\t\tif (body.banned === true && !user.banned) {\n\t\t\t\tawait betterAuthApi.banUser({ userId, banReason: body.banReason ?? undefined, headers: context.headers });\n\t\t\t\trealtimeService.disconnectUser(userId);\n\t\t\t}\n\n\t\t\tif (body.banned === false && user.banned) {\n\t\t\t\tawait betterAuthApi.unbanUser({ userId, headers: context.headers });\n\t\t\t}\n\n\t\t\tconst updated = await usersRepository.findById(userId);\n\t\t\tassertFound(updated, \"User\", userId);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"update\",\n\t\t\t\t\tresourceType: \"user\",\n\t\t\t\t\tresourceId: userId,\n\t\t\t\t\tbefore: user,\n\t\t\t\t\tafter: updated,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn toAdminUser(updated);\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"1gyk0v2o0g697": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"update\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2vdr70vet01ij": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "optional-chain",
+			"before": "?.",
+			"after": ".",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2x1l2ez0ysug4": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"You cannot remove your own administrative access\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"4j5hyha1g1l5": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "and",
+			"before": "&&",
+			"after": "||",
+			"occurrence": 4,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3fu76ey57su9d": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"delete\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\t\t\tif (user.id === context?.actorUserId)\n\t\t\t\tthrow new DomainError(\"forbidden\", \"You cannot delete your own account\", { code: \"admin.self_delete_forbidden\" });\n\n\t\t\tawait this.assertNotLastAdmin(user);\n\n\t\t\tassertPresent(context?.headers, \"Request headers are required to delete an admin user\");\n\t\t\tawait betterAuthApi.removeUser({ userId, headers: context.headers });\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"delete\",\n\t\t\t\t\tresourceType: \"user\",\n\t\t\t\t\tresourceId: userId,\n\t\t\t\t\tbefore: user,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn { success: true };\n\t\t})",
+			"after": "runSafely(this, \"delete\", async () => {\n\t\t\tconst user = await usersRepository.findById(userId);\n\t\t\tassertFound(user, \"User\", userId);\n\t\t\tif (user.id === context?.actorUserId)\n\t\t\t\tthrow new DomainError(\"forbidden\", \"You cannot delete your own account\", { code: \"admin.self_delete_forbidden\" });\n\n\t\t\tawait this.assertNotLastAdmin(user);\n\n\t\t\tassertPresent(context?.headers, \"Request headers are required to delete an admin user\");\n\t\t\tawait betterAuthApi.removeUser({ userId, headers: context.headers });\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"delete\",\n\t\t\t\t\tresourceType: \"user\",\n\t\t\t\t\tresourceId: userId,\n\t\t\t\t\tbefore: user,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn { success: true };\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2301jzwkhjqqq": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"delete\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"1li953dmdhud8": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "optional-chain",
+			"before": "?.",
+			"after": ".",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2zkirhzpsh6yk": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"You cannot delete your own account\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2xq41132n3fsk": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"getProfiles\", async () => {\n\t\t\tconst userExists = await usersRepository.isExists({ primaryId: userId });\n\t\t\tassertExists(userExists, \"User\", userId);\n\n\t\t\tconst profiles = await profilesRepository.findByUserId(userId);\n\n\t\t\treturn profiles.map((item) => toAdminUserProfile(item));\n\t\t})",
+			"after": "runSafely(this, \"getProfiles\", async () => {\n\t\t\tconst userExists = await usersRepository.isExists({ primaryId: userId });\n\t\t\tassertExists(userExists, \"User\", userId);\n\n\t\t\tconst profiles = await profilesRepository.findByUserId(userId);\n\n\t\t\treturn profiles.map((item) => toAdminUserProfile(item));\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3tuqr6pv4g7zp": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"getProfiles\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3g8h11aj4z0rd": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"createProfile\", async () => {\n\t\t\tconst [userExists, isNameTaken] = await Promise.all([\n\t\t\t\tusersRepository.isExists({ primaryId: userId }),\n\t\t\t\tprofilesRepository.isNameTaken({ userId, name: body.name }),\n\t\t\t]);\n\t\t\tassertExists(userExists, \"User\", userId);\n\t\t\tif (isNameTaken) throw new DomainError(\"conflict\", \"Profile with the same name already exists\", { code: \"profile.name_conflict\" });\n\n\t\t\tlet pin: string | undefined;\n\t\t\tif (body.pin) {\n\t\t\t\tpin = await hashProfilePin(body.pin);\n\t\t\t}\n\n\t\t\tconst profile = await profilesRepository.createAndRead(userId, {\n\t\t\t\tname: body.name,\n\t\t\t\t...(pin === undefined ? {} : { pin }),\n\t\t\t\t...(body.avatarUrl ? { avatarUrl: body.avatarUrl } : {}),\n\t\t\t});\n\t\t\tassertFound(profile, \"Profile\", body.name);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"create\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profile.id,\n\t\t\t\t\tafter: profile,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn toAdminUserProfile(profile);\n\t\t})",
+			"after": "runSafely(this, \"createProfile\", async () => {\n\t\t\tconst [userExists, isNameTaken] = await Promise.all([\n\t\t\t\tusersRepository.isExists({ primaryId: userId }),\n\t\t\t\tprofilesRepository.isNameTaken({ userId, name: body.name }),\n\t\t\t]);\n\t\t\tassertExists(userExists, \"User\", userId);\n\t\t\tif (isNameTaken) throw new DomainError(\"conflict\", \"Profile with the same name already exists\", { code: \"profile.name_conflict\" });\n\n\t\t\tlet pin: string | undefined;\n\t\t\tif (body.pin) {\n\t\t\t\tpin = await hashProfilePin(body.pin);\n\t\t\t}\n\n\t\t\tconst profile = await profilesRepository.createAndRead(userId, {\n\t\t\t\tname: body.name,\n\t\t\t\t...(pin === undefined ? {} : { pin }),\n\t\t\t\t...(body.avatarUrl ? { avatarUrl: body.avatarUrl } : {}),\n\t\t\t});\n\t\t\tassertFound(profile, \"Profile\", body.name);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"create\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profile.id,\n\t\t\t\t\tafter: profile,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn toAdminUserProfile(profile);\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"34cacxkuja9qw": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"createProfile\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2c3u8cfmpyqbs": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"Profile with the same name already exists\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2nrkybmw4cq2h": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "condition-true",
+			"before": "body.pin",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3hwwt6bbfr0e5": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "condition-false",
+			"before": "pin === undefined",
+			"after": "false",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"22s96xh6gtq3b": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "conditional-swap",
+			"before": "{}",
+			"after": "{ pin }",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3l2jza1lqg59r": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "object",
+			"before": "{}",
+			"after": "{ a: 1 }",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"lkhdy0dzd1r8": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "condition-true",
+			"before": "body.avatarUrl",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"1n45z0fdtqz2q": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "object",
+			"before": "{}",
+			"after": "{ a: 1 }",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"25hmeq60p22za": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"getProfilePreferences\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\n\t\t\treturn await profilePreferencesRepository.getEffective({ profileId: profile.id });\n\t\t})",
+			"after": "runSafely(this, \"getProfilePreferences\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\n\t\t\treturn await profilePreferencesRepository.getEffective({ profileId: profile.id });\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2zpawpmaekj2d": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"getProfilePreferences\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"33trqvg3g65fs": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await profilePreferencesRepository.getEffective({ profileId: profile.id })",
+			"after": "profilePreferencesRepository.getEffective({ profileId: profile.id })",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"8yhpd90yl96j": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"updateProfilePreferences\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\t\t\tconst preferences = await profilePreferencesRepository.applyUpdate({ profileId: profile.id, body });\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"update\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profile.id,\n\t\t\t\t\tafter: preferences,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn preferences;\n\t\t})",
+			"after": "runSafely(this, \"updateProfilePreferences\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\t\t\tconst preferences = await profilePreferencesRepository.applyUpdate({ profileId: profile.id, body });\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"update\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profile.id,\n\t\t\t\t\tafter: preferences,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn preferences;\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"24tduxv3c0fco": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"updateProfilePreferences\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"246mcsl96h0mg": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await profilePreferencesRepository.applyUpdate({ profileId: profile.id, body })",
+			"after": "profilePreferencesRepository.applyUpdate({ profileId: profile.id, body })",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"zoe3jh6vymq9": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"resetProfilePreferences\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\t\t\tconst preferences = await profilePreferencesRepository.reset({ profileId: profile.id });\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"delete\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profile.id,\n\t\t\t\t\tafter: preferences,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn preferences;\n\t\t})",
+			"after": "runSafely(this, \"resetProfilePreferences\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\t\t\tconst preferences = await profilePreferencesRepository.reset({ profileId: profile.id });\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"delete\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profile.id,\n\t\t\t\t\tafter: preferences,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn preferences;\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3kxccnypo8zb8": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"resetProfilePreferences\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"1wj9qmajrkzgb": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await profilePreferencesRepository.reset({ profileId: profile.id })",
+			"after": "profilePreferencesRepository.reset({ profileId: profile.id })",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"39m6ibuqy29lp": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"updateProfile\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\t\t\tif (body.name !== undefined && body.name !== profile.name) {\n\t\t\t\tconst nameTaken = await profilesRepository.isNameTaken({ userId, name: body.name, excludeId: profile.id });\n\t\t\t\tif (nameTaken) throw new DomainError(\"conflict\", \"Profile with the same name already exists\", { code: \"profile.name_conflict\" });\n\t\t\t}\n\n\t\t\tconst payload: AdminUserProfileUpdate = { ...body };\n\t\t\tif (body.pin !== undefined) {\n\t\t\t\tif (body.pin) {\n\t\t\t\t\tpayload.pin = await hashProfilePin(body.pin);\n\t\t\t\t} else {\n\t\t\t\t\tpayload.pin = null;\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tlet updated = profile;\n\t\t\tif (hasEntry(payload)) {\n\t\t\t\tupdated = (await profilesRepository.updateAndRead(profile.id, payload)) ?? profile;\n\t\t\t}\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"update\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profileId,\n\t\t\t\t\tbefore: profile,\n\t\t\t\t\tafter: updated,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn toAdminUserProfile(updated);\n\t\t})",
+			"after": "runSafely(this, \"updateProfile\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\t\t\tif (body.name !== undefined && body.name !== profile.name) {\n\t\t\t\tconst nameTaken = await profilesRepository.isNameTaken({ userId, name: body.name, excludeId: profile.id });\n\t\t\t\tif (nameTaken) throw new DomainError(\"conflict\", \"Profile with the same name already exists\", { code: \"profile.name_conflict\" });\n\t\t\t}\n\n\t\t\tconst payload: AdminUserProfileUpdate = { ...body };\n\t\t\tif (body.pin !== undefined) {\n\t\t\t\tif (body.pin) {\n\t\t\t\t\tpayload.pin = await hashProfilePin(body.pin);\n\t\t\t\t} else {\n\t\t\t\t\tpayload.pin = null;\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tlet updated = profile;\n\t\t\tif (hasEntry(payload)) {\n\t\t\t\tupdated = (await profilesRepository.updateAndRead(profile.id, payload)) ?? profile;\n\t\t\t}\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"update\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profileId,\n\t\t\t\t\tbefore: profile,\n\t\t\t\t\tafter: updated,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn toAdminUserProfile(updated);\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"2ak0jf6key8j7": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"updateProfile\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"1am5n373kezg9": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "condition-true",
+			"before": "body.name !== undefined && body.name !== profile.name",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3j1vd57ntddv1": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "and",
+			"before": "&&",
+			"after": "||",
+			"occurrence": 5,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3azxodk454b4q": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"Profile with the same name already exists\"",
+			"after": "\"\"",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"f06f4463nfac": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "condition-true",
+			"before": "hasEntry(payload)",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"xit8qcq2oxmr": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "await-remove",
+			"before": "await runSafely(this, \"deleteProfile\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\t\t\tawait profilesRepository.delete({ primaryId: profile.id });\n\t\t\tprofilesRepository.invalidateCached(profile.id);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"delete\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profileId,\n\t\t\t\t\tbefore: profile,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn { success: true };\n\t\t})",
+			"after": "runSafely(this, \"deleteProfile\", async () => {\n\t\t\tconst profile = await this.getOwnedProfile(userId, profileId);\n\t\t\tawait profilesRepository.delete({ primaryId: profile.id });\n\t\t\tprofilesRepository.invalidateCached(profile.id);\n\t\t\trecordAuditSafe(\n\t\t\t\t{\n\t\t\t\t\taction: \"delete\",\n\t\t\t\t\tresourceType: \"profile\",\n\t\t\t\t\tresourceId: profileId,\n\t\t\t\t\tbefore: profile,\n\t\t\t\t\tcontext,\n\t\t\t\t},\n\t\t\t\tthis.logger,\n\t\t\t);\n\n\t\t\treturn { success: true };\n\t\t})",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3t73efja9hev4": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"deleteProfile\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"el74syhbrl1k": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "string",
+			"before": "\"At least one administrator must remain\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"3e9smq74yoari": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"7qylw4atdmi5": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"b3mtkgtlhuex": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "optional-chain",
+			"before": "?.",
+			"after": ".",
+			"occurrence": 5,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
+		},
+		"1d78h1vfsanff": {
+			"subject": "src/services/admin/admin-users.service.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 3,
+			"acceptedAt": "2026-11-14T13:08:17.272Z"
 		}
 	},
 	"runs": [
@@ -1364,6 +1860,70 @@
 			"todo": 0,
 			"accepted": 35,
 			"compileErrors": 14
+		},
+		{
+			"id": "4255a189-21aa-49ef-a6e3-6da07e0ac18f",
+			"startedAt": "2026-11-14T12:55:58.494Z",
+			"finishedAt": "2026-11-14T12:59:06.159Z",
+			"commit": "00979a50",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=admin-users.service; max-tests=10",
+			"maxTests": 10,
+			"typecheck": false,
+			"subjects": 1,
+			"killed": 274,
+			"todo": 76,
+			"accepted": 0,
+			"compileErrors": 0
+		},
+		{
+			"id": "96d21db1-7814-46eb-a4d4-2a882fb77661",
+			"startedAt": "2026-11-14T13:00:34.140Z",
+			"finishedAt": "2026-11-14T13:03:26.283Z",
+			"commit": "00979a50",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=admin-users.service; max-tests=10",
+			"maxTests": 10,
+			"typecheck": false,
+			"subjects": 1,
+			"killed": 282,
+			"todo": 68,
+			"accepted": 0,
+			"compileErrors": 0
+		},
+		{
+			"id": "55337baa-702d-4506-8a81-e852597d6020",
+			"startedAt": "2026-11-14T13:04:35.040Z",
+			"finishedAt": "2026-11-14T13:07:52.606Z",
+			"commit": "00979a50",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=admin-users.service; max-tests=10",
+			"maxTests": 10,
+			"typecheck": false,
+			"subjects": 1,
+			"killed": 288,
+			"todo": 62,
+			"accepted": 0,
+			"compileErrors": 0
+		},
+		{
+			"id": "7be4af10-2daa-456c-9f00-4800b535ca49",
+			"startedAt": "2026-11-14T13:08:16.942Z",
+			"finishedAt": "2026-11-14T13:08:17.272Z",
+			"commit": "00979a50",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=admin-users.service; max-tests=10",
+			"maxTests": 10,
+			"typecheck": false,
+			"subjects": 1,
+			"killed": 288,
+			"todo": 0,
+			"accepted": 62,
+			"compileErrors": 0
 		}
 	]
 }
