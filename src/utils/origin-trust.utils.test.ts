@@ -30,6 +30,37 @@ describe("isUsableOriginEntry", () => {
 });
 
 describe("getTrustedOriginPatterns", () => {
+	it("includes the native shells and every private-network range", () => {
+		const patterns = getTrustedOriginPatterns();
+		const privateRanges = [
+			"tauri://localhost",
+			"http://tauri.localhost",
+			"capacitor://localhost",
+			"https://*.reelvault.mobile",
+			"http://localhost:*",
+			"https://localhost:*",
+			"http://127.0.0.1:*",
+			"https://127.0.0.1:*",
+			"http://10.*:*",
+			"https://10.*:*",
+			...Array.from({ length: 16 }, (_, index) => `http://172.${16 + index}.*:*`),
+			"http://192.168.*:*",
+			"https://192.168.*:*",
+			"http://*.lan:*",
+			"https://*.lan:*",
+			"http://*.local:*",
+			"https://*.local:*",
+			"http://*.home:*",
+			"https://*.home:*",
+			"http://*.home.arpa:*",
+			"https://*.home.arpa:*",
+			"http://*.internal:*",
+			"https://*.internal:*",
+		];
+
+		expect(patterns).toEqual(expect.arrayContaining(privateRanges));
+	});
+
 	it("picks up allowed-origin setting changes without a restart", () => {
 		expect(getTrustedOriginPatterns()).not.toContain("https://bench.example");
 
@@ -46,6 +77,7 @@ describe("isLocalNetworkHost", () => {
 		expect(isLocalNetworkHost("localhost")).toBe(true);
 		expect(isLocalNetworkHost("127.0.0.1")).toBe(true);
 		expect(isLocalNetworkHost("::1")).toBe(true);
+		expect(isLocalNetworkHost("[::1]")).toBe(true);
 	});
 
 	it("identifies private IPv4 addresses (RFC 1918)", () => {
@@ -65,6 +97,8 @@ describe("isLocalNetworkHost", () => {
 		expect(isLocalNetworkHost("mybox.home")).toBe(true);
 		expect(isLocalNetworkHost("vault.home.arpa")).toBe(true);
 		expect(isLocalNetworkHost("app.internal")).toBe(true);
+		expect(isLocalNetworkHost("lan")).toBe(true);
+		expect(isLocalNetworkHost("internal")).toBe(true);
 	});
 
 	it("rejects public domains and public IP addresses", () => {
@@ -150,5 +184,53 @@ describe("isOriginAllowed", () => {
 		expect(isOriginAllowed("http://untrusted-public-ip.com:3000")).toBe(false);
 		expect(isOriginAllowed(null)).toBe(false);
 		expect(isOriginAllowed("")).toBe(false);
+	});
+});
+
+describe("origin trust decisions", () => {
+	it("rejects native-shell lookalikes and non-http schemes", () => {
+		expect(isOriginAllowed("tauri://evil")).toBe(false);
+		expect(isOriginAllowed("http://tauri.localhost.evil.com")).toBe(false);
+		expect(isOriginAllowed("ftp://example.com")).toBe(false);
+		expect(isOriginAllowed("file://localhost")).toBe(false);
+	});
+
+	it("stops trusting the local network when the setting is off", () => {
+		systemSettingsStore.setRuntimeValue("network.trustLocalNetworks", false);
+
+		expect(isOriginAllowed("http://192.168.1.20:3000")).toBe(false);
+		expect(isOriginAllowed("http://reelvault.lan:3000")).toBe(false);
+		// The HTTPS loopback shell origin is explicit, not part of LAN trust.
+		expect(isOriginAllowed("https://localhost")).toBe(true);
+	});
+
+	it("rejects malformed and non-http origins even when an explicit rule matches", () => {
+		expect(isOriginAllowed("not a url")).toBe(false);
+		expect(isOriginAllowed("ftp://example.com", ["ftp://example.com"])).toBe(false);
+	});
+
+	it("allows origins from the dynamic allowlist without a restart", () => {
+		systemSettingsStore.setRuntimeValue("network.allowedOrigins", ["https://app.example.com", "https://*.apps.example.com"]);
+
+		expect(isOriginAllowed("https://app.example.com")).toBe(true);
+		expect(isOriginAllowed("https://media.apps.example.com")).toBe(true);
+		expect(isOriginAllowed("https://other.example.com")).toBe(false);
+	});
+
+	it("allows a single dynamic allowlist origin", () => {
+		systemSettingsStore.setRuntimeValue("network.allowedOrigins", ["https://single.example.com"]);
+
+		expect(isOriginAllowed("https://single.example.com")).toBe(true);
+		expect(isOriginAllowed("https://other.example.com")).toBe(false);
+	});
+
+	it("keeps the native shell patterns when a dynamic allowlist is configured", () => {
+		systemSettingsStore.setRuntimeValue("network.allowedOrigins", ["https://app.example.com"]);
+
+		const patterns = getTrustedOriginPatterns();
+
+		expect(patterns).toContain("tauri://localhost");
+		expect(patterns).toContain("capacitor://localhost");
+		expect(patterns).toContain("https://app.example.com");
 	});
 });
