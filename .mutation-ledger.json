@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T13:28:06.870Z",
+	"updatedAt": "2026-11-14T13:35:16.952Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -147,15 +147,15 @@
 			"typecheck": true
 		},
 		"src/utils/mem.utils.ts": {
-			"checkedAt": "2026-11-14T04:31:37.347Z",
-			"lastRunId": "185327f1-d946-4206-b94a-999144403bf3",
+			"checkedAt": "2026-11-14T13:35:16.952Z",
+			"lastRunId": "d8050f34-4e84-4928-a6dd-2b34ea35d7a4",
 			"coverage": "partial",
 			"scope": "files=mem.utils; max-tests=10",
-			"viable": 226,
-			"killed": 37,
-			"todo": 129,
-			"accepted": 0,
-			"compileErrors": 60,
+			"viable": 258,
+			"killed": 126,
+			"todo": 0,
+			"accepted": 83,
+			"compileErrors": 49,
 			"maxTests": 10,
 			"typecheck": true
 		}
@@ -2400,6 +2400,670 @@
 			"after": "\"\"",
 			"occurrence": 1,
 			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"2djltamiz341h": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "regex",
+			"before": "/MemTotal:\\s+(\\d+)/",
+			"after": "/^MemTotal:\\s+(\\d+)/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"235bcjyr3j5p3": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "regex",
+			"before": "/MemTotal:\\s+(\\d+)/",
+			"after": "/MemTotal:\\s*(\\d*)/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"30g7atb8m1ns3": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "regex",
+			"before": "/MemAvailable:\\s+(\\d+)/",
+			"after": "/MemAvailable:\\s*(\\d*)/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2ct6pigsfp6v0": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"/proc/spl/kstat/zfs/arcstats\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1pb15ftkha9yq": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "regex",
+			"before": "/^(size|c_min)\\s+\\d+\\s+(\\d+)$/",
+			"after": "/(size|c_min)\\s+\\d+\\s+(\\d+)$/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2p37zeeoe7gmq": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "regex",
+			"before": "/^(size|c_min)\\s+\\d+\\s+(\\d+)$/",
+			"after": "/^(size|c_min)\\s+\\d+\\s+(\\d+)/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"37neh3oxqbxf0": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "regex",
+			"before": "/^(size|c_min)\\s+\\d+\\s+(\\d+)$/",
+			"after": "/^(size|c_min)\\s*\\d*\\s*(\\d*)$/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"33mqanther0x2": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "truthy",
+			"before": "false",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"39nqllu2mhmbr": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"/sys/fs/cgroup/memory.max\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1ahlf7q0iyxmy": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"/sys/fs/cgroup/memory.current\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2vu6f73a4bhi7": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"/sys/fs/cgroup/memory/memory.limit_in_bytes\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"eidrn9x9b01f": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "array",
+			"before": "[\"/sys/fs/cgroup/memory/memory.limit_in_bytes\", \"/sys/fs/cgroup/memory.limit_in_bytes\"]",
+			"after": "[]",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3d78mrt61u2cq": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"/sys/fs/cgroup/memory.limit_in_bytes\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3dktve7flowow": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "array",
+			"before": "[\"/sys/fs/cgroup/memory/memory.usage_in_bytes\", \"/sys/fs/cgroup/memory.usage_in_bytes\"]",
+			"after": "[]",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1ge4nh0athrym": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"/sys/fs/cgroup/memory/memory.usage_in_bytes\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3n3hm54a8ja7b": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"/sys/fs/cgroup/memory.usage_in_bytes\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3rg3ktlcmvbnu": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2wadi2x3jvyyj": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"0\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1gne3ybiz5y5a": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "10",
+			"after": "0",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1lhqxpagy419f": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"jldrxbh3ioc9": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3212yi8hdoyld": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"0\"",
+			"after": "\"\"",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1hbkfdqqqmmjj": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "10",
+			"after": "0",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3ayn8gh72sjk4": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2rq74x8116lx7": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"ngh543wyynji": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "array",
+			"before": "[CGROUP_V2_LIMIT_PATH, CGROUP_V2_USAGE_PATH]",
+			"after": "[]",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3e7d19qfp9jmc": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\ttry {\n\t\t\treadFileSync(path, \"utf8\");\n\n\t\t\treturn \"v2\";\n\t\t} catch {\n\t\t\t// Path not present on this system — probe the next candidate.\n\t\t}\n\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"m915yrgxz0wj": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\t\treadFileSync(path, \"utf8\");\n\n\t\t\treturn \"v2\";\n\t\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3eoyggksdpfxm": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "array",
+			"before": "[...CGROUP_V1_LIMIT_PATHS, ...CGROUP_V1_USAGE_PATHS]",
+			"after": "[]",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"bdqfzdgvlrhy": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\ttry {\n\t\t\treadFileSync(path, \"utf8\");\n\n\t\t\treturn \"v1\";\n\t\t} catch {\n\t\t\t// Path not present on this system — probe the next candidate.\n\t\t}\n\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"39woiu260sdvq": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\t\treadFileSync(path, \"utf8\");\n\n\t\t\treturn \"v1\";\n\t\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1jk6xkzg7tzop": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "truthy",
+			"before": "false",
+			"after": "true",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2wxbk16u1su68": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-negation",
+			"before": "limitResolved",
+			"after": "!(limitResolved)",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"27b1jn9yps3lf": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "return-value",
+			"before": "cachedLimitKiB",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2yutejl9x59zm": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "return-value",
+			"before": "cachedLimitKiB",
+			"after": "undefined",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3jv5132esu0i2": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-negation",
+			"before": "hierarchy === \"v2\"",
+			"after": "!(hierarchy === \"v2\")",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2rlmp649hdzuq": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-true",
+			"before": "hierarchy === \"v2\"",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"24grvfzp5bs8r": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-false",
+			"before": "hierarchy === \"v2\"",
+			"after": "false",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2283a8sqwgx2w": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "equality",
+			"before": "===",
+			"after": "!==",
+			"occurrence": 4,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3t8p2da1pp9k9": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "conditional-swap",
+			"before": "[CGROUP_V2_LIMIT_PATH]",
+			"after": "CGROUP_V1_LIMIT_PATHS",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"jy9q2laozdx5": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "array",
+			"before": "[CGROUP_V2_LIMIT_PATH]",
+			"after": "[]",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"oxvrjf4pnec1": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\ttry {\n\t\t\tconst limit = parseCgroupLimitKiB(readFileSync(path, \"utf8\"), hierarchy);\n\t\t\tif (limit !== undefined) {\n\t\t\t\tcachedLimitKiB = limit;\n\n\t\t\t\treturn limit;\n\t\t\t}\n\n\t\t\tif (hierarchy === \"v2\") break; // v2 \"max\" (unlimited) — no other path to try\n\t\t} catch {\n\t\t\t// Limit unreadable — fall through to the next candidate path.\n\t\t}\n\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"bkycixa0j1xn": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\t\tconst limit = parseCgroupLimitKiB(readFileSync(path, \"utf8\"), hierarchy);\n\t\t\tif (limit !== undefined) {\n\t\t\t\tcachedLimitKiB = limit;\n\n\t\t\t\treturn limit;\n\t\t\t}\n\n\t\t\tif (hierarchy === \"v2\") break; // v2 \"max\" (unlimited) — no other path to try\n\t\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"ksa7cq60f7u": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-negation",
+			"before": "limit !== undefined",
+			"after": "!(limit !== undefined)",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2py1xw88pr99k": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "inequality",
+			"before": "!==",
+			"after": "===",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2sty9z6n7s8rb": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\t\t\tcachedLimitKiB = limit;\n\n\t\t\t\treturn limit;\n\t\t\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1umdspddiclyt": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "return-value",
+			"before": "limit",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"ongzd7w14oo0": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-negation",
+			"before": "hierarchy === \"v2\"",
+			"after": "!(hierarchy === \"v2\")",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"dx9uhelmnwqf": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-true",
+			"before": "hierarchy === \"v2\"",
+			"after": "true",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"i71hs1qh1liu": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "equality",
+			"before": "===",
+			"after": "!==",
+			"occurrence": 5,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2buyviw9fmogp": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "return-value",
+			"before": "cachedLimitKiB",
+			"after": "undefined",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"21n4ee47fvyzv": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-negation",
+			"before": "hierarchy === \"v2\"",
+			"after": "!(hierarchy === \"v2\")",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"ckdom2o03oh3": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-true",
+			"before": "hierarchy === \"v2\"",
+			"after": "true",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1lpcnufchbh3q": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-false",
+			"before": "hierarchy === \"v2\"",
+			"after": "false",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"361htaa0m9kzz": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "equality",
+			"before": "===",
+			"after": "!==",
+			"occurrence": 7,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"22soemokrh79m": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "conditional-swap",
+			"before": "[CGROUP_V2_USAGE_PATH]",
+			"after": "CGROUP_V1_USAGE_PATHS",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3f1j2j8othjsj": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "array",
+			"before": "[CGROUP_V2_USAGE_PATH]",
+			"after": "[]",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3i4zu7cnvr0f3": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\ttry {\n\t\t\tconst usage = parseCgroupUsageKiB(readFileSync(path, \"utf8\"));\n\t\t\tif (usage !== undefined) return usage;\n\t\t} catch {\n\t\t\t// Usage unreadable — fall through to the next candidate path.\n\t\t}\n\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1q0r9rpp1nfcc": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\t\tconst usage = parseCgroupUsageKiB(readFileSync(path, \"utf8\"));\n\t\t\tif (usage !== undefined) return usage;\n\t\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3mm2nj951txna": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-negation",
+			"before": "usage !== undefined",
+			"after": "!(usage !== undefined)",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3fpqo7begoh55": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-true",
+			"before": "usage !== undefined",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3uhguyvawlyzz": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "return-value",
+			"before": "usage",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2qqm1onkgcqmx": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "inequality",
+			"before": "!==",
+			"after": "===",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"ffc1hncc6zyj": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-negation",
+			"before": "simulated !== undefined",
+			"after": "!(simulated !== undefined)",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"w0gb2brbpyk": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "inequality",
+			"before": "!==",
+			"after": "===",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"4eqcitia3btl": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "return-value",
+			"before": "simulated",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"kcee4c12pijl": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-negation",
+			"before": "!cached",
+			"after": "!(!cached)",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"16r8s29ta0zr4": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "condition-true",
+			"before": "!cached",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"bbohci6qq8d6": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "negation",
+			"before": "!",
+			"after": "",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"10a5ub4eh7s4u": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\tcached = true;\n\t\tlet total: number | undefined;\n\t\ttry {\n\t\t\ttotal = parseMeminfoTotalKiB(readFileSync(\"/proc/meminfo\", \"utf8\"));\n\t\t} catch {\n\t\t\t// /proc/meminfo unavailable — fall back to os.totalmem().\n\t\t}\n\n\t\t// /proc/meminfo unavailable — fall back to the host reading that\n\t\t// system-resources owns.\n\t\ttotal ??= detectHostTotalMemoryKiB();\n\t\tcachedTotalKiB = capTotalMemoryKiB(total, readCgroupMemoryLimitKiB());\n\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"18gjv4d2hgknx": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "block",
+			"before": "{\n\t\t\ttotal = parseMeminfoTotalKiB(readFileSync(\"/proc/meminfo\", \"utf8\"));\n\t\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1ygfp4mranzd5": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "return-value",
+			"before": "cachedTotalKiB",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2nc6unq0yorsd": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "return-value",
+			"before": "parseMeminfoAvailableKiB(readFileSync(\"/proc/meminfo\", \"utf8\"))",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1c2l0hftjvdrd": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "string",
+			"before": "\"/proc/meminfo\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2arcigg3ikwgq": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "return-value",
+			"before": "parseZfsArcReclaimableKiB(readFileSync(ZFS_ARCSTATS_PATH, \"utf8\"))",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"11jbjm3zie8wk": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "1",
+			"after": "2",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2vvm8n0o0tj1z": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "1",
+			"after": "0",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"3hm8mt0jrndv9": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "10",
+			"after": "0",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"88qfhlyvd9aw": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "arrow-body",
+			"before": "setTimeout(() => gc(false), 0).unref()",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"9gib6zwazgut": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "arrow-body",
+			"before": "gc(false)",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1xaudadhfhrn3": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "truthy",
+			"before": "false",
+			"after": "true",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"161l3be4bnqtt": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 5,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"2g2w13zdawrls": {
+			"subject": "src/utils/mem.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 5,
+			"acceptedAt": "2026-11-14T13:35:16.952Z"
 		}
 	},
 	"runs": [
@@ -3132,6 +3796,54 @@
 			"todo": 0,
 			"accepted": 71,
 			"compileErrors": 15
+		},
+		{
+			"id": "fd26cf59-6c9f-4d45-ba49-c9d1b612a4e1",
+			"startedAt": "2026-11-14T13:29:02.180Z",
+			"finishedAt": "2026-11-14T13:30:52.073Z",
+			"commit": "2647a7d5",
+			"dirty": false,
+			"coverage": "partial",
+			"scope": "files=mem.utils; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 37,
+			"todo": 129,
+			"accepted": 0,
+			"compileErrors": 60
+		},
+		{
+			"id": "fab7bfa3-5fea-472a-b26b-b6cc4e6c4447",
+			"startedAt": "2026-11-14T13:33:13.059Z",
+			"finishedAt": "2026-11-14T13:34:36.051Z",
+			"commit": "2647a7d5",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=mem.utils; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 126,
+			"todo": 83,
+			"accepted": 0,
+			"compileErrors": 49
+		},
+		{
+			"id": "d8050f34-4e84-4928-a6dd-2b34ea35d7a4",
+			"startedAt": "2026-11-14T13:35:16.681Z",
+			"finishedAt": "2026-11-14T13:35:16.952Z",
+			"commit": "2647a7d5",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=mem.utils; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 126,
+			"todo": 0,
+			"accepted": 83,
+			"compileErrors": 49
 		}
 	]
 }

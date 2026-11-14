@@ -7,6 +7,7 @@ import { isFiniteNumber } from "./type.utils";
 
 const MEM_TOTAL_REGEX = /MemTotal:\s+(\d+)/;
 const MEM_AVAILABLE_REGEX = /MemAvailable:\s+(\d+)/;
+const V1_UNLIMITED_BYTES = 0x7fff_ffff_0000_0000;
 /** ZFS exposes its ARC counters as a Linux kstat file: `name type data`, one counter per line. */
 const ZFS_ARCSTATS_PATH = "/proc/spl/kstat/zfs/arcstats";
 const ZFS_ARCSTAT_LINE_REGEX = /^(size|c_min)\s+\d+\s+(\d+)$/;
@@ -25,6 +26,42 @@ const CGROUP_V2_LIMIT_PATH = "/sys/fs/cgroup/memory.max";
 const CGROUP_V2_USAGE_PATH = "/sys/fs/cgroup/memory.current";
 const CGROUP_V1_LIMIT_PATHS = ["/sys/fs/cgroup/memory/memory.limit_in_bytes", "/sys/fs/cgroup/memory.limit_in_bytes"] as const;
 const CGROUP_V1_USAGE_PATHS = ["/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory.usage_in_bytes"] as const;
+
+/** Total RAM line from `/proc/meminfo`, in KiB. */
+export function parseMeminfoTotalKiB(meminfo: string): number | undefined {
+	const parsed = Number.parseInt(MEM_TOTAL_REGEX.exec(meminfo)?.[1] ?? "0", 10);
+
+	return parsed > 0 ? parsed : undefined;
+}
+
+/** Live `MemAvailable` line from `/proc/meminfo`, in KiB. */
+export function parseMeminfoAvailableKiB(meminfo: string): number | undefined {
+	const parsed = Number.parseInt(MEM_AVAILABLE_REGEX.exec(meminfo)?.[1] ?? "0", 10);
+
+	return parsed > 0 ? parsed : undefined;
+}
+
+/** A cgroup memory limit (`max` or the v1 unlimited sentinel means no limit), in KiB. */
+export function parseCgroupLimitKiB(raw: string, hierarchy: Exclude<CgroupHierarchy, "none">): number | undefined {
+	const bytes = Number(raw.trim());
+	const unlimited = hierarchy === "v1" && bytes >= V1_UNLIMITED_BYTES;
+
+	return isFiniteNumber(bytes) && bytes > 0 && !unlimited ? Math.floor(bytes / KIB) : undefined;
+}
+
+/** A cgroup memory usage counter, in KiB. */
+export function parseCgroupUsageKiB(raw: string): number | undefined {
+	const bytes = Number(raw.trim());
+
+	return isFiniteNumber(bytes) && bytes >= 0 ? Math.floor(bytes / KIB) : undefined;
+}
+
+/** Uses the container quota when it is stricter than the host reading. */
+export function capTotalMemoryKiB(total: number | undefined, cgroupLimit: number | undefined): number | undefined {
+	if (cgroupLimit === undefined) return total;
+
+	return total === undefined ? cgroupLimit : Math.min(total, cgroupLimit);
+}
 
 let cgroupHierarchy: CgroupHierarchy | undefined;
 
@@ -75,13 +112,11 @@ export function readCgroupMemoryLimitKiB(): number | undefined {
 	const paths = hierarchy === "v2" ? [CGROUP_V2_LIMIT_PATH] : CGROUP_V1_LIMIT_PATHS;
 	for (const path of paths) {
 		try {
-			const bytes = Number(readFileSync(path, "utf8").trim());
-			// v1 reports ~0x7fff_ffff_0000_0000 when no limit is configured.
-			const unlimited = hierarchy === "v1" && bytes >= 0x7fff_ffff_0000_0000;
-			if (isFiniteNumber(bytes) && bytes > 0 && !unlimited) {
-				cachedLimitKiB = Math.floor(bytes / KIB);
+			const limit = parseCgroupLimitKiB(readFileSync(path, "utf8"), hierarchy);
+			if (limit !== undefined) {
+				cachedLimitKiB = limit;
 
-				return cachedLimitKiB;
+				return limit;
 			}
 
 			if (hierarchy === "v2") break; // v2 "max" (unlimited) — no other path to try
@@ -100,8 +135,8 @@ export function readCgroupMemoryUsageKiB(): number | undefined {
 	const paths = hierarchy === "v2" ? [CGROUP_V2_USAGE_PATH] : CGROUP_V1_USAGE_PATHS;
 	for (const path of paths) {
 		try {
-			const bytes = Number(readFileSync(path, "utf8").trim());
-			if (isFiniteNumber(bytes) && bytes >= 0) return Math.floor(bytes / KIB);
+			const usage = parseCgroupUsageKiB(readFileSync(path, "utf8"));
+			if (usage !== undefined) return usage;
 		} catch {
 			// Usage unreadable — fall through to the next candidate path.
 		}
@@ -118,9 +153,7 @@ export function getTotalMemoryKiB(): number | undefined {
 		cached = true;
 		let total: number | undefined;
 		try {
-			const meminfo = readFileSync("/proc/meminfo", "utf8");
-			const parsed = Number.parseInt(MEM_TOTAL_REGEX.exec(meminfo)?.[1] ?? "0", 10);
-			if (parsed > 0) total = parsed;
+			total = parseMeminfoTotalKiB(readFileSync("/proc/meminfo", "utf8"));
 		} catch {
 			// /proc/meminfo unavailable — fall back to os.totalmem().
 		}
@@ -128,13 +161,7 @@ export function getTotalMemoryKiB(): number | undefined {
 		// /proc/meminfo unavailable — fall back to the host reading that
 		// system-resources owns.
 		total ??= detectHostTotalMemoryKiB();
-
-		const cgroupLimit = readCgroupMemoryLimitKiB();
-		if (cgroupLimit !== undefined) {
-			total = total === undefined ? cgroupLimit : Math.min(total, cgroupLimit);
-		}
-
-		cachedTotalKiB = total;
+		cachedTotalKiB = capTotalMemoryKiB(total, readCgroupMemoryLimitKiB());
 	}
 
 	return cachedTotalKiB;
@@ -147,9 +174,7 @@ export function getTotalMemoryKiB(): number | undefined {
  */
 export function getAvailableMemoryKiB(): number | undefined {
 	try {
-		const available = Number.parseInt(MEM_AVAILABLE_REGEX.exec(readFileSync("/proc/meminfo", "utf8"))?.[1] ?? "0", 10);
-
-		return available > 0 ? available : undefined;
+		return parseMeminfoAvailableKiB(readFileSync("/proc/meminfo", "utf8"));
 	} catch {
 		return undefined;
 	}
@@ -195,9 +220,11 @@ export function parseZfsArcReclaimableKiB(stats: string): number | undefined {
 export class BatchGarbageCollector {
 	private count = 0;
 	private readonly interval: number;
+	private readonly collect: () => void;
 
-	constructor(interval = 25) {
+	constructor(interval = 25, collect: () => void = () => setTimeout(() => gc(false), 0).unref()) {
 		this.interval = interval;
+		this.collect = collect;
 	}
 
 	tick(): void {
@@ -205,7 +232,7 @@ export class BatchGarbageCollector {
 			this.count = 0;
 			// Defer GC off the synchronous processing path to avoid Stop-The-World
 			// pauses on the event loop. Same pattern as worker-execution-pool.ts.
-			setTimeout(() => gc(false), 0).unref();
+			this.collect();
 		}
 	}
 }
