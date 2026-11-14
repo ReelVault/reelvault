@@ -1,62 +1,287 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T02:05:57.465Z",
+	"updatedAt": "2026-11-14T02:45:28.551Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
-			"checkedAt": "2026-11-14T02:05:57.465Z",
-			"lastRunId": "80e27d08-f478-497e-815e-10b0c91519e5",
+			"checkedAt": "2026-11-14T02:45:28.551Z",
+			"lastRunId": "e3e5b2b2-3480-4c8b-ae58-fbd8ed0f2149",
 			"coverage": "full",
-			"fullCheckedAt": "2026-11-14T02:05:57.465Z",
-			"scope": "files=request-validation.guard,process.manager,cookie-domain,http-range; max-tests=all",
+			"fullCheckedAt": "2026-11-14T02:45:28.551Z",
+			"scope": "files=process.manager; max-tests=all",
 			"viable": 57,
-			"killed": 27,
-			"todo": 17,
-			"accepted": 0,
-			"compileErrors": 13,
+			"killed": 52,
+			"todo": 0,
+			"accepted": 4,
+			"compileErrors": 1,
 			"typecheck": true
 		},
 		"src/plugins/capabilities/ffmpeg/request-validation.guard.ts": {
-			"checkedAt": "2026-11-14T02:05:57.465Z",
-			"lastRunId": "80e27d08-f478-497e-815e-10b0c91519e5",
+			"checkedAt": "2026-11-14T02:29:35.922Z",
+			"lastRunId": "36db5f0c-dfe6-421c-ac77-e5bf22b93c9e",
 			"coverage": "full",
-			"fullCheckedAt": "2026-11-14T02:05:57.465Z",
-			"scope": "files=request-validation.guard,process.manager,cookie-domain,http-range; max-tests=all",
+			"fullCheckedAt": "2026-11-14T02:29:35.922Z",
+			"scope": "files=request-validation.guard; max-tests=all",
 			"viable": 150,
-			"killed": 42,
-			"todo": 85,
-			"accepted": 0,
-			"compileErrors": 23,
+			"killed": 139,
+			"todo": 0,
+			"accepted": 11,
+			"compileErrors": 0,
 			"typecheck": true
 		},
 		"src/utils/cookie-domain.utils.ts": {
-			"checkedAt": "2026-11-14T02:05:57.465Z",
-			"lastRunId": "80e27d08-f478-497e-815e-10b0c91519e5",
+			"checkedAt": "2026-11-14T02:36:57.887Z",
+			"lastRunId": "461b6a30-5099-411d-9ba4-339553163b2c",
 			"coverage": "full",
-			"fullCheckedAt": "2026-11-14T02:05:57.465Z",
-			"scope": "files=request-validation.guard,process.manager,cookie-domain,http-range; max-tests=all",
+			"fullCheckedAt": "2026-11-14T02:36:57.887Z",
+			"scope": "files=cookie-domain; max-tests=all",
 			"viable": 49,
-			"killed": 2,
-			"todo": 24,
-			"accepted": 0,
-			"compileErrors": 23,
+			"killed": 46,
+			"todo": 0,
+			"accepted": 1,
+			"compileErrors": 2,
 			"typecheck": true
 		},
 		"src/utils/http-range.utils.ts": {
-			"checkedAt": "2026-11-14T02:05:57.465Z",
-			"lastRunId": "80e27d08-f478-497e-815e-10b0c91519e5",
+			"checkedAt": "2026-11-14T02:39:33.449Z",
+			"lastRunId": "b1874c79-6178-4cce-a296-b2f424fe1b54",
 			"coverage": "full",
-			"fullCheckedAt": "2026-11-14T02:05:57.465Z",
-			"scope": "files=request-validation.guard,process.manager,cookie-domain,http-range; max-tests=all",
+			"fullCheckedAt": "2026-11-14T02:39:33.449Z",
+			"scope": "files=http-range; max-tests=all",
 			"viable": 126,
-			"killed": 109,
-			"todo": 15,
-			"accepted": 0,
+			"killed": 112,
+			"todo": 0,
+			"accepted": 12,
 			"compileErrors": 2,
 			"typecheck": true
 		}
 	},
-	"accepted": {},
+	"accepted": {
+		"wr8bwitctoam": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "template",
+			"before": "`Frame extraction failed: 'width' (${request.width}) must be an integer between ${serverConfig.plugins.ffmpeg.minFrameDimension} and ${serverConfig.plugins.ffmpeg.maxFrameDimension} px.`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"35mmlkz1s2gsk": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "string",
+			"before": "\"Frame extraction failed: 'mediaFileId' is required.\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"169f1joawyytx": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "template",
+			"before": "`Frame extraction failed: 'timeMs' must be a non-negative finite number (received: ${request.timeMs}).`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"2qaw2kxgk7fcl": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"13cxhgtse6gf4": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "string",
+			"before": "\"Sprite extraction failed: 'mediaFileId' is required.\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"a4qmucwux8e5": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "string",
+			"before": "\"Sprite extraction failed: 'timeMs' array cannot be empty.\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"1dv0gpw63mhpa": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "template",
+			"before": "`Sprite extraction failed: 'timeMs' contains ${request.timeMs.length} frames, which exceeds the max limit of ${serverConfig.plugins.ffmpeg.maxSpriteFrames} frames per sprite sheet. To process longer videos, chunk your timestamps into batches of <= ${serverConfig.plugins.ffmpeg.maxSpriteFrames} frames per sprite.`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"2r3nca267rv4w": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "string",
+			"before": "\"Sprite extraction failed: 'timeMs' array must contain only non-negative finite millisecond numbers.\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"1chlgz4ztvoyd": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "template",
+			"before": "`Sprite extraction failed: frame dimensions (${request.width}x${request.height}) must be integers from ${serverConfig.plugins.ffmpeg.minFrameDimension}px to ${serverConfig.plugins.ffmpeg.maxSpriteWidth}x${serverConfig.plugins.ffmpeg.maxSpriteHeight}px.`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"1wfgf5hjk2gby": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "template",
+			"before": "`Sprite extraction failed: 'columns' (${request.columns}) must be an integer between 1 and the total frame count (${request.timeMs.length}).`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"g6cf07rizj3o": {
+			"subject": "src/plugins/capabilities/ffmpeg/request-validation.guard.ts",
+			"kind": "template",
+			"before": "`Sprite extraction failed: total sprite resolution (${totalPixels} pixels) exceeds the maximum limit of ${serverConfig.plugins.ffmpeg.maxSpritePixels} pixels. Reduce frame dimensions or number of columns/frames.`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:29:35.922Z"
+		},
+		"3vickz88v5wgd": {
+			"subject": "src/utils/cookie-domain.utils.ts",
+			"kind": "regex",
+			"before": "/^(\\d{1,3}\\.){3}\\d{1,3}$/",
+			"after": "/(\\d{1,3}\\.){3}\\d{1,3}$/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:36:57.887Z"
+		},
+		"1mbm8pvb8ovrm": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"19jker8meo6bb": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "string",
+			"before": "\"\"",
+			"after": "\"Stryker was here!\"",
+			"occurrence": 3,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"wa6i19tusffk": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "string",
+			"before": "\"\"",
+			"after": "\"Stryker was here!\"",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"294bivxg4eqfk": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "string",
+			"before": "\"\"",
+			"after": "\"Stryker was here!\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"10pic21d4j26l": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "string",
+			"before": "\"\"",
+			"after": "\"Stryker was here!\"",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"1wu2e056mf34f": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"rdouupjokb85": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "number",
+			"before": "10",
+			"after": "11",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"zmzvvf8eqp47": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "number",
+			"before": "10",
+			"after": "0",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"11dvyn622t8f7": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "number",
+			"before": "10",
+			"after": "0",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"1x2b9nrywpm60": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "at-least",
+			"before": ">=",
+			"after": ">",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"12sjz6l21u3fh": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "number",
+			"before": "10",
+			"after": "0",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"2fn3d9g71rb1d": {
+			"subject": "src/utils/http-range.utils.ts",
+			"kind": "null",
+			"before": "null",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:39:33.449Z"
+		},
+		"17rttkc606fb": {
+			"subject": "src/modules/streaming/ffmpeg/process.manager.ts",
+			"kind": "condition-true",
+			"before": "operationId",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:45:28.551Z"
+		},
+		"jpq92p9w8k0b": {
+			"subject": "src/modules/streaming/ffmpeg/process.manager.ts",
+			"kind": "template",
+			"before": "`Concurrent stream limit reached (${this.config.maxSessions})`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:45:28.551Z"
+		},
+		"133lz2nj055z1": {
+			"subject": "src/modules/streaming/ffmpeg/process.manager.ts",
+			"kind": "condition-true",
+			"before": "session.process",
+			"after": "true",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:45:28.551Z"
+		},
+		"1i29f4f222swq": {
+			"subject": "src/modules/streaming/ffmpeg/process.manager.ts",
+			"kind": "block",
+			"before": "{\n\t\t\tthis.logger.warn(\"Could not remove streaming temp directory in time — leaving it for startup cleanup\", {\n\t\t\t\tdirPath,\n\t\t\t\terror,\n\t\t\t});\n\t\t}",
+			"after": "{}",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T02:45:28.551Z"
+		}
+	},
 	"runs": [
 		{
 			"id": "80e27d08-f478-497e-815e-10b0c91519e5",
@@ -72,6 +297,156 @@
 			"todo": 141,
 			"accepted": 0,
 			"compileErrors": 61
+		},
+		{
+			"id": "9120f6c6-bd92-4dfa-86c8-7b58ad0f70c0",
+			"startedAt": "2026-11-14T02:24:28.737Z",
+			"finishedAt": "2026-11-14T02:26:43.358Z",
+			"commit": "7016ec79",
+			"dirty": false,
+			"coverage": "full",
+			"scope": "files=request-validation.guard; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 135,
+			"todo": 15,
+			"accepted": 0,
+			"compileErrors": 0
+		},
+		{
+			"id": "041ee9b4-f563-4c9c-aaa4-0fd63fc512cb",
+			"startedAt": "2026-11-14T02:27:33.874Z",
+			"finishedAt": "2026-11-14T02:29:26.045Z",
+			"commit": "7016ec79",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=request-validation.guard; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 139,
+			"todo": 11,
+			"accepted": 0,
+			"compileErrors": 0
+		},
+		{
+			"id": "36db5f0c-dfe6-421c-ac77-e5bf22b93c9e",
+			"startedAt": "2026-11-14T02:29:35.363Z",
+			"finishedAt": "2026-11-14T02:29:35.922Z",
+			"commit": "7016ec79",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=request-validation.guard; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 139,
+			"todo": 0,
+			"accepted": 11,
+			"compileErrors": 0
+		},
+		{
+			"id": "596f91ff-af86-4ca3-8133-53a05ab9e627",
+			"startedAt": "2026-11-14T02:32:09.258Z",
+			"finishedAt": "2026-11-14T02:33:09.679Z",
+			"commit": "7016ec79",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=cookie-domain; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 43,
+			"todo": 3,
+			"accepted": 0,
+			"compileErrors": 3
+		},
+		{
+			"id": "df56b1f4-8e45-430e-b5fc-aa6125f98399",
+			"startedAt": "2026-11-14T02:35:58.176Z",
+			"finishedAt": "2026-11-14T02:36:44.585Z",
+			"commit": "7016ec79",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=cookie-domain; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 46,
+			"todo": 1,
+			"accepted": 0,
+			"compileErrors": 2
+		},
+		{
+			"id": "461b6a30-5099-411d-9ba4-339553163b2c",
+			"startedAt": "2026-11-14T02:36:57.340Z",
+			"finishedAt": "2026-11-14T02:36:57.887Z",
+			"commit": "7016ec79",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=cookie-domain; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 46,
+			"todo": 0,
+			"accepted": 1,
+			"compileErrors": 2
+		},
+		{
+			"id": "e3754914-d6df-4a53-8dbd-26503937f3bb",
+			"startedAt": "2026-11-14T02:37:46.479Z",
+			"finishedAt": "2026-11-14T02:39:23.054Z",
+			"commit": "7016ec79",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=http-range; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 112,
+			"todo": 12,
+			"accepted": 0,
+			"compileErrors": 2
+		},
+		{
+			"id": "b1874c79-6178-4cce-a296-b2f424fe1b54",
+			"startedAt": "2026-11-14T02:39:32.892Z",
+			"finishedAt": "2026-11-14T02:39:33.449Z",
+			"commit": "7016ec79",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=http-range; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 112,
+			"todo": 0,
+			"accepted": 12,
+			"compileErrors": 2
+		},
+		{
+			"id": "2cc0baf9-60a4-48df-936a-08949456106c",
+			"startedAt": "2026-11-14T02:44:06.710Z",
+			"finishedAt": "2026-11-14T02:45:16.861Z",
+			"commit": "7016ec79",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=process.manager; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 52,
+			"todo": 4,
+			"accepted": 0,
+			"compileErrors": 1
+		},
+		{
+			"id": "e3e5b2b2-3480-4c8b-ae58-fbd8ed0f2149",
+			"startedAt": "2026-11-14T02:45:28.003Z",
+			"finishedAt": "2026-11-14T02:45:28.551Z",
+			"commit": "7016ec79",
+			"dirty": true,
+			"coverage": "full",
+			"scope": "files=process.manager; max-tests=all",
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 52,
+			"todo": 0,
+			"accepted": 4,
+			"compileErrors": 1
 		}
 	]
 }

@@ -12,6 +12,11 @@ describe("parseByteRange", () => {
 		expect(parseByteRange("items=0-9", 100)).toBeUndefined();
 	});
 
+	test("returns undefined when the header has characters around the range", () => {
+		expect(parseByteRange("xbytes=0-1", 100)).toBeUndefined();
+		expect(parseByteRange("bytes=0-1x", 100)).toBeUndefined();
+	});
+
 	test("parses start-end, open-ended and suffix forms", () => {
 		expect(parseByteRange("bytes=10-19", 100)).toEqual({ start: 10, end: 19 });
 		expect(parseByteRange("bytes=10-", 100)).toEqual({ start: 10, end: 99 });
@@ -23,8 +28,14 @@ describe("parseByteRange", () => {
 		expect(parseByteRange("bytes=90-500", 100)).toEqual({ start: 90, end: 99 });
 	});
 
+	test("accepts a single-byte range and a range over a one-byte resource", () => {
+		expect(parseByteRange("bytes=5-5", 100)).toEqual({ start: 5, end: 5 });
+		expect(parseByteRange("bytes=0-", 1)).toEqual({ start: 0, end: 0 });
+	});
+
 	test("marks unsatisfiable and malformed values as invalid", () => {
 		expect(parseByteRange("bytes=100-", 100)).toBe("invalid");
+		expect(parseByteRange("bytes=100-100", 100)).toBe("invalid");
 		expect(parseByteRange("bytes=50-49", 100)).toBe("invalid");
 		expect(parseByteRange("bytes=-0", 100)).toBe("invalid");
 	});
