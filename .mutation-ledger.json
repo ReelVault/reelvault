@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T12:34:44.238Z",
+	"updatedAt": "2026-11-14T12:45:05.762Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -121,15 +121,15 @@
 			"typecheck": true
 		},
 		"src/services/admin/admin-users.service.ts": {
-			"checkedAt": "2026-11-14T12:29:01.378Z",
-			"lastRunId": "63b15796-d0a4-4c12-b5af-a55d275f3c50",
+			"checkedAt": "2026-11-14T12:45:05.762Z",
+			"lastRunId": "e6f5a064-deeb-4756-a651-dc5a2095a3eb",
 			"coverage": "partial",
 			"scope": "files=admin-users.service; max-tests=10",
 			"viable": 350,
-			"killed": 124,
-			"todo": 117,
+			"killed": 162,
+			"todo": 101,
 			"accepted": 0,
-			"compileErrors": 109,
+			"compileErrors": 87,
 			"maxTests": 10,
 			"typecheck": true
 		},
@@ -1020,6 +1020,22 @@
 			"todo": 124,
 			"accepted": 0,
 			"compileErrors": 42
+		},
+		{
+			"id": "e6f5a064-deeb-4756-a651-dc5a2095a3eb",
+			"startedAt": "2026-11-14T12:39:02.836Z",
+			"finishedAt": "2026-11-14T12:45:05.762Z",
+			"commit": "c12ce925",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=admin-users.service; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 162,
+			"todo": 101,
+			"accepted": 0,
+			"compileErrors": 87
 		}
 	]
 }
