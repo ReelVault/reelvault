@@ -4,13 +4,22 @@ import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { GIB, KIB, MIB } from "@/utils/bytes.utils";
+import { createLogger } from "@/utils/logger.utils";
 import { clamp, roundTo } from "@/utils/math.utils";
-import { getAvailableMemoryKiB, getTotalMemoryKiB, readCgroupMemoryLimitKiB, readCgroupMemoryUsageKiB } from "@/utils/mem.utils";
+import {
+	getAvailableMemoryKiB,
+	getTotalMemoryKiB,
+	getZfsArcReclaimableKiB,
+	readCgroupMemoryLimitKiB,
+	readCgroupMemoryUsageKiB,
+} from "@/utils/mem.utils";
 import { isFiniteNumber } from "@/utils/type.utils";
 import type { ResourceMetrics, ResourceSnapshot } from "./resource-allocator.types";
 
 type MemoryReading = ResourceSnapshot["memory"];
 type DiskReading = ResourceSnapshot["disk"];
+
+const logger = createLogger("HostMetrics");
 
 function round1(value: number): number {
 	return roundTo(value, 1);
@@ -29,6 +38,14 @@ export function memoryReading(totalMb: number, usedMb: number): MemoryReading {
 	return { usedMb: used, totalMb: total, percent: percentOf(used, total) };
 }
 
+/** Available RAM after counting the reclaimable part of the ZFS ARC, capped to the total. */
+export function resolveAvailableMemoryKiB(totalKiB: number, availableKiB: number, arcReclaimableKiB: number): number {
+	const total = Math.max(0, totalKiB);
+	const available = Math.max(0, availableKiB) + Math.max(0, arcReclaimableKiB);
+
+	return Math.min(total, available);
+}
+
 /** Container memory when a cgroup limit is set, otherwise the host's `/proc/meminfo`, otherwise `os` totals. */
 export function getMemoryInfo(): MemoryReading {
 	const cgroupLimitKiB = readCgroupMemoryLimitKiB();
@@ -43,9 +60,22 @@ export function getMemoryInfo(): MemoryReading {
 	const totalKiB = getTotalMemoryKiB();
 	const availableKiB = getAvailableMemoryKiB();
 	if (totalKiB !== undefined && totalKiB > 0 && availableKiB !== undefined && availableKiB > 0) {
+		// ZFS ARC is reclaimable but invisible to the kernel's MemAvailable, so a
+		// ZFS host looks nearly full while the ARC would shrink on demand. Count
+		// the part above `c_min` as available; that is the memory a busy workload
+		// can actually take back.
+		const arcReclaimableKiB = getZfsArcReclaimableKiB() ?? 0;
+		const effectiveAvailableKiB = resolveAvailableMemoryKiB(totalKiB, availableKiB, arcReclaimableKiB);
 		// A simulated/limited total can be below the host's MemAvailable. Report
 		// this process's RSS instead of a negative figure (or a meaningless zero).
-		const usedKiB = availableKiB >= totalKiB ? Math.round(process.memoryUsage().rss / KIB) : totalKiB - availableKiB;
+		const usedKiB = effectiveAvailableKiB >= totalKiB ? Math.round(process.memoryUsage().rss / KIB) : totalKiB - effectiveAvailableKiB;
+
+		if (arcReclaimableKiB > 0) {
+			logger.debug("ZFS ARC reclaimable memory counted as available", {
+				arcReclaimableMb: Math.round(arcReclaimableKiB / KIB),
+				availableMb: Math.round(effectiveAvailableKiB / KIB),
+			});
+		}
 
 		return memoryReading(Math.round(totalKiB / KIB), Math.round(usedKiB / KIB));
 	}

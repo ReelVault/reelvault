@@ -12,6 +12,7 @@ import { mediaArtifactsRepository } from "@/repositories/media-artifacts.reposit
 import { trickplayRepository } from "@/repositories/trickplay.repository";
 import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
 import { trickplayAdminService } from "@/services/trickplay/trickplay-admin.service";
+import { storageHealthService } from "@/system/storage-health.service";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
@@ -26,18 +27,15 @@ const SPRITE_BYTES = 200;
 const DURATION_SECONDS = 600;
 const activeStubs: Array<{ restore(): void }> = [];
 let ffmpegCommands: string[][] = [];
-let failOnCall = 0;
 
 beforeEach(() => {
 	mediaArtifactsService.invalidateByteTotals();
 	trickplayRepository.clearStatsCache();
+	storageHealthService.reset();
 	ffmpegCommands = [];
-	failOnCall = 0;
 	activeStubs.push(
 		stubMethod(ffMpegService, "runToCompletion", async (args: string[]) => {
 			ffmpegCommands.push(args);
-			if (ffmpegCommands.length === failOnCall) return { exitCode: 1, stderr: "stub failure" };
-
 			const outputPath = args.at(-1);
 			if (!outputPath) throw new Error("The ffmpeg command has no output path");
 			await Bun.write(outputPath, new Uint8Array(SPRITE_BYTES));
@@ -49,6 +47,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	for (const stub of activeStubs.splice(0).toReversed()) stub.restore();
+	storageHealthService.reset();
 	systemSettingsStore.deleteRuntimeValues(["trickplay.enabled", "system.artifacts.coreMaxStorageGb"]);
 });
 
@@ -139,11 +138,17 @@ describe("trickplayService.generateForMediaFile", () => {
 		await trickplayService.generateForMediaFile(mediaFileId);
 
 		// The grids render concurrently, so the first command is not necessarily
-		// the first grid's — look the first grid up by its output path.
-		const firstGrid = ffmpegCommands.find((command) => command.at(-1)?.endsWith("sprite_0.webp")) ?? [];
-		expect(firstGrid[firstGrid.indexOf("-ss") + 1]).toBe("5.000");
-	});
+		// the first grid's — look the first frame of grid zero up by its path.
+		const firstFrame = ffmpegCommands.find((command) => {
+			const outputPath = command.at(-1) ?? "";
 
+			return outputPath.includes("frames_0") && outputPath.endsWith("frame_0000.webp");
+		});
+		expect(firstFrame?.[firstFrame.indexOf("-ss") + 1]).toBe("5.000");
+	});
+});
+
+describe("trickplayService.generateForMediaFile: sprites and budget", () => {
 	test("renders the sprite grids concurrently", async () => {
 		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
 		let inFlight = 0;
@@ -152,11 +157,14 @@ describe("trickplayService.generateForMediaFile", () => {
 		// would render one grid at a time. Pin it so the assertion is about the
 		// service and not about the machine running the suite.
 		activeStubs.push(stubMethod(systemResourcesService, "getTrickplayConcurrency", () => 2));
+		// One frame at a time per grid: the assertion is about the two grids, not
+		// about the host's frame budget.
+		activeStubs.push(stubMethod(systemResourcesService, "getTrickplayFrameConcurrency", () => 1));
 		activeStubs.push(
 			stubMethod(ffMpegService, "runToCompletion", async (args: string[]) => {
 				inFlight++;
 				peakInFlight = Math.max(peakInFlight, inFlight);
-				await Promise.resolve();
+				await Bun.sleep(5);
 				inFlight--;
 				const outputPath = args.at(-1);
 				if (!outputPath) throw new Error("The ffmpeg command has no output path");
@@ -216,19 +224,86 @@ describe("trickplayService.generateForMediaFile", () => {
 });
 
 describe("trickplayService.generateForMediaFile: failures and skips", () => {
-	test("a failed regeneration leaves no sprites or cue track behind", async () => {
+	test("a failed regeneration keeps the previous previews", async () => {
 		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
 		await trickplayService.generateForMediaFile(mediaFileId);
-		// The second grid of the next run fails while the first is still rendering. Grids render to temp files,
-		// and the store takes sprites only after every grid has rendered, so the failure stores nothing.
-		failOnCall = ffmpegCommands.length + 2;
+		const previous = await storedArtifacts(mediaFileId);
+		// Every tile command fails. The new generation must not take the old one
+		// down with it: playback keeps the previews it already had.
+		activeStubs.push(
+			stubMethod(ffMpegService, "runToCompletion", async (args: string[]) => {
+				const outputPath = args.at(-1);
+				if (!outputPath) throw new Error("The ffmpeg command has no output path");
+				if (args.some((arg) => arg.startsWith("tile=layout="))) return { exitCode: 1, stderr: "assembly failure" };
+
+				await Bun.write(outputPath, new Uint8Array(SPRITE_BYTES));
+
+				return { exitCode: 0, stderr: "" };
+			}),
+		);
 
 		await expect(trickplayService.generateForMediaFile(mediaFileId)).rejects.toMatchObject({
 			code: "trickplay_extraction_failed",
 		});
-		expect(await storedArtifacts(mediaFileId)).toEqual([]);
+		expect(await storedArtifacts(mediaFileId)).toEqual(previous);
 	});
 
+	test("a core regeneration leaves plugin trickplay artifacts untouched", async () => {
+		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
+		await trickplayService.generateForMediaFile(mediaFileId);
+		const pluginArtifact = await mediaArtifactsService.write("org.example.trickplay", {
+			mediaFileId,
+			kind: "trickplay",
+			contentType: "image/webp",
+			content: new Uint8Array(16),
+		});
+
+		await trickplayService.generateForMediaFile(mediaFileId);
+
+		const artifactIds = (await storedArtifacts(mediaFileId)).map((artifact) => artifact.id);
+		expect(artifactIds).toContain(pluginArtifact.id);
+	});
+
+	test("a file whose storage is blocked is skipped without starting ffmpeg", async () => {
+		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
+		storageHealthService.recordFailure("/media/movie.mkv", "frame_timeout");
+		storageHealthService.recordFailure("/media/movie.mkv", "frame_timeout");
+
+		const result = await trickplayService.generateForMediaFile(mediaFileId);
+
+		expect(result).toEqual({ mediaFileId, frames: 0, sprites: 0, skipped: "storage-degraded" });
+		expect(ffmpegCommands).toEqual([]);
+	});
+
+	test("replaces an unreadable frame with a placeholder instead of failing the sprite", async () => {
+		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
+		let failedFrameCalls = 0;
+		activeStubs.push(
+			stubMethod(ffMpegService, "runToCompletion", async (args: string[]) => {
+				const outputPath = args.at(-1);
+				if (!outputPath) throw new Error("The ffmpeg command has no output path");
+				const isPlaceholder = args.includes("lavfi");
+				const isFirstFrame = outputPath.includes("frames_0") && outputPath.endsWith("frame_0000.webp");
+				if (!isPlaceholder && isFirstFrame && failedFrameCalls < 2) {
+					failedFrameCalls++;
+
+					return { exitCode: 1, stderr: "unreadable frame" };
+				}
+
+				await Bun.write(outputPath, new Uint8Array(SPRITE_BYTES));
+
+				return { exitCode: 0, stderr: "" };
+			}),
+		);
+
+		const result = await trickplayService.generateForMediaFile(mediaFileId);
+
+		expect(result).toEqual({ mediaFileId, frames: 60, sprites: 3 });
+		expect(failedFrameCalls).toBe(2);
+	});
+});
+
+describe("trickplayService.generateForMediaFile: skips", () => {
 	test("a budget refusal in the middle of generation skips the file instead of failing it", async () => {
 		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
 		const otherFileId = await seedMediaFile("other", DURATION_SECONDS);

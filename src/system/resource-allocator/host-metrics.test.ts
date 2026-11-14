@@ -1,11 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { cgroupCpuPercent, memoryReading } from "./host-metrics.reader";
+import { cgroupCpuPercent, memoryReading, resolveAvailableMemoryKiB } from "./host-metrics.reader";
 
 describe("memoryReading", () => {
 	test("keeps used memory between zero and the total, and reports zero percent for a zero total", () => {
 		expect(memoryReading(2048, -100)).toEqual({ usedMb: 0, totalMb: 2048, percent: 0 });
 		expect(memoryReading(2048, 4096)).toEqual({ usedMb: 2048, totalMb: 2048, percent: 100 });
 		expect(memoryReading(0, 10)).toEqual({ usedMb: 0, totalMb: 0, percent: 0 });
+	});
+});
+
+describe("resolveAvailableMemoryKiB", () => {
+	test("counts the reclaimable ZFS ARC as available", () => {
+		const total = 8 * 1024 * 1024;
+		// 1 GB MemAvailable + 4 GB reclaimable ARC on an 8 GB host.
+		expect(resolveAvailableMemoryKiB(total, 1 * 1024 * 1024, 4 * 1024 * 1024)).toBe(5 * 1024 * 1024);
+	});
+
+	test("caps available memory at the installed total", () => {
+		expect(resolveAvailableMemoryKiB(8 * 1024 * 1024, 6 * 1024 * 1024, 20 * 1024 * 1024)).toBe(8 * 1024 * 1024);
+	});
+
+	test("leaves a host without a ZFS ARC unchanged", () => {
+		expect(resolveAvailableMemoryKiB(8 * 1024 * 1024, 6 * 1024 * 1024, 0)).toBe(6 * 1024 * 1024);
 	});
 });
 

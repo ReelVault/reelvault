@@ -64,17 +64,23 @@ export async function assertCoreArtifactsBudget(
 	bytesAfterWrite: number,
 	incomingBytes: number,
 	readVolume: () => Promise<ArtifactsVolume> = readArtifactsVolume,
+	reclaimableBytes = 0,
 ): Promise<void> {
+	// A regeneration replaces the previous artifacts only after the new set is
+	// complete. Their bytes are still on disk during the write, but they are
+	// guaranteed to be deleted once the write succeeds, so the budget and the
+	// free-space floor must treat them as already reclaimed.
+	const effectiveBytes = Math.max(0, bytesAfterWrite - Math.max(0, reclaimableBytes));
 	const budgetBytes = await resolveCoreArtifactsBudgetBytes();
-	if (bytesAfterWrite > budgetBytes) {
-		throw budgetError(`Core artifact storage budget exceeded (${bytesAfterWrite}/${budgetBytes} bytes)`, {
-			bytesAfterWrite,
+	if (effectiveBytes > budgetBytes) {
+		throw budgetError(`Core artifact storage budget exceeded (${effectiveBytes}/${budgetBytes} bytes)`, {
+			bytesAfterWrite: effectiveBytes,
 			budgetBytes,
 		});
 	}
 
 	const volume = await readVolume().catch(() => null);
-	if (volume && volume.freeBytes - incomingBytes < MIN_FREE_BYTES) {
+	if (volume && volume.freeBytes + Math.max(0, reclaimableBytes) - incomingBytes < MIN_FREE_BYTES) {
 		throw budgetError("Core artifact write rejected: artifacts volume is low on free space", {
 			freeBytes: volume.freeBytes,
 			minimumFreeBytes: MIN_FREE_BYTES,

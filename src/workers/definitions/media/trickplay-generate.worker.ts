@@ -1,4 +1,5 @@
 import { serverConfig } from "@/config/server/server.config";
+import { MINUTE } from "@/config/server/server.constants";
 import { trickplayService } from "@/modules/trickplay/trickplay.service";
 import type { WorkerItem } from "@/repositories/worker-jobs/shared.types";
 import { workerOperationRepository } from "@/repositories/worker-operation.repository";
@@ -11,20 +12,31 @@ import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/wor
 
 // ─── Worker Definition ────────────────────────────────────────────────────────
 
+/** A short gap between files keeps the queue from saturating a slow library disk. */
+const TRICKPLAY_JOB_COOLDOWN_MS = 5_000;
+
 export const trickplayGenerateWorker = createWorkerDefinition<{ mediaFileId: string }>(
 	"trickplay-generate",
 	() => serverConfig.workers.definitions.trickplayGenerate,
-	({ data, logger, signal }) =>
+	({ data, logger, signal, extendTimeout }) =>
 		withDomainError(`Trickplay generation failed: ${data.mediaFileId}`, async () => {
 			throwIfAborted(signal);
-			const result = await trickplayService.generateForMediaFile(data.mediaFileId, signal);
+			const result = await trickplayService.generateForMediaFile(data.mediaFileId, signal, {
+				// A healthy long file must not be killed by the fixed stall timeout;
+				// every completed frame or sprite proves the task is still moving.
+				onProgress: () => extendTimeout?.(10 * MINUTE),
+			});
 			if (result.skipped === "storage-budget") {
 				logger.warn("Trickplay generation skipped: artifact storage budget exhausted", { mediaFileId: data.mediaFileId });
+			} else if (result.skipped === "storage-degraded") {
+				logger.warn("Trickplay generation skipped: storage is degraded", { mediaFileId: data.mediaFileId });
 			} else if (result.skipped) {
 				logger.info("Trickplay generation skipped", { mediaFileId: data.mediaFileId, reason: result.skipped });
 			} else {
 				logger.info("Trickplay generation finished", { ...result });
 			}
+
+			await Bun.sleep(TRICKPLAY_JOB_COOLDOWN_MS);
 
 			return result;
 		}),

@@ -76,12 +76,14 @@ export const workerConfig = {
 				removeOnComplete: 100,
 				removeOnFail: 100,
 			},
-			// One file at a time — the generator itself fans out per-sprite ffmpeg
-			// processes sized from measured CPU capacity.
+			// One file at a time — the generator itself reads one frame at a time.
+			// Two attempts allow a transient storage read to recover, while a file
+			// that keeps timing out fails instead of being requeued forever.
 			trickplayGenerate: {
 				concurrency: 1,
 				timeoutMs: 30 * MINUTE,
-				attempts: 1,
+				attempts: 2,
+				backoff: { type: "exponential", delayMs: 30_000 } as const,
 				removeOnComplete: 100,
 				removeOnFail: 100,
 			},

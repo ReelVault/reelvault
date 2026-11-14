@@ -71,4 +71,11 @@ describe("assertCoreArtifactsBudget", () => {
 
 		await expect(assertCoreArtifactsBudget(1, 2 * GIBIBYTE, exactlyEnough)).resolves.toBeUndefined();
 	});
+
+	test("treats the previous generation's bytes as reclaimed by a replacement", async () => {
+		systemSettingsStore.setRuntimeValue("system.artifacts.coreMaxStorageGb", 1);
+
+		// 1.5 GiB on disk, but 1 GiB belongs to the artifacts this write replaces.
+		await expect(assertCoreArtifactsBudget(1.5 * GIBIBYTE, 1, roomyVolume, GIBIBYTE)).resolves.toBeUndefined();
+	});
 });

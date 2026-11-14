@@ -35,6 +35,13 @@ const DEFAULT_DRAIN_TIMEOUT_MS = 10_000;
 const DEFAULT_WORKER_TIMEOUT_MS = 5 * MINUTE;
 /** Handlers report progress per processed item; DB writes are throttled to this cadence. */
 const PROGRESS_WRITE_MIN_INTERVAL_MS = 1_000;
+/**
+ * These workers must not be requeued past their attempt limit by a restart.
+ * A trickplay job on a hung dataset otherwise survives every update/restart,
+ * starts again, hangs the host, and repeats — one file held the server down
+ * through nine restarts in the incident this guard comes from.
+ */
+const RESTART_CAPPED_WORKER_IDS: ReadonlySet<string> = new Set(["trickplay-generate"]);
 
 export class WorkerExecutionPoolService {
 	readonly serviceName = "WorkerExecutionPoolService";
@@ -340,6 +347,21 @@ export class WorkerExecutionPoolService {
 			}
 
 			if (exec.abortReason === "rescue" || exec.abortReason === "shutdown") {
+				if (this.isRestartExhausted(exec.item)) {
+					const message = `Requeued after ${exec.abortReason} with no attempts left`;
+					this.logger.warn("Worker task exhausted its restart attempts during force-release", {
+						workerId: exec.workerId,
+						taskId: id,
+						attempts: exec.item.attempts,
+						maxAttempts: exec.item.maxAttempts,
+						reason: exec.abortReason,
+					});
+					await workerJobRepository.fail(id, this.runnerId, message, claimToken);
+					adminFailureNotificationService.notifyWorkerFailed(exec.workerId, message);
+
+					return;
+				}
+
 				await workerJobRepository.requeueRunning(id, this.runnerId, `Requeued after ${exec.abortReason} force-release`, claimToken);
 			}
 		} catch (error) {
@@ -369,6 +391,21 @@ export class WorkerExecutionPoolService {
 		const controllerSignalAborted = exec.controller.signal.aborted;
 
 		if (controllerSignalAborted && (reason === "rescue" || reason === "shutdown")) {
+			if (this.isRestartExhausted(item)) {
+				const message = `Requeued by ${reason} after ${item.attempts} of ${item.maxAttempts} attempts`;
+				this.logger.warn("Worker task exhausted its restart attempts — failing instead of requeueing", {
+					workerId: item.workerId,
+					taskId: item.id,
+					attempts: item.attempts,
+					maxAttempts: item.maxAttempts,
+					reason,
+				});
+				await workerJobRepository.fail(item.id, this.runnerId, message, item.claimToken ?? undefined);
+				adminFailureNotificationService.notifyWorkerFailed(item.workerId, message);
+
+				return true;
+			}
+
 			const note = errorMsg ? `Requeued by ${reason}: ${errorMsg}` : `Requeued by ${reason}`;
 			await workerJobRepository.requeueRunning(item.id, this.runnerId, note, item.claimToken ?? undefined);
 
@@ -391,6 +428,11 @@ export class WorkerExecutionPoolService {
 		}
 
 		return false;
+	}
+
+	/** Only the capped workers lose a restart requeue once their attempts are spent. */
+	private isRestartExhausted(item: WorkerItem): boolean {
+		return RESTART_CAPPED_WORKER_IDS.has(item.workerId) && item.attempts >= item.maxAttempts;
 	}
 
 	/** Schedule bookkeeping must never decide the task outcome: the job row is

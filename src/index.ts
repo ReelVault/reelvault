@@ -32,6 +32,7 @@ import { resourceAllocator } from "./system/resource-allocator.service";
 import { cleanupStartupDirectories, ensureDataDirectories } from "./system/server-data.utils";
 import { serverRescueService } from "./system/server-rescue.service";
 import { Shutdown, type ShutdownStep, setActiveShutdown } from "./system/shutdown.service";
+import { systemdWatchdogService } from "./system/systemd-watchdog.service";
 import { flushLogs, logger, setLogLevel } from "./utils/logger.utils";
 import { isUsableOriginEntry } from "./utils/origin-trust.utils";
 import { detach, detachCatching, withTimeout } from "./utils/promise.utils";
@@ -199,7 +200,15 @@ const app = createHttpApp();
  * streams after that, and the database closes last, once nothing writes to it.
  */
 const shutdownSteps: ShutdownStep[] = [
-	// Realtime first: app.stop() waits for open sockets to drain, and a connected
+	// Tell systemd first: the watchdog window must stop before the slower steps,
+	// otherwise a normal restart could look like a hung process and be killed.
+	{
+		name: "systemd-watchdog",
+		message: "Notifying systemd...",
+		run: () => systemdWatchdogService.stop(),
+		timeoutMs: SHUTDOWN_FAST_STEP_MS,
+	},
+	// Realtime next: app.stop() waits for open sockets to drain, and a connected
 	// events WebSocket never closes on its own — stopping the server before telling
 	// clients to go away deadlocked shutdown until the timeout.
 	{
@@ -299,6 +308,9 @@ try {
 				environment: env.NODE_ENV,
 				database: serverConfig.paths.sqlite,
 			});
+			// READY and the periodic heartbeat must come from this event loop. A
+			// blocked loop stops both, and systemd restarts the unit.
+			systemdWatchdogService.start();
 		},
 	);
 } catch (error) {

@@ -64,8 +64,14 @@ describe("SystemResourcesService sizing formulas (injected hardware)", () => {
 			],
 		];
 
+		// The table pins a large host so the RAM cap does not hide the CPU formula.
+		const largeHostKiB = 32 * 1024 * 1024;
 		for (const [cores, speedFactor, profile, expected] of table) {
-			const service = new SystemResourcesService({ cores: () => cores, speedFactor: () => speedFactor });
+			const service = new SystemResourcesService({
+				cores: () => cores,
+				speedFactor: () => speedFactor,
+				totalMemoryKiB: () => largeHostKiB,
+			});
 			withSettings({ "system.resources.cpuProfile": profile }, () => {
 				const metrics = service.getMetrics();
 
@@ -138,6 +144,39 @@ describe("SystemResourcesService per-worker and memory budgets", () => {
 		expect(new SystemResourcesService({ cores: () => 1, speedFactor: () => 1 }).getSoftwareTranscodeConcurrency()).toBe(2);
 		expect(new SystemResourcesService({ cores: () => 4, speedFactor: () => 1 }).getSoftwareTranscodeConcurrency()).toBe(4);
 		expect(new SystemResourcesService({ cores: () => 16, speedFactor: () => 1 }).getSoftwareTranscodeConcurrency()).toBe(4);
+	});
+
+	test("caps trickplay grids to one below 16 GB of RAM even when the CPU budget funds two", () => {
+		const twelveGb = new SystemResourcesService({
+			cores: () => 8,
+			speedFactor: () => 0.5,
+			totalMemoryKiB: () => 12 * 1024 * 1024,
+		});
+		const thirtyTwoGb = new SystemResourcesService({
+			cores: () => 8,
+			speedFactor: () => 0.5,
+			totalMemoryKiB: () => 32 * 1024 * 1024,
+		});
+
+		expect(twelveGb.getTrickplayConcurrency()).toBe(1);
+		expect(thirtyTwoGb.getTrickplayConcurrency()).toBe(2);
+	});
+
+	test("two frame decoders fit an 8 GB+ host with enough CPU capacity, one otherwise", () => {
+		const slowTwelveGb = new SystemResourcesService({
+			cores: () => 12,
+			speedFactor: () => 0.35,
+			totalMemoryKiB: () => 12 * 1024 * 1024,
+		});
+		const smallFourGb = new SystemResourcesService({
+			cores: () => 2,
+			speedFactor: () => 1,
+			totalMemoryKiB: () => 4 * 1024 * 1024,
+		});
+
+		// 12 cores × 0.35 → capacity 4, and 12 GB of RAM.
+		expect(slowTwelveGb.getTrickplayFrameConcurrency()).toBe(2);
+		expect(smallFourGb.getTrickplayFrameConcurrency()).toBe(1);
 	});
 
 	test("worker auto-concurrency scales with capacity, not thread count", () => {

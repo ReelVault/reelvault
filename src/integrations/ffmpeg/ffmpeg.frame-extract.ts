@@ -72,6 +72,11 @@ export function buildSingleFrameExtractionCommand({
 	return [
 		...FFMPEG_QUIET_ARGS,
 		...(hwDecodeArgs ?? []),
+		// One frame is decoded at a time. Automatic threads start a thread per
+		// core for a decode that only needs a single picture, and a batch of
+		// these runs is the trickplay generator's steady state.
+		"-threads",
+		"1",
 		"-ss",
 		(timeMs / 1000).toFixed(3),
 		"-i",

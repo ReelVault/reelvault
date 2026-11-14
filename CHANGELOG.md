@@ -885,3 +885,15 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 - **Updates restart correctly under both systemd scopes** — the unit manager owns the stop/start pair, so its `SIGTERM` no longer forces an early exit.
 - **A cleanup failure no longer turns a successful update into a failed one.**
 - **Expired authentication sessions are pruned daily** instead of accumulating until their token is presented again.
+
+# v1.3.5
+
+## Fixes
+
+- **Preview generation can no longer exhaust a server's memory.** Each trickplay frame is decoded in its own short-lived process and the tiles are assembled afterwards, instead of opening one decoder per tile inside a single ffmpeg command. Memory now stays bounded regardless of the title's length or resolution.
+- **A file that hangs the library storage is skipped instead of retried forever.** Repeated read timeouts block that file, and several distinct failures degrade its mount for a cooldown while the rest of the queue continues.
+- **A restart no longer resurrects a poisoned preview job.** A trickplay task that has spent its attempt budget fails instead of being requeued on every server restart.
+- **A failed preview run keeps the previous previews.** The new generation replaces the old one only after it completes, so a storage hiccup no longer leaves playback without trickplay data.
+- **Memory alerts on ZFS hosts reflect actual pressure.** Reclaimable ZFS ARC memory is counted as available instead of being reported as used RAM.
+- **Background preview generation yields to the server.** It waits while memory pressure is critical, renders one grid at a time on small hosts, and pauses briefly between files.
+- **A frozen server is restarted by systemd.** With `WatchdogSec` enabled, the server sends a heartbeat from its event loop; a loop blocked by a hung disk is restarted instead of leaving the machine unresponsive.

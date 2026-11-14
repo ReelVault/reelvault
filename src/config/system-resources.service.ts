@@ -186,10 +186,28 @@ export class SystemResourcesService {
 		return ioConcurrency(this.getMetrics().capacity);
 	}
 
-	/** Trickplay sprite grids rendering at once — background CPU budget, so the
-	 * web reserve is already subtracted. */
+	/** Trickplay sprite grids rendering at once. The CPU budget is not the only
+	 * limit: a grid holds a decoder's frame buffers, so a 12 GB box must stay at
+	 * one grid even when its thread count would fund two. */
 	getTrickplayConcurrency(): number {
-		return trickplayConcurrency(this.getMetrics().backgroundBudgetCores);
+		const cpuBudget = trickplayConcurrency(this.getMetrics().backgroundBudgetCores);
+		const totalKiB = this.getTotalMemoryKiB();
+		if (totalKiB === undefined) return cpuBudget;
+
+		const totalGb = totalKiB / (1024 * 1024);
+
+		return Math.min(cpuBudget, totalGb < 16 ? 1 : 2);
+	}
+
+	/** Frames decoded at once inside one grid. Two single-thread decoders fit an
+	 * 8 GB+ host; a smaller host or a low-capacity CPU keeps one. */
+	getTrickplayFrameConcurrency(): number {
+		const capacityBudget = this.getMetrics().capacity >= 3 ? 2 : 1;
+		const totalKiB = this.getTotalMemoryKiB();
+		let ramBudget = 2;
+		if (totalKiB !== undefined && totalKiB / (1024 * 1024) < 8) ramBudget = 1;
+
+		return Math.min(2, capacityBudget, ramBudget);
 	}
 
 	/** media-file-ingest tasks each run an ffprobe plus catalog writes. */

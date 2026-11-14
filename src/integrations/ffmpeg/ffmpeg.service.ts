@@ -1,4 +1,4 @@
-import { which } from "bun";
+import { type Subprocess, which } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
@@ -34,6 +34,17 @@ interface FfmpegExecutionResult {
 	exitCode: number | null;
 	stdout: Uint8Array;
 	stderr: string;
+	/** Peak resident set size of the child, when the runtime reports it. */
+	maxRssBytes?: number | undefined;
+}
+
+/** Diagnostic-only peak RSS; a missing or failing runtime API must never fail a completed run. */
+function readMaxRssBytes(process: Subprocess): number | undefined {
+	try {
+		return process.resourceUsage()?.maxRSS;
+	} catch {
+		return undefined;
+	}
 }
 
 export const ffMpegService = {
@@ -128,7 +139,14 @@ export const ffMpegService = {
 				throw new DomainError("timeout", `FFmpeg execution timed out after ${timeoutMs}ms`, { code: "ffmpeg.timeout" });
 			}
 
-			return { exitCode, stdout, stderr };
+			const maxRssBytes = readMaxRssBytes(process);
+
+			return {
+				exitCode,
+				stdout,
+				stderr,
+				...(maxRssBytes === undefined ? {} : { maxRssBytes }),
+			};
 		} finally {
 			tracked.cleanup();
 		}

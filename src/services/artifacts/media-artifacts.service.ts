@@ -202,6 +202,38 @@ class MediaArtifactsService {
 		return matching.length;
 	}
 
+	/** Deletes specific artifacts of one media file; the caller captured the IDs it owns. */
+	async deleteByIds(mediaFileId: string, artifactIds: readonly string[]): Promise<number> {
+		if (artifactIds.length === 0) return 0;
+
+		const wanted = new Set(artifactIds);
+		const rows = await mediaArtifactsRepository.findByMediaFileId(mediaFileId);
+		const matching = rows.filter((row) => wanted.has(row.id));
+		if (matching.length === 0) return 0;
+
+		await this.deleteArtifacts(matching);
+
+		return matching.length;
+	}
+
+	/** Stored bytes of specific artifacts, for a replacement that will reclaim them. */
+	async getStoredBytesByIds(mediaFileId: string, artifactIds: readonly string[]): Promise<number> {
+		if (artifactIds.length === 0) return 0;
+
+		const wanted = new Set(artifactIds);
+		const rows = (await mediaArtifactsRepository.findByMediaFileId(mediaFileId)).filter((row) => wanted.has(row.id));
+		const sizes = await mapConcurrent(rows, serverConfig.plugins.artifacts.cleanupConcurrency, async (row) => {
+			const stats = await getFileStats(this.storagePath(row.storageKey));
+
+			return stats?.size ?? 0;
+		});
+
+		let total = 0;
+		for (const size of sizes) total += size;
+
+		return total;
+	}
+
 	/**
 	 * Removes the artifacts of several files in one read and one delete batch —
 	 * a bulk request over many files used to read and delete them file by file.

@@ -7,6 +7,9 @@ import { isFiniteNumber } from "./type.utils";
 
 const MEM_TOTAL_REGEX = /MemTotal:\s+(\d+)/;
 const MEM_AVAILABLE_REGEX = /MemAvailable:\s+(\d+)/;
+/** ZFS exposes its ARC counters as a Linux kstat file: `name type data`, one counter per line. */
+const ZFS_ARCSTATS_PATH = "/proc/spl/kstat/zfs/arcstats";
+const ZFS_ARCSTAT_LINE_REGEX = /^(size|c_min)\s+\d+\s+(\d+)$/;
 
 let cachedTotalKiB: number | undefined;
 let cached = false;
@@ -150,6 +153,43 @@ export function getAvailableMemoryKiB(): number | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * Reclaimable ZFS ARC in KiB, or undefined when this host does not run ZFS.
+ *
+ * The kernel's `MemAvailable` does not know that the ARC can shrink, so a ZFS
+ * box reports most of its RAM as used even when the ARC would release it under
+ * pressure. The ARC can always be reduced to `c_min`; the difference is the
+ * part a memory-hungry workload can actually take back.
+ */
+export function getZfsArcReclaimableKiB(): number | undefined {
+	try {
+		return parseZfsArcReclaimableKiB(readFileSync(ZFS_ARCSTATS_PATH, "utf8"));
+	} catch {
+		return undefined;
+	}
+}
+
+/** Parses the `arcstats` kstat file; exported so the arithmetic is testable without a ZFS host. */
+export function parseZfsArcReclaimableKiB(stats: string): number | undefined {
+	let sizeBytes: number | undefined;
+	let minBytes: number | undefined;
+
+	for (const line of stats.split("\n")) {
+		const match = ZFS_ARCSTAT_LINE_REGEX.exec(line.trim());
+		if (!(match?.[1] && match[2])) continue;
+
+		const bytes = Number.parseInt(match[2], 10);
+		if (!isFiniteNumber(bytes)) continue;
+
+		if (match[1] === "size") sizeBytes = bytes;
+		else minBytes = bytes;
+	}
+
+	if (sizeBytes === undefined || minBytes === undefined || sizeBytes <= minBytes) return undefined;
+
+	return Math.floor((sizeBytes - minBytes) / KIB);
 }
 
 export class BatchGarbageCollector {

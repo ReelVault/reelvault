@@ -35,17 +35,17 @@ const abortableHandler: WorkerDefinition["handler"] = async ({ signal }) =>
 		signal.addEventListener("abort", () => reject(signal.reason));
 	});
 
-function makeDefinition(handler: WorkerDefinition["handler"], timeoutMs = 1000): WorkerDefinition {
-	return { id: WORKER_ID, timeoutMs, handler };
+function makeDefinition(handler: WorkerDefinition["handler"], timeoutMs = 1000, workerId = WORKER_ID): WorkerDefinition {
+	return { id: workerId, timeoutMs, handler };
 }
 
-async function insertPendingJob(maxAttempts: number): Promise<void> {
+async function insertPendingJob(maxAttempts: number, workerId = WORKER_ID): Promise<void> {
 	await db
 		.client()
 		.insert(schema.workerJobs)
 		.values({
 			id: JOB_ID,
-			workerId: WORKER_ID,
+			workerId,
 			data: "{}",
 			status: "pending",
 			runAt: new Date(Date.now() - 60_000),
@@ -56,9 +56,9 @@ async function insertPendingJob(maxAttempts: number): Promise<void> {
 }
 
 /** Claims the pending job the way the poller does, so the pool receives the row a production run would. */
-async function claimJob(): Promise<WorkerItem> {
+async function claimJob(workerId = WORKER_ID): Promise<WorkerItem> {
 	const [item] = await workerJobRepository.claimNextBatch(
-		{ workerId: WORKER_ID, runnerId: RUNNER_ID, concurrency: 1, timeoutMs: 60_000, now: new Date() },
+		{ workerId, runnerId: RUNNER_ID, concurrency: 1, timeoutMs: 60_000, now: new Date() },
 		1,
 	);
 	if (!item) throw new Error("Expected the pending job to be claimed");
@@ -180,6 +180,24 @@ describe("worker execution pool: aborts and timeouts", () => {
 		const row = await jobRow();
 		expect(row).toMatchObject({ status: "pending" });
 		expect(row?.error).toStartWith("Requeued by shutdown");
+	});
+
+	test("fails a trickplay job instead of requeueing it past its restart budget", async () => {
+		const trickplay = "trickplay-generate";
+		await insertPendingJob(2, trickplay);
+
+		pool.start(makeDefinition(abortableHandler, 10_000, trickplay), await claimJob(trickplay));
+		pool.cancelAll();
+		await pool.drain();
+		expect(await jobRow()).toMatchObject({ status: "pending" });
+
+		pool.start(makeDefinition(abortableHandler, 10_000, trickplay), await claimJob(trickplay));
+		pool.cancelAll();
+		await pool.drain();
+
+		const row = await jobRow();
+		expect(row).toMatchObject({ status: "failed" });
+		expect(row?.error).toBe("Requeued by shutdown after 2 of 2 attempts");
 	});
 
 	test("cancels a running job, records the cancelled run, and frees its slot", async () => {

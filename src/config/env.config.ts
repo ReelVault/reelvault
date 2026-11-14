@@ -17,6 +17,16 @@ type SecretValues = Partial<Record<PersistedSecretKey, string>>;
 /** Keys this boot generated itself — surfaced in targeted first-run log messages. */
 export const generatedSecrets: Partial<Record<PersistedSecretKey, boolean>> = {};
 
+/**
+ * systemd's notify/watchdog handshake. These variables are set by systemd only
+ * for a unit with `Type=notify`/`WatchdogSec=`; they are read once here because
+ * `process.env` access belongs to the config layer.
+ */
+export const systemdNotify: { socketPath: string | undefined; watchdogUsec: string | undefined } = {
+	socketPath: process.env.NOTIFY_SOCKET,
+	watchdogUsec: process.env.WATCHDOG_USEC,
+};
+
 function resolveRootDir(): string {
 	const configured = process.env.ROOT_DIR?.trim();
 

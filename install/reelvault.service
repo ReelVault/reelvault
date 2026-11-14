@@ -1,0 +1,32 @@
+# ReelVault systemd unit (example).
+#
+#   install -m 0644 reelvault.service /etc/systemd/system/reelvault.service
+#   systemctl daemon-reload
+#   systemctl enable --now reelvault
+#
+# Adjust User/Group, WorkingDirectory and ExecStart to the archive location.
+# `WatchdogSec` is the important part: the server sends a heartbeat from its
+# event loop, so a process whose loop is blocked by a hung disk is restarted
+# instead of leaving the machine frozen. `Type=notify` lets the unit wait for
+# the HTTP listener before it reports started.
+[Unit]
+Description=ReelVault media server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+WatchdogSec=60
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+User=reelvault
+Group=reelvault
+WorkingDirectory=/opt/ReelVault
+ExecStart=/opt/ReelVault/start.sh
+# One descriptor per library file plus diagnostics and SQLite handles.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
