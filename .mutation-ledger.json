@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T13:18:16.114Z",
+	"updatedAt": "2026-11-14T13:28:06.870Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -95,15 +95,15 @@
 			"typecheck": true
 		},
 		"src/utils/url-guard.utils.ts": {
-			"checkedAt": "2026-11-14T03:54:21.792Z",
-			"lastRunId": "eefaffaa-3074-48ce-983e-d43fa1d717a9",
+			"checkedAt": "2026-11-14T13:28:06.870Z",
+			"lastRunId": "6c552690-b6f1-42c6-833f-ca9c85e1ec92",
 			"coverage": "partial",
 			"scope": "files=url-guard; max-tests=10",
 			"viable": 438,
-			"killed": 336,
-			"todo": 85,
-			"accepted": 0,
-			"compileErrors": 17,
+			"killed": 352,
+			"todo": 0,
+			"accepted": 71,
+			"compileErrors": 15,
 			"maxTests": 10,
 			"typecheck": true
 		},
@@ -1832,6 +1832,574 @@
 			"after": "true",
 			"occurrence": 0,
 			"acceptedAt": "2026-11-14T13:18:16.115Z"
+		},
+		"3osvjquem4xby": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/^::ffff:(\\d+\\.\\d+\\.\\d+\\.\\d+)$/",
+			"after": "/::ffff:(\\d+\\.\\d+\\.\\d+\\.\\d+)$/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"jacxiz5mj3z3": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/^::ffff:(\\d+\\.\\d+\\.\\d+\\.\\d+)$/",
+			"after": "/^::ffff:(\\d+\\.\\d+\\.\\d+\\.\\d+)/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"13y3spj3atgft": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/^::ffff:(\\d+\\.\\d+\\.\\d+\\.\\d+)$/",
+			"after": "/^::ffff:(\\d*\\.\\d*\\.\\d*\\.\\d*)$/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"2bq6lbxb2golc": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/^%.*$/",
+			"after": "/%.*$/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1031jyamd4znn": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/^%.*$/",
+			"after": "/^%.+$/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"be5hvd1ufsms": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/^%.*$/",
+			"after": "/^%.*/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"12t3swblh6xri": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1v1tceixk6a1o": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "10",
+			"after": "0",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3umpwu36efc95": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3i912ga92siu5": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"nqxwl3h8vg01": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3o33umubamey8": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"2xhg0w5rb1w5p": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1moquo7d4seud": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 3,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"23g2ay2v09b9v": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 3,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3t6jihuru2wx9": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "shift-left",
+			"before": "<<",
+			"after": ">>",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1jsr3opkdhjen": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "8",
+			"after": "7",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"5xgm7b80xqo8": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "8",
+			"after": "0",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"37vu2x2dnf4dz": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "bitwise-or",
+			"before": "|",
+			"after": "&",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"dr59ko06s3h4": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "shift-right-unsigned",
+			"before": ">>>",
+			"after": ">>",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"16yxmq0gty6sz": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1x5svzcbkrt0q": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"0.0.0.0\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"2g1po2klt38ky": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3ukn7b5lher17": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"32\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1p43t09v724u1": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "10",
+			"after": "0",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"264rwurq2ybwq": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "condition-false",
+			"before": "bits === 0",
+			"after": "false",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1eweq1jjdyh7l": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 5,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3hfvh51dmawie": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 5,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"na03htgedos0": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "conditional-swap",
+			"before": "0",
+			"after": "(0xffffffff << (32 - bits)) >>> 0",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"20419i28846kb": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "1",
+			"occurrence": 6,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3sxnw3hcwrdjr": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 6,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1z2g6tj0gg2f3": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "32",
+			"after": "0",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"wnollm4l3mdn": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "shift-right-unsigned",
+			"before": ">>>",
+			"after": ">>",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"xrtqakzjvvat": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1976fog0ti046": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"0\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"126nfcu9yr252": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 3,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3dknx1oxwlqdr": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"\"",
+			"after": "\"Stryker was here!\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"zxmz6tauk09m": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "16",
+			"after": "17",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"369j6s779vesa": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "16",
+			"after": "15",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"15n7yywglltb": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "16",
+			"after": "0",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3eb3lalcb1qfe": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "at-most",
+			"before": "<=",
+			"after": "<",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1hfep5t2ps2sd": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0x3fff",
+			"after": "16382",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"j76ll664mevv": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"\"",
+			"after": "\"Stryker was here!\"",
+			"occurrence": 2,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1lke1ir7rn7sy": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/^\\[|\\]$/g",
+			"after": "/\\[|\\]$/g",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"hbeh62upns04": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/^\\[|\\]$/g",
+			"after": "/^\\[|\\]/g",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"12o48gapd1a6r": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/:$/",
+			"after": "/^:$/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3obwexnjae1sk": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "10_000",
+			"after": "10001",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"339l4gspnmeim": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "regex",
+			"before": "/:$/",
+			"after": "/:/",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"dhzpmyjsdk4": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "10_000",
+			"after": "9999",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"i0n4bid3ojw1": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "10_000",
+			"after": "0",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"2b1ixbi6wgcya": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "template",
+			"before": "`DNS lookup ${hostname}`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"kr2xwk9ukw6h": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"Download URL is not a valid URL\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"o1kjcdubr41g": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 4,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"bgch2c0gmay7": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "arrow-body",
+			"before": "protocol.replace(TRAILING_COLON, \"\")",
+			"after": "undefined",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"94c2p65h5a9w": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"\"",
+			"after": "\"Stryker was here!\"",
+			"occurrence": 4,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"4t5gduvrugrl": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\", \"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"2of5zywqrsf9j": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "template",
+			"before": "`Only ${display} downloads are allowed, got: ${parsed.protocol}`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"334fsu4pllkx6": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"Download URL must not contain credentials\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1pbot9qul0n7f": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "template",
+			"before": "`Download host does not resolve: ${parsed.hostname}`",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"35zs1m2ovems3": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 13,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1qgrx10oyg41w": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"Download host resolves to a non-public address\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"o8doki51616i": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 5,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"wumr8hfwtrqf": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "throw-value",
+			"before": "new DomainError(\"validation\", \"Download host resolves to a non-public address\", { code: \"download.host_blocked\" })",
+			"after": "undefined",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"2olqy7nx47o43": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"Download host resolves to a non-public address\"",
+			"after": "\"\"",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"3bh793om90y5o": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "object",
+			"before": "{ code: \"download.host_blocked\" }",
+			"after": "{}",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1zlpe8ltr26vz": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"download.host_blocked\"",
+			"after": "\"\"",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"27s80wn56dfgc": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 7,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"ubv2nhv0y2kd": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"Too many download redirects\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"1t32vvgf2zxk": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "nullish",
+			"before": "??",
+			"after": "||",
+			"occurrence": 8,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"fxf7qhor2mp1": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"GET\"",
+			"after": "\"\"",
+			"occurrence": 0,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
+		},
+		"bhpdopw1py30": {
+			"subject": "src/utils/url-guard.utils.ts",
+			"kind": "string",
+			"before": "\"GET\"",
+			"after": "\"\"",
+			"occurrence": 1,
+			"acceptedAt": "2026-11-14T13:28:06.870Z"
 		}
 	},
 	"runs": [
@@ -2516,6 +3084,54 @@
 			"todo": 0,
 			"accepted": 66,
 			"compileErrors": 32
+		},
+		{
+			"id": "5792e749-2bed-4c34-a287-c7ce7bea2750",
+			"startedAt": "2026-11-14T13:18:51.400Z",
+			"finishedAt": "2026-11-14T13:21:30.870Z",
+			"commit": "7ecc8ed8",
+			"dirty": false,
+			"coverage": "partial",
+			"scope": "files=url-guard; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 336,
+			"todo": 85,
+			"accepted": 0,
+			"compileErrors": 17
+		},
+		{
+			"id": "7a201448-02f6-4d03-af12-cc63e4d85760",
+			"startedAt": "2026-11-14T13:25:21.185Z",
+			"finishedAt": "2026-11-14T13:27:43.593Z",
+			"commit": "7ecc8ed8",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=url-guard; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 352,
+			"todo": 71,
+			"accepted": 0,
+			"compileErrors": 15
+		},
+		{
+			"id": "6c552690-b6f1-42c6-833f-ca9c85e1ec92",
+			"startedAt": "2026-11-14T13:28:06.500Z",
+			"finishedAt": "2026-11-14T13:28:06.870Z",
+			"commit": "7ecc8ed8",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=url-guard; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 352,
+			"todo": 0,
+			"accepted": 71,
+			"compileErrors": 15
 		}
 	]
 }

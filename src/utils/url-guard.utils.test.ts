@@ -113,6 +113,7 @@ interface RecordedCall {
 	headers: Headers;
 	method: string;
 	body: BodyInit | null | undefined;
+	tls: unknown;
 }
 
 function requestUrl(input: RequestInfo | URL): string {
@@ -127,7 +128,13 @@ function stubFetch(handler: (url: string) => Response): RecordedCall[] {
 	const calls: RecordedCall[] = [];
 	globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 		const url = requestUrl(input);
-		calls.push({ url, headers: new Headers(init?.headers), method: init?.method ?? "GET", body: init?.body });
+		calls.push({
+			url,
+			headers: new Headers(init?.headers),
+			method: init?.method ?? "GET",
+			body: init?.body,
+			tls: (init as { tls?: unknown } | undefined)?.tls,
+		});
 
 		return Promise.resolve(handler(url));
 	}) as typeof fetch;
@@ -154,6 +161,7 @@ describe("guardedFetch", () => {
 
 		expect(calls.map((call) => call.url)).toEqual(["https://1.1.1.1:8443/path?q=1"]);
 		expect(calls[0]?.headers.get("host")).toBe("1.1.1.1:8443");
+		expect(calls[0]?.tls).toEqual({ serverName: "1.1.1.1" });
 	});
 
 	test("normalizes bracketed IPv6 hosts for the lookup and the extra predicate", async () => {
@@ -213,20 +221,43 @@ describe("guardedFetch", () => {
 		await expect(guardedFetch("https://127.0.0.1/")).rejects.toMatchObject({ category: "validation", code: "download.host_blocked" });
 	});
 
-	test("strips credential headers on cross-origin redirects", async () => {
+	test("strips every credential header on cross-origin redirects", async () => {
 		const calls = stubFetch((url) =>
 			url.startsWith("https://1.1.1.1/")
 				? new Response(null, { status: 302, headers: { location: "https://8.8.8.8/next" } })
 				: new Response("ok"),
 		);
+		const credentials = {
+			authorization: "Bearer secret",
+			cookie: "session=secret",
+			"proxy-authorization": "Basic secret",
+			"x-api-key": "api-secret",
+			"x-auth-token": "auth-secret",
+			"x-goog-api-key": "google-secret",
+			"x-custom": "keep",
+		};
 
-		await guardedFetch("https://1.1.1.1/start", { headers: { authorization: "Bearer secret", "x-custom": "keep" } });
+		await guardedFetch("https://1.1.1.1/start", { headers: credentials });
 
 		expect(calls.map((call) => call.url)).toEqual(["https://1.1.1.1/start", "https://8.8.8.8/next"]);
-		expect(calls[1]?.headers.get("authorization")).toBeNull();
+		for (const name of ["authorization", "cookie", "proxy-authorization", "x-api-key", "x-auth-token", "x-goog-api-key"]) {
+			expect(calls[1]?.headers.get(name)).toBeNull();
+		}
 		expect(calls[1]?.headers.get("x-custom")).toBe("keep");
 	});
 
+	test("keeps credentials on a same-origin redirect", async () => {
+		const calls = stubFetch((url) =>
+			url.endsWith("/start") ? new Response(null, { status: 302, headers: { location: "/next" } }) : new Response("ok"),
+		);
+
+		await guardedFetch("https://1.1.1.1/start", { headers: { authorization: "Bearer secret" } });
+
+		expect(calls[1]?.headers.get("authorization")).toBe("Bearer secret");
+	});
+});
+
+describe("guardedFetch redirects", () => {
 	test("enforces the redirect limit", async () => {
 		const calls = stubFetch(() => new Response(null, { status: 302, headers: { location: "/again" } }));
 
@@ -246,9 +277,17 @@ describe("guardedFetch", () => {
 		});
 		expect(calls).toHaveLength(5);
 	});
-});
 
-describe("guardedFetch redirects", () => {
+	test("follows no redirect when the limit is zero", async () => {
+		const calls = stubFetch(() => new Response(null, { status: 302, headers: { location: "/again" } }));
+
+		await expect(guardedFetch("https://1.1.1.1/start", { maxRedirects: 0 })).rejects.toMatchObject({
+			category: "validation",
+			code: "download.too_many_redirects",
+		});
+		expect(calls).toHaveLength(1);
+	});
+
 	test.each([301, 302, 303])("downgrades a POST after a %p redirect", async (status) => {
 		const calls = stubFetch((url) =>
 			url.startsWith("https://1.1.1.1/")
@@ -262,10 +301,10 @@ describe("guardedFetch redirects", () => {
 		expect(calls[1]?.body).toBeNull();
 	});
 
-	test("keeps a POST after a 307 redirect", async () => {
+	test.each([307, 308])("keeps a POST after a %p redirect", async (status) => {
 		const calls = stubFetch((url) =>
 			url.startsWith("https://1.1.1.1/")
-				? new Response(null, { status: 307, headers: { location: "https://8.8.8.8/next" } })
+				? new Response(null, { status, headers: { location: "https://8.8.8.8/next" } })
 				: new Response("ok"),
 		);
 
@@ -273,6 +312,30 @@ describe("guardedFetch redirects", () => {
 
 		expect(calls[1]?.method).toBe("POST");
 		expect(calls[1]?.body).toBe("payload");
+	});
+
+	test("keeps HEAD after a 301 redirect", async () => {
+		const calls = stubFetch((url) =>
+			url.startsWith("https://1.1.1.1/")
+				? new Response(null, { status: 301, headers: { location: "https://8.8.8.8/next" } })
+				: new Response("ok"),
+		);
+
+		await guardedFetch("https://1.1.1.1/start", { method: "HEAD" });
+
+		expect(calls[1]?.method).toBe("HEAD");
+	});
+
+	test("keeps the default GET after a 307 redirect", async () => {
+		const calls = stubFetch((url) =>
+			url.startsWith("https://1.1.1.1/")
+				? new Response(null, { status: 307, headers: { location: "https://8.8.8.8/next" } })
+				: new Response("ok"),
+		);
+
+		await guardedFetch("https://1.1.1.1/start");
+
+		expect(calls[1]?.method).toBe("GET");
 	});
 
 	test.each([300, 304, 305, 306])("returns a %p response without following it", async (status) => {
