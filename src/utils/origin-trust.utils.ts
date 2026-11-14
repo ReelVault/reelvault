@@ -14,6 +14,7 @@ import { isPublicAddress } from "@/utils/url-guard.utils";
  */
 
 const HTTP_URL_PATTERN = /^(https?:\/\/)([^/?]*)(.*)$/;
+const HTTP_SCHEME_PREFIX = /^http:/;
 const IP_SHAPED_HOST_PATTERN = /^[0-9.:*]+$/;
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const LOCAL_DOMAIN_SUFFIXES = [".lan", ".local", ".home", ".home.arpa", ".internal"];
@@ -108,7 +109,8 @@ export function wildcardPatternToRegex(pattern: string): RegExp {
 	const cached = regexPatternCache.get(trimmed);
 	if (cached) return cached;
 
-	const withScheme = trimmed.includes("://") ? trimmed : `https?://${trimmed}`;
+	const hasScheme = trimmed.includes("://");
+	const withScheme = hasScheme ? trimmed : `http://${trimmed}`;
 
 	const match = HTTP_URL_PATTERN.exec(withScheme);
 	let regexString: string;
@@ -118,7 +120,8 @@ export function wildcardPatternToRegex(pattern: string): RegExp {
 		const rest = match[3] ?? "";
 		const ipShaped = IP_SHAPED_HOST_PATTERN.test(host);
 		const wildcard = ipShaped ? "[0-9.]*" : "[^.]*";
-		regexString = `^${escapeRegex(scheme)}${escapeRegex(host).replaceAll(String.raw`\*`, wildcard)}${escapeRegex(rest).replaceAll(String.raw`\*`, ".*")}$`;
+		const schemePattern = hasScheme ? escapeRegex(scheme) : "https?://";
+		regexString = `^${schemePattern}${escapeRegex(host).replaceAll(String.raw`\*`, wildcard)}${escapeRegex(rest).replaceAll(String.raw`\*`, ".*")}$`;
 	} else {
 		regexString = `^${escapeRegex(withScheme).replaceAll(String.raw`\*`, ".*")}$`;
 	}
@@ -136,7 +139,11 @@ function matchOriginRule(origin: string, rule: string | RegExp): boolean {
 
 	if (rule.includes("*")) return wildcardPatternToRegex(rule).test(origin);
 
-	return getPatternOrigin(rule) === origin;
+	const patternOrigin = getPatternOrigin(rule);
+	if (patternOrigin === origin) return true;
+
+	// A bare host is scheme-agnostic; normalizeHttpUrl stores its http:// form.
+	return patternOrigin !== null && !rule.includes("://") && origin === patternOrigin.replace(HTTP_SCHEME_PREFIX, "https:");
 }
 
 function matchesOriginRules(origin: string, rules: ReadonlyArray<string | RegExp>): boolean {

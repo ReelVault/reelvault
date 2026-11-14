@@ -890,6 +890,7 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 
 ## Fixes
 
+- **Bare-host and scheme-less wildcard origins now match both HTTP and HTTPS.** An entry such as `example.com` or `*.lan:3000` in `APP_ALLOWED_ORIGINS` or `network.allowedOrigins` was accepted by validation but never matched the browser origin. The same applies to wildcard entries without a scheme.
 - **Preview generation can no longer exhaust a server's memory.** Each trickplay frame is decoded in its own short-lived process and the tiles are assembled afterwards, instead of opening one decoder per tile inside a single ffmpeg command. Memory now stays bounded regardless of the title's length or resolution.
 - **A file that hangs the library storage is skipped instead of retried forever.** Repeated read timeouts block that file, and several distinct failures degrade its mount for a cooldown while the rest of the queue continues.
 - **A restart no longer resurrects a poisoned preview job.** A trickplay task that has spent its attempt budget fails instead of being requeued on every server restart.
