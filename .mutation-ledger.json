@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T04:21:53.827Z",
+	"updatedAt": "2026-11-14T04:27:23.752Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -130,6 +130,19 @@
 			"todo": 160,
 			"accepted": 0,
 			"compileErrors": 158,
+			"maxTests": 10,
+			"typecheck": true
+		},
+		"src/utils/response-body.cache.ts": {
+			"checkedAt": "2026-11-14T04:27:23.752Z",
+			"lastRunId": "ce6141d5-2086-4a2c-84a2-db14b3f64647",
+			"coverage": "partial",
+			"scope": "files=response-body.cache; max-tests=10",
+			"viable": 153,
+			"killed": 74,
+			"todo": 61,
+			"accepted": 0,
+			"compileErrors": 18,
 			"maxTests": 10,
 			"typecheck": true
 		}
@@ -930,6 +943,22 @@
 			"todo": 160,
 			"accepted": 0,
 			"compileErrors": 158
+		},
+		{
+			"id": "ce6141d5-2086-4a2c-84a2-db14b3f64647",
+			"startedAt": "2026-11-14T04:22:21.571Z",
+			"finishedAt": "2026-11-14T04:27:23.752Z",
+			"commit": "63bae4c2",
+			"dirty": false,
+			"coverage": "partial",
+			"scope": "files=response-body.cache; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 74,
+			"todo": 61,
+			"accepted": 0,
+			"compileErrors": 18
 		}
 	]
 }
