@@ -898,3 +898,16 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 - **Memory alerts on ZFS hosts reflect actual pressure.** Reclaimable ZFS ARC memory is counted as available instead of being reported as used RAM.
 - **Background preview generation yields to the server.** It waits while memory pressure is critical, renders one grid at a time on small hosts, and pauses briefly between files.
 - **A frozen server is restarted by systemd.** With `WatchdogSec` enabled, the server sends a heartbeat from its event loop; a loop blocked by a hung disk is restarted instead of leaving the machine unresponsive.
+- **A cancelled request no longer slows down every later identical request.** Requests that lost their leader now lead a fresh group instead of waiting for a leader that never answered.
+- **Configured memory and disk thresholds now control throttling and server rescue.** Previously they only raised alerts, so lowering a threshold did not actually pause background work.
+- **A stream that fails to start no longer leaves its encoder running.** The process is stopped before its temporary output directory is removed.
+- **A worker that ignores its abort can no longer hold a concurrency slot forever.** Extending a timeout after an abort is ignored, so the slot is reclaimed on schedule.
+- **Container CPU accounting recovers after a temporary cgroup read failure.** A single unreadable counter no longer switches CPU pressure to host-wide readings for the rest of the process lifetime.
+- **Container memory limits are refreshed periodically.** Raising or lowering a container's memory quota is now reflected in resource budgets without a restart.
+- **Scheduled workers no longer queue a duplicate for every missed interval.** A run that outlives its schedule keeps the next runs waiting instead of piling up.
+- **Worker cancellation reports each job once.** Running jobs are no longer counted in both the in-memory and the database total.
+- **Resource history is bounded while it is read.** Charts and exports no longer load every stored sample into memory, and the history window no longer exceeds the retention period.
+- **Changing resource settings applies the new budgets immediately.** Derived concurrency and timeout values no longer keep the old values for a short cache window.
+- **Scrubbing reuses one media probe for nearby positions.** Seeks within the same two-second window no longer each start a new probe process.
+- **Streaming FFmpeg processes do not read standard input.** A long-lived transcode cannot react to interactive input from its parent.
+- **Shutting down no longer emits session-ended notifications to a disconnected realtime service.** Sessions are closed before the realtime connections they notify.
