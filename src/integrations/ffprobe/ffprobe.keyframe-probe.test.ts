@@ -78,6 +78,14 @@ describe("findKeyframeBefore", () => {
 		expect(await findKeyframeBefore("/media/no-keyframe.mkv", 99.5)).toBeNull();
 	});
 
+	it("reuses one probe for nearby scrub targets in the same bucket", async () => {
+		const create = spyOn(ffProbeService, "create").mockImplementation(() => probeOf([packet("98.0", "K__"), packet("101.5", "K__")]));
+
+		expect(await findKeyframeBefore("/media/bucket.mkv", 100.1)).toBe(98);
+		expect(await findKeyframeBefore("/media/bucket.mkv", 100.8)).toBe(98);
+		expect(create).toHaveBeenCalledTimes(1);
+	});
+
 	it("spawns no probe for a target at the start of the file", async () => {
 		const create = spyOn(ffProbeService, "create");
 

@@ -6,10 +6,11 @@ import type { FFProbePacket } from "./ffprobe.types";
 const PROBE_WINDOW_SECONDS = 15;
 const PTS_EPSILON = 0.001;
 
-// Scrubbing re-seeks around the same positions — cache probe results per 2 s
-// bucket so repeat seeks skip the ffprobe spawn entirely (misses cached too:
-// a 15 s window without keyframes is just as repeatable).
-const keyframeCache = new MemoryCache<number>({ ttlMs: 30 * 60_000, maxSize: 2000, name: "keyframes" });
+// Scrubbing re-seeks around the same positions. Probe once per 2 s bucket and
+// keep the packet list: every target in that bucket answers from it, and a
+// bucket containing no keyframes is cached as an empty list (a miss is repeatable).
+const KEYFRAME_BUCKET_SECONDS = 2;
+const keyframeCache = new MemoryCache<FFProbePacket[]>({ ttlMs: 30 * 60_000, maxSize: 2000, name: "keyframes" });
 
 /**
  * Returns the last keyframe packet with pts_time <= limit (small tolerance for
@@ -36,33 +37,42 @@ export async function findKeyframeBefore(filePath: string, target: number, signa
 	if (target <= 0) return null;
 
 	// The file's (size, mtime) signature keeps a replaced file from serving the
-	// previous content's keyframe buckets for the whole TTL. Keyed by the exact
-	// target: a bucket-level key can hand a later keyframe to an earlier request.
+	// previous content's packets for the whole TTL. Probing up to the bucket end
+	// covers every target that shares the key; pickLastKeyframe still filters by
+	// the exact target, so an earlier seek can never receive a later keyframe.
 	const signature = await fileVersionSignature(filePath);
-	const cacheKey = `${filePath}:${signature}:${target}`;
-	const cached = await keyframeCache.getOrSet(cacheKey, async () => {
+	const bucketEnd = Math.ceil(target / KEYFRAME_BUCKET_SECONDS) * KEYFRAME_BUCKET_SECONDS;
+	const cacheKey = `${filePath}:${signature}:${bucketEnd}`;
+	const packets = await keyframeCache.getOrSet(cacheKey, async () => {
 		try {
-			const from = Math.max(0, target - PROBE_WINDOW_SECONDS);
+			// Cover the full look-back of the earliest target in this bucket.
+			const from = Math.max(0, bucketEnd - KEYFRAME_BUCKET_SECONDS - PROBE_WINDOW_SECONDS);
 			// A packet listing, not a format probe: ffprobe answers
 			// `-show_entries packet=…` with the packets alone.
-			const packets = await ffProbeService
+			return await ffProbeService
 				.create()
-				.addArg("-read_intervals", `${from}%${target}`)
+				.addArg("-read_intervals", `${from}%${bucketEnd}`)
 				.selectStreams("v")
 				.addArg("-show_entries", "packet=pts_time,flags")
 				.executePackets(filePath, signal);
-			const keyframe = pickLastKeyframePackets(packets, target);
-
-			return keyframe ?? 0;
 		} catch (error) {
 			// An aborted probe is not a result: `getOrSet` only caches successes, so
 			// rethrowing keeps the bucket probeable instead of pinning "no keyframe"
 			// for the whole TTL (which would silently disable keyframe seeks).
 			if (signal?.aborted) throw error;
 
-			return 0;
+			return [];
 		}
 	});
 
-	return cached > 0 ? cached : null;
+	// The bucket's probe window starts earlier than this target's own 15 s
+	// look-back; enforce the per-target bound before picking a keyframe.
+	const earliest = target - PROBE_WINDOW_SECONDS;
+	const inRange = packets.filter((packet) => {
+		const pts = Number.parseFloat(packet.pts_time ?? "");
+
+		return !Number.isNaN(pts) && pts >= earliest - PTS_EPSILON;
+	});
+
+	return pickLastKeyframePackets(inRange, target);
 }
