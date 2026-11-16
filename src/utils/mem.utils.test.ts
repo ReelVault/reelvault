@@ -3,7 +3,6 @@ import {
 	BatchGarbageCollector,
 	capTotalMemoryKiB,
 	isMemoryCacheEntryFresh,
-	MEMORY_CACHE_TTL_MS,
 	parseCgroupLimitKiB,
 	parseCgroupUsageKiB,
 	parseMeminfoAvailableKiB,
@@ -69,9 +68,11 @@ describe("parseCgroupUsageKiB", () => {
 
 describe("isMemoryCacheEntryFresh", () => {
 	test("a host fact is reused inside the TTL and re-read once the quota window passes", () => {
+		// Five minutes, pinned as a literal: reusing the exported constant here
+		// would make the expected value a recomputation of the subject.
 		expect(isMemoryCacheEntryFresh(0, 1_000)).toBeFalse();
-		expect(isMemoryCacheEntryFresh(1_000, 1_000 + MEMORY_CACHE_TTL_MS - 1)).toBeTrue();
-		expect(isMemoryCacheEntryFresh(1_000, 1_000 + MEMORY_CACHE_TTL_MS)).toBeFalse();
+		expect(isMemoryCacheEntryFresh(1_000, 1_000 + 299_999)).toBeTrue();
+		expect(isMemoryCacheEntryFresh(1_000, 1_000 + 300_000)).toBeFalse();
 	});
 });
 

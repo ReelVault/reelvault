@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"createdAt": "2026-11-14T02:05:57.185Z",
-	"updatedAt": "2026-11-14T13:35:16.952Z",
+	"updatedAt": "2026-11-16T19:37:38.112Z",
 	"subjects": {
 		"src/modules/streaming/ffmpeg/process.manager.ts": {
 			"checkedAt": "2026-11-14T02:45:28.551Z",
@@ -121,40 +121,40 @@
 			"typecheck": true
 		},
 		"src/services/admin/admin-users.service.ts": {
-			"checkedAt": "2026-11-14T13:08:17.272Z",
-			"lastRunId": "7be4af10-2daa-456c-9f00-4800b535ca49",
+			"checkedAt": "2026-11-16T19:19:42.330Z",
+			"lastRunId": "7d8d5181-752e-4d1c-9b2e-b807d269f309",
 			"coverage": "partial",
 			"scope": "files=admin-users.service; max-tests=10",
 			"viable": 350,
 			"killed": 288,
 			"todo": 0,
-			"accepted": 62,
-			"compileErrors": 0,
+			"accepted": 56,
+			"compileErrors": 6,
 			"maxTests": 10,
-			"typecheck": false
+			"typecheck": true
 		},
 		"src/utils/response-body.cache.ts": {
-			"checkedAt": "2026-11-14T12:51:54.290Z",
-			"lastRunId": "c59e0878-d96a-40e0-98ae-43b69c5155a8",
+			"checkedAt": "2026-11-16T19:37:38.112Z",
+			"lastRunId": "0b67947f-efe7-471e-9a65-5a49c8a65738",
 			"coverage": "partial",
 			"scope": "files=response-body.cache; max-tests=10",
-			"viable": 153,
-			"killed": 104,
+			"viable": 158,
+			"killed": 107,
 			"todo": 0,
-			"accepted": 35,
-			"compileErrors": 14,
+			"accepted": 36,
+			"compileErrors": 15,
 			"maxTests": 10,
 			"typecheck": true
 		},
 		"src/utils/mem.utils.ts": {
-			"checkedAt": "2026-11-14T13:35:16.952Z",
-			"lastRunId": "d8050f34-4e84-4928-a6dd-2b34ea35d7a4",
+			"checkedAt": "2026-11-16T19:37:07.007Z",
+			"lastRunId": "72ec5f5f-cef6-4728-b3e5-7394155af029",
 			"coverage": "partial",
 			"scope": "files=mem.utils; max-tests=10",
-			"viable": 258,
-			"killed": 126,
-			"todo": 0,
-			"accepted": 83,
+			"viable": 275,
+			"killed": 140,
+			"todo": 11,
+			"accepted": 75,
 			"compileErrors": 49,
 			"maxTests": 10,
 			"typecheck": true
@@ -2657,30 +2657,6 @@
 			"occurrence": 1,
 			"acceptedAt": "2026-11-14T13:35:16.952Z"
 		},
-		"2wxbk16u1su68": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "condition-negation",
-			"before": "limitResolved",
-			"after": "!(limitResolved)",
-			"occurrence": 0,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
-		"27b1jn9yps3lf": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "return-value",
-			"before": "cachedLimitKiB",
-			"after": "undefined",
-			"occurrence": 0,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
-		"2yutejl9x59zm": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "return-value",
-			"before": "cachedLimitKiB",
-			"after": "undefined",
-			"occurrence": 1,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
 		"3jv5132esu0i2": {
 			"subject": "src/utils/mem.utils.ts",
 			"kind": "condition-negation",
@@ -2729,22 +2705,6 @@
 			"occurrence": 0,
 			"acceptedAt": "2026-11-14T13:35:16.952Z"
 		},
-		"oxvrjf4pnec1": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "block",
-			"before": "{\n\t\ttry {\n\t\t\tconst limit = parseCgroupLimitKiB(readFileSync(path, \"utf8\"), hierarchy);\n\t\t\tif (limit !== undefined) {\n\t\t\t\tcachedLimitKiB = limit;\n\n\t\t\t\treturn limit;\n\t\t\t}\n\n\t\t\tif (hierarchy === \"v2\") break; // v2 \"max\" (unlimited) — no other path to try\n\t\t} catch {\n\t\t\t// Limit unreadable — fall through to the next candidate path.\n\t\t}\n\t}",
-			"after": "{}",
-			"occurrence": 0,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
-		"bkycixa0j1xn": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "block",
-			"before": "{\n\t\t\tconst limit = parseCgroupLimitKiB(readFileSync(path, \"utf8\"), hierarchy);\n\t\t\tif (limit !== undefined) {\n\t\t\t\tcachedLimitKiB = limit;\n\n\t\t\t\treturn limit;\n\t\t\t}\n\n\t\t\tif (hierarchy === \"v2\") break; // v2 \"max\" (unlimited) — no other path to try\n\t\t}",
-			"after": "{}",
-			"occurrence": 0,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
 		"ksa7cq60f7u": {
 			"subject": "src/utils/mem.utils.ts",
 			"kind": "condition-negation",
@@ -2758,14 +2718,6 @@
 			"kind": "inequality",
 			"before": "!==",
 			"after": "===",
-			"occurrence": 0,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
-		"2sty9z6n7s8rb": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "block",
-			"before": "{\n\t\t\t\tcachedLimitKiB = limit;\n\n\t\t\t\treturn limit;\n\t\t\t}",
-			"after": "{}",
 			"occurrence": 0,
 			"acceptedAt": "2026-11-14T13:35:16.952Z"
 		},
@@ -2799,14 +2751,6 @@
 			"before": "===",
 			"after": "!==",
 			"occurrence": 5,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
-		"2buyviw9fmogp": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "return-value",
-			"before": "cachedLimitKiB",
-			"after": "undefined",
-			"occurrence": 2,
 			"acceptedAt": "2026-11-14T13:35:16.952Z"
 		},
 		"21n4ee47fvyzv": {
@@ -2929,36 +2873,12 @@
 			"occurrence": 0,
 			"acceptedAt": "2026-11-14T13:35:16.952Z"
 		},
-		"kcee4c12pijl": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "condition-negation",
-			"before": "!cached",
-			"after": "!(!cached)",
-			"occurrence": 0,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
-		"16r8s29ta0zr4": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "condition-true",
-			"before": "!cached",
-			"after": "true",
-			"occurrence": 0,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
 		"bbohci6qq8d6": {
 			"subject": "src/utils/mem.utils.ts",
 			"kind": "negation",
 			"before": "!",
 			"after": "",
 			"occurrence": 1,
-			"acceptedAt": "2026-11-14T13:35:16.952Z"
-		},
-		"10a5ub4eh7s4u": {
-			"subject": "src/utils/mem.utils.ts",
-			"kind": "block",
-			"before": "{\n\t\tcached = true;\n\t\tlet total: number | undefined;\n\t\ttry {\n\t\t\ttotal = parseMeminfoTotalKiB(readFileSync(\"/proc/meminfo\", \"utf8\"));\n\t\t} catch {\n\t\t\t// /proc/meminfo unavailable — fall back to os.totalmem().\n\t\t}\n\n\t\t// /proc/meminfo unavailable — fall back to the host reading that\n\t\t// system-resources owns.\n\t\ttotal ??= detectHostTotalMemoryKiB();\n\t\tcachedTotalKiB = capTotalMemoryKiB(total, readCgroupMemoryLimitKiB());\n\t}",
-			"after": "{}",
-			"occurrence": 0,
 			"acceptedAt": "2026-11-14T13:35:16.952Z"
 		},
 		"18gjv4d2hgknx": {
@@ -3064,6 +2984,14 @@
 			"after": "-1",
 			"occurrence": 5,
 			"acceptedAt": "2026-11-14T13:35:16.952Z"
+		},
+		"1fad8oj7pigrz": {
+			"subject": "src/utils/response-body.cache.ts",
+			"kind": "number",
+			"before": "0",
+			"after": "-1",
+			"occurrence": 4,
+			"acceptedAt": "2026-11-16T19:37:38.112Z"
 		}
 	},
 	"runs": [
@@ -3844,6 +3772,86 @@
 			"todo": 0,
 			"accepted": 83,
 			"compileErrors": 49
+		},
+		{
+			"id": "7d8d5181-752e-4d1c-9b2e-b807d269f309",
+			"startedAt": "2026-11-16T19:09:57.605Z",
+			"finishedAt": "2026-11-16T19:19:42.330Z",
+			"commit": "dbcef574",
+			"dirty": false,
+			"coverage": "partial",
+			"scope": "files=admin-users.service; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 288,
+			"todo": 0,
+			"accepted": 56,
+			"compileErrors": 6
+		},
+		{
+			"id": "6ef35dd6-0376-4a91-b8ad-98b262e1e3f5",
+			"startedAt": "2026-11-16T19:20:21.881Z",
+			"finishedAt": "2026-11-16T19:26:31.301Z",
+			"commit": "dbcef574",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=mem.utils; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 133,
+			"todo": 18,
+			"accepted": 75,
+			"compileErrors": 49
+		},
+		{
+			"id": "a3e1c3fb-cdb5-43db-b1f2-1effde82b68d",
+			"startedAt": "2026-11-16T19:26:35.837Z",
+			"finishedAt": "2026-11-16T19:30:38.726Z",
+			"commit": "dbcef574",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=response-body.cache; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 107,
+			"todo": 1,
+			"accepted": 35,
+			"compileErrors": 15
+		},
+		{
+			"id": "72ec5f5f-cef6-4728-b3e5-7394155af029",
+			"startedAt": "2026-11-16T19:31:54.389Z",
+			"finishedAt": "2026-11-16T19:37:07.007Z",
+			"commit": "dbcef574",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=mem.utils; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 140,
+			"todo": 11,
+			"accepted": 75,
+			"compileErrors": 49
+		},
+		{
+			"id": "0b67947f-efe7-471e-9a65-5a49c8a65738",
+			"startedAt": "2026-11-16T19:37:38.033Z",
+			"finishedAt": "2026-11-16T19:37:38.112Z",
+			"commit": "dbcef574",
+			"dirty": true,
+			"coverage": "partial",
+			"scope": "files=response-body.cache; max-tests=10",
+			"maxTests": 10,
+			"typecheck": true,
+			"subjects": 1,
+			"killed": 107,
+			"todo": 0,
+			"accepted": 36,
+			"compileErrors": 15
 		}
 	]
 }
