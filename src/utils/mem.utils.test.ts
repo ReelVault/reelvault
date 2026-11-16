@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
 	BatchGarbageCollector,
 	capTotalMemoryKiB,
+	isMemoryCacheEntryFresh,
+	MEMORY_CACHE_TTL_MS,
 	parseCgroupLimitKiB,
 	parseCgroupUsageKiB,
 	parseMeminfoAvailableKiB,
@@ -62,6 +64,14 @@ describe("parseCgroupUsageKiB", () => {
 		expect(parseCgroupUsageKiB("0")).toBe(0);
 		expect(parseCgroupUsageKiB("-1")).toBeUndefined();
 		expect(parseCgroupUsageKiB("current")).toBeUndefined();
+	});
+});
+
+describe("isMemoryCacheEntryFresh", () => {
+	test("a host fact is reused inside the TTL and re-read once the quota window passes", () => {
+		expect(isMemoryCacheEntryFresh(0, 1_000)).toBeFalse();
+		expect(isMemoryCacheEntryFresh(1_000, 1_000 + MEMORY_CACHE_TTL_MS - 1)).toBeTrue();
+		expect(isMemoryCacheEntryFresh(1_000, 1_000 + MEMORY_CACHE_TTL_MS)).toBeFalse();
 	});
 });
 

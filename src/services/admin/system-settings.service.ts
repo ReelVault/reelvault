@@ -1,6 +1,7 @@
 import type { ImportSystemSettings, SystemSettingsExport } from "@reelvault/sdk/common";
 import { rateLimitOverrideIssues } from "@/config/rate-limit-overrides.utils";
 import { serverConfig } from "@/config/server/server.config";
+import { systemResourcesService } from "@/config/system-resources.service";
 import {
 	isSystemSettingKey,
 	SETTING_KEYS,
@@ -313,6 +314,10 @@ class SystemSettingsService {
 
 		if (effects.changesProviderCacheTtl) providerService.resetCaches();
 
+		// The derived budgets are cached for 1.5 s; a settings write must not leave
+		// the old concurrency/timeout values in effect for the rest of that window.
+		if (effects.changesCpuMetrics) systemResourcesService.clearMetricsCache();
+
 		if (effects.changesMonitoring) resourceAllocator.rescheduleMonitoring();
 
 		// The monitor latches `system.rescue.enabled` when it arms; a change must
@@ -352,6 +357,7 @@ interface SettingsSideEffects {
 	changesProviderCacheTtl: boolean;
 	changesMonitoring: boolean;
 	changesRescue: boolean;
+	changesCpuMetrics: boolean;
 }
 
 /** Which runtime side effects the changed setting keys require. */
@@ -364,6 +370,7 @@ function requiredSideEffects(keys: readonly string[]): SettingsSideEffects {
 		changesProviderCacheTtl: false,
 		changesMonitoring: false,
 		changesRescue: false,
+		changesCpuMetrics: false,
 	};
 
 	for (const key of keys) {
@@ -390,6 +397,8 @@ function requiredSideEffects(keys: readonly string[]): SettingsSideEffects {
 		}
 
 		if (key.startsWith("system.rescue.")) effects.changesRescue = true;
+
+		if (key.startsWith("system.resources.")) effects.changesCpuMetrics = true;
 	}
 
 	return effects;

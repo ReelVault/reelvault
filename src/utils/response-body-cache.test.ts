@@ -162,6 +162,15 @@ describe("invalidateResponseBodiesForPathPrefixes", () => {
 		expect(getCachedResponseBody(settingsKey)).toEqual(settings);
 	});
 
+	test("leaves the epoch alone when no cached body matched", () => {
+		const before = responseBodyEpoch();
+		setCachedResponseBody(cacheKey("/v1/nomatch/profiles"), entry());
+
+		invalidateResponseBodiesForPathPrefixes(["/v1/nomatch/metadata"]);
+
+		expect(responseBodyEpoch()).toBe(before);
+	});
+
 	test("is a no-op for an empty prefix list", () => {
 		const before = responseBodyEpoch();
 		const key = cacheKey("/v1/profiles");

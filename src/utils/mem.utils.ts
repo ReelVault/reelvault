@@ -13,7 +13,13 @@ const ZFS_ARCSTATS_PATH = "/proc/spl/kstat/zfs/arcstats";
 const ZFS_ARCSTAT_LINE_REGEX = /^(size|c_min)\s+\d+\s+(\d+)$/;
 
 let cachedTotalKiB: number | undefined;
-let cached = false;
+/** Host facts are stable, but a container's quota can change (docker update / VPA): refresh periodically. */
+export const MEMORY_CACHE_TTL_MS = 5 * 60_000;
+let cachedTotalAt = 0;
+
+export function isMemoryCacheEntryFresh(resolvedAt: number, now: number): boolean {
+	return resolvedAt > 0 && now - resolvedAt < MEMORY_CACHE_TTL_MS;
+}
 
 /**
  * The cgroup hierarchy never changes at runtime — resolve it once, then read
@@ -99,12 +105,12 @@ function detectCgroupHierarchy(): CgroupHierarchy {
 // Container memory quota is fixed at creation — probe once, cache the outcome
 // (including "no limit") for the process lifetime.
 let cachedLimitKiB: number | undefined;
-let limitResolved = false;
+let cachedLimitAt = 0;
 
-export function readCgroupMemoryLimitKiB(): number | undefined {
-	if (limitResolved) return cachedLimitKiB;
+export function readCgroupMemoryLimitKiB(now: number = Date.now()): number | undefined {
+	if (isMemoryCacheEntryFresh(cachedLimitAt, now)) return cachedLimitKiB;
 
-	limitResolved = true;
+	cachedLimitAt = now;
 
 	const hierarchy = resolveCgroupHierarchy();
 	if (hierarchy === "none") return cachedLimitKiB;
@@ -145,12 +151,12 @@ export function readCgroupMemoryUsageKiB(): number | undefined {
 	return undefined;
 }
 
-export function getTotalMemoryKiB(): number | undefined {
+export function getTotalMemoryKiB(now: number = Date.now()): number | undefined {
 	const simulated = env.REELVAULT_BENCH_TOTAL_MEMORY_KIB;
 	if (simulated !== undefined) return simulated;
 
-	if (!cached) {
-		cached = true;
+	if (!isMemoryCacheEntryFresh(cachedTotalAt, now)) {
+		cachedTotalAt = now;
 		let total: number | undefined;
 		try {
 			total = parseMeminfoTotalKiB(readFileSync("/proc/meminfo", "utf8"));
@@ -161,7 +167,7 @@ export function getTotalMemoryKiB(): number | undefined {
 		// /proc/meminfo unavailable — fall back to the host reading that
 		// system-resources owns.
 		total ??= detectHostTotalMemoryKiB();
-		cachedTotalKiB = capTotalMemoryKiB(total, readCgroupMemoryLimitKiB());
+		cachedTotalKiB = capTotalMemoryKiB(total, readCgroupMemoryLimitKiB(now));
 	}
 
 	return cachedTotalKiB;

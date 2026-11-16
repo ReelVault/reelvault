@@ -73,6 +73,8 @@ const MAX_TRACKED_FILES = 2_000;
 const MAX_TRACKED_ROOTS = 64;
 /** Distinct failing files kept per root; only the count threshold matters. */
 const MAX_ROOT_FAILURE_FILES = 100;
+/** A full expiry sweep walks every tracked file; a burst of failures must not make it O(n²). */
+const EXPIRY_SWEEP_MS = 30_000;
 
 let cachedMounts: { readAt: number; points: string[] } | undefined;
 
@@ -144,6 +146,7 @@ export class StorageHealthService {
 	private readonly roots = new Map<string, RootHealth>();
 	private readonly now: () => number;
 	private readonly mounts: () => string[];
+	private lastExpirySweepAt = 0;
 
 	constructor(dependencies: StorageHealthDependencies = {}) {
 		this.now = dependencies.now ?? Date.now;
@@ -176,7 +179,11 @@ export class StorageHealthService {
 		const rootPath = this.getRootForPath(path);
 		this.recordFileFailure(path, reason, now);
 		this.recordRootFailure(rootPath, path, reason, now);
-		this.prune(now);
+		this.enforceCaps();
+		if (now - this.lastExpirySweepAt >= EXPIRY_SWEEP_MS) {
+			this.lastExpirySweepAt = now;
+			this.sweepExpired(now);
+		}
 	}
 
 	/** A successful read proves the storage answers again; clear the file and its root. */
@@ -232,6 +239,7 @@ export class StorageHealthService {
 	reset(): void {
 		this.files.clear();
 		this.roots.clear();
+		this.lastExpirySweepAt = 0;
 	}
 
 	private recordFileFailure(path: string, reason: StorageFailureReason, now: number): void {
@@ -281,7 +289,7 @@ export class StorageHealthService {
 		}
 	}
 
-	private prune(now: number): void {
+	private sweepExpired(now: number): void {
 		for (const [path, health] of this.files) {
 			const expired = health.blockedUntil <= now && now - health.lastFailureAt > FAILURE_WINDOW_MS;
 			if (expired) this.files.delete(path);
@@ -291,7 +299,9 @@ export class StorageHealthService {
 			const expired = health.degradedUntil <= now && now - health.lastFailureAt > FAILURE_WINDOW_MS;
 			if (expired) this.roots.delete(root);
 		}
+	}
 
+	private enforceCaps(): void {
 		while (this.files.size > MAX_TRACKED_FILES) {
 			const oldest = this.files.keys().next().value;
 			if (oldest === undefined) break;

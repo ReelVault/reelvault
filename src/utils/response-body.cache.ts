@@ -191,11 +191,16 @@ export const CATALOG_LIST_PATH_PREFIXES = [
 export function invalidateResponseBodiesForPathPrefixes(pathPrefixes: readonly string[]): void {
 	if (pathPrefixes.length === 0) return;
 
-	invalidationEpoch++;
+	let dropped = false;
 	for (const key of responseBodyCache.keys()) {
 		const path = keySegment(key, 0) ?? "";
-		if (pathPrefixes.some((prefix) => path.startsWith(prefix))) responseBodyCache.delete(key);
+		if (!pathPrefixes.some((prefix) => path.startsWith(prefix))) continue;
+
+		responseBodyCache.delete(key);
+		dropped = true;
 	}
+	// A flush that matched nothing did not stale any preview — no need to drop them all.
+	if (dropped) invalidationEpoch++;
 }
 
 /**

@@ -85,6 +85,11 @@ export class SystemResourcesService {
 		this.logger.debug("System resource metrics cache cleared");
 	}
 
+	/** Stops the process-lifetime event-loop probe, matching every other supervisor's shutdown step. */
+	shutdown(): void {
+		this.eventLoopMonitor.stop();
+	}
+
 	/**
 	 * Single-core speed vs a modern desktop core, measured once per process.
 	 * Twelve slow threads must not fund twelve modern-core budgets — subprocess

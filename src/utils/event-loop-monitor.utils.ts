@@ -16,13 +16,14 @@ export class EventLoopMonitor {
 
 	constructor(intervalMs = 100) {
 		this.intervalMs = intervalMs;
-		this.lastAt = Date.now();
+		// Monotonic: an NTP step must not look like a loop stall (or hide one).
+		this.lastAt = performance.now();
 		this.timer = setInterval(() => this.tick(), intervalMs);
 		this.timer.unref();
 	}
 
 	private tick(): void {
-		const now = Date.now();
+		const now = performance.now();
 		const expected = this.lastAt + this.intervalMs;
 		const delayed = now - expected;
 		if (delayed > 0) this.delayedMs += delayed;

@@ -214,11 +214,12 @@ class ServerRescueService {
 	private armLagSampler(): void {
 		if (!this.isInitialized) return;
 
-		const armedAt = Date.now();
+		// Monotonic timer drift: a wall-clock adjustment must not engage rescue.
+		const armedAt = performance.now();
 		this.lagSamplerTimer = setTimeout(() => {
 			if (!this.isInitialized) return;
 
-			const drift = Math.max(0, Date.now() - armedAt - LAG_SAMPLE_INTERVAL_MS);
+			const drift = Math.max(0, performance.now() - armedAt - LAG_SAMPLE_INTERVAL_MS);
 			if (drift > this.maxLagSinceCheck) this.maxLagSinceCheck = drift;
 
 			this.armLagSampler();

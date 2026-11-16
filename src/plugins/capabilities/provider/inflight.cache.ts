@@ -24,6 +24,16 @@ export class ProviderResultCaches {
 	readonly person = new MemoryCache<ProviderPersonDetails[]>({ ...providerCacheOptions(), name: "provider-person" });
 	readonly discovery = new MemoryCache<ProviderDiscoveryResult>({ ...providerCacheOptions(), name: "provider-discovery" });
 	readonly genres = new MemoryCache<ProviderResultGenre[]>({ ...providerCacheOptions(), name: "provider-genres" });
+
+	destroyAll(): void {
+		this.details.destroy();
+		this.aggregatedDetails.destroy();
+		this.season.destroy();
+		this.episode.destroy();
+		this.person.destroy();
+		this.discovery.destroy();
+		this.genres.destroy();
+	}
 }
 
 function providerCacheOptions() {
@@ -50,5 +60,8 @@ export function providerCaches(): ProviderResultCaches {
  * `plugins.providers.detailsCacheTtlMs` takes effect only through fresh caches.
  */
 export function resetProviderCaches(): void {
+	// Tear down in-flight loads too: a load from the old TTL generation must not
+	// land in a cache no one reads (and keep its admin-stats registration alive).
+	caches.destroyAll();
 	caches = new ProviderResultCaches();
 }
