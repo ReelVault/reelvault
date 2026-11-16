@@ -110,23 +110,33 @@ let previousCpuIdle = 0;
 // cgroup CPU accounting (v2 `cpu.stat` usage_usec / v1 cpuacct.usage). In a
 // container /proc/stat reports the HOST, so a busy host makes the container look
 // pegged; cgroup usage divided by the effective core quota is container-accurate.
-const CGROUP_V2_CPU_STAT_PATH = "/sys/fs/cgroup/cpu.stat";
-const CGROUP_V1_CPUACCT_PATH = "/sys/fs/cgroup/cpuacct/cpuacct.usage";
+export const CGROUP_V2_CPU_STAT_PATH = "/sys/fs/cgroup/cpu.stat";
+export const CGROUP_V1_CPUACCT_PATH = "/sys/fs/cgroup/cpuacct/cpuacct.usage";
 const CPU_USAGE_USEC_REGEX = /usage_usec\s+(\d+)/;
 /** Last cgroup reading. The first reading only sets it, so the next one can compute a delta. */
 let cgroupBaseline: { usageMicros: number; sampledAt: number } | undefined;
 
-// The cgroup hierarchy never changes at runtime — remember which source works
-// instead of re-probing v2 and v1 (throwing) on every snapshot.
+// Remember which source works instead of re-probing both on every snapshot —
+// but a transient read error must not disable container accounting forever.
 type CgroupCpuSource = "v2" | "v1" | "none";
+const CGROUP_RETRY_MS = 60_000;
 let cgroupCpuSource: CgroupCpuSource | undefined;
+let cgroupProbeFailedAt = 0;
 
-async function readCgroupCpuUsageMicros(): Promise<number | undefined> {
-	if (cgroupCpuSource === "none") return undefined;
+/** The file reader and clock are injectable so a transient cgroup failure can be reproduced in a test. */
+export async function readCgroupCpuUsageMicros(
+	readText: (path: string) => Promise<string> = (path) => bunFile(path).text(),
+	now: number = Date.now(),
+): Promise<number | undefined> {
+	if (cgroupCpuSource === "none") {
+		if (now - cgroupProbeFailedAt < CGROUP_RETRY_MS) return undefined;
+		// Enough time has passed — probe again from scratch.
+		cgroupCpuSource = undefined;
+	}
 
 	if (cgroupCpuSource === undefined || cgroupCpuSource === "v2") {
 		try {
-			const stat = await bunFile(CGROUP_V2_CPU_STAT_PATH).text();
+			const stat = await readText(CGROUP_V2_CPU_STAT_PATH);
 			const match = CPU_USAGE_USEC_REGEX.exec(stat);
 			if (match?.[1]) {
 				cgroupCpuSource = "v2";
@@ -137,11 +147,13 @@ async function readCgroupCpuUsageMicros(): Promise<number | undefined> {
 			// Cgroup v2 cpu.stat unreadable — fall back to v1.
 		}
 
+		// A known-good v2 source having one bad read is not a hierarchy change:
+		// keep it and retry it next snapshot instead of downgrading to v1/none.
 		if (cgroupCpuSource === "v2") return undefined;
 	}
 
 	try {
-		const nanos = Number.parseInt((await bunFile(CGROUP_V1_CPUACCT_PATH).text()).trim(), 10);
+		const nanos = Number.parseInt((await readText(CGROUP_V1_CPUACCT_PATH)).trim(), 10);
 		if (isFiniteNumber(nanos)) {
 			cgroupCpuSource = "v1";
 
@@ -152,6 +164,7 @@ async function readCgroupCpuUsageMicros(): Promise<number | undefined> {
 	}
 
 	cgroupCpuSource = "none";
+	cgroupProbeFailedAt = now;
 
 	return undefined;
 }

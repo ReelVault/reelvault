@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { cgroupCpuPercent, memoryReading, resolveAvailableMemoryKiB } from "./host-metrics.reader";
+import {
+	CGROUP_V2_CPU_STAT_PATH,
+	cgroupCpuPercent,
+	memoryReading,
+	readCgroupCpuUsageMicros,
+	resolveAvailableMemoryKiB,
+} from "./host-metrics.reader";
 
 describe("memoryReading", () => {
 	test("keeps used memory between zero and the total, and reports zero percent for a zero total", () => {
@@ -22,6 +28,36 @@ describe("resolveAvailableMemoryKiB", () => {
 
 	test("leaves a host without a ZFS ARC unchanged", () => {
 		expect(resolveAvailableMemoryKiB(8 * 1024 * 1024, 6 * 1024 * 1024, 0)).toBe(6 * 1024 * 1024);
+	});
+});
+
+describe("cgroup CPU source", () => {
+	test("retries container accounting after a transient read failure", async () => {
+		let unreadable = true;
+		const readText = (path: string): Promise<string> =>
+			path === CGROUP_V2_CPU_STAT_PATH && unreadable
+				? Promise.reject(new Error("transient I/O error"))
+				: Promise.resolve("usage_usec 1000000\n");
+
+		expect(await readCgroupCpuUsageMicros(readText, 0)).toBeUndefined();
+		// Still inside the retry window: no re-probe, still unavailable.
+		expect(await readCgroupCpuUsageMicros(readText, 30_000)).toBeUndefined();
+		unreadable = false;
+		expect(await readCgroupCpuUsageMicros(readText, 61_000)).toBe(1_000_000);
+	});
+
+	test("keeps a working v2 source across a single unreadable sample", async () => {
+		let unreadable = false;
+		const readText = (path: string): Promise<string> =>
+			path === CGROUP_V2_CPU_STAT_PATH && unreadable
+				? Promise.reject(new Error("transient I/O error"))
+				: Promise.resolve("usage_usec 2000000\n");
+
+		expect(await readCgroupCpuUsageMicros(readText, 0)).toBe(2_000_000);
+		unreadable = true;
+		expect(await readCgroupCpuUsageMicros(readText, 1_000)).toBeUndefined();
+		unreadable = false;
+		expect(await readCgroupCpuUsageMicros(readText, 2_000)).toBe(2_000_000);
 	});
 });
 
