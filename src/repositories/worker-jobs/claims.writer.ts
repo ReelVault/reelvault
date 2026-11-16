@@ -45,6 +45,33 @@ export async function claimNextBatch(input: ClaimNextInput, max: number): Promis
 	);
 }
 
+/**
+ * Claims from every eligible worker in one write transaction. The poller used
+ * to open one `BEGIN IMMEDIATE` per worker (dozens on a full queue), blocking
+ * every other writer between them. All passes share the same lock window here.
+ */
+export async function claimNextBatchMany(entries: ReadonlyArray<{ input: ClaimNextInput; max: number }>): Promise<WorkerItem[][]> {
+	if (entries.length === 0) return [];
+
+	return await databaseFactory.transaction(
+		async (tx) => {
+			const batches: WorkerItem[][] = [];
+			for (const { input, max } of entries) {
+				if (max <= 0) {
+					batches.push([]);
+
+					continue;
+				}
+
+				batches.push(await claimRunnableItems(tx, input, max));
+			}
+
+			return batches;
+		},
+		{ immediate: true },
+	);
+}
+
 /** Claims one candidate row; the row is only claimed while it is still pending. */
 async function claimCandidate(
 	tx: DatabaseTransaction,

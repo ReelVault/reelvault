@@ -18,8 +18,8 @@ const ALLOCATION_WORKER_IDS = [
 	"transcode",
 ];
 
-/** The history window of the resources page; the monitor keeps about a week of samples. */
-export const RESOURCE_HISTORY_MAX_HOURS = 168;
+/** The history window of the resources page — matches the 24 h metric retention. */
+export const RESOURCE_HISTORY_MAX_HOURS = 24;
 const DEFAULT_RESOURCE_HOURS = 24;
 
 const CSV_HEADER = "timestamp,cpuPercent,memoryPercent,diskPercent,pressure,activeWorkers";

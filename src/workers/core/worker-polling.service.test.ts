@@ -187,15 +187,15 @@ describe("WorkerPollingService wake-up drain", () => {
 		const firstPollHeld = new Promise<void>((resolve) => {
 			releaseFirstPoll = resolve;
 		});
-		const realClaim = workerJobRepository.claimNextBatch.bind(workerJobRepository);
+		const realClaim = workerJobRepository.claimNextBatchMany.bind(workerJobRepository);
 		activeStubs.push(
-			stubMethod(workerJobRepository, "claimNextBatch", async (...args: Parameters<typeof realClaim>) => {
+			stubMethod(workerJobRepository, "claimNextBatchMany", async (...args: Parameters<typeof realClaim>) => {
 				claims++;
-				const items = await realClaim(...args);
+				const batches = await realClaim(...args);
 				// Hold only the first poll in flight, after its real claim has run.
 				if (claims === 1) await firstPollHeld;
 
-				return items;
+				return batches;
 			}),
 		);
 		await insertJob("job-1", "w-poll");

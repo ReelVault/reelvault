@@ -1,4 +1,4 @@
-import { desc, gte, lt, sql } from "drizzle-orm";
+import { and, desc, gte, lt, sql } from "drizzle-orm";
 import { DAY, HOUR } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -49,8 +49,24 @@ export const resourceMetricsRepository = {
 
 	async getHistory(hours = 24, maxPoints = 480): Promise<ResourceHistorySample[]> {
 		const cutoff = new Date(Date.now() - hours * HOUR);
-		const rows = await databaseFactory
-			.getClient()
+		const client = databaseFactory.getClient();
+		const [countRow] = await client.select({ count: sql<number>`COUNT(*)` }).from(metrics).where(gte(metrics.createdAt, cutoff));
+		// Even stride over the newest-first rows keeps the newest sample and bounds
+		// the payload for charts — a 24 h window at ~30 s cadence spans thousands of
+		// rows, far past what a graph can render. The stride goes into SQL so the
+		// client never materializes rows it will throw away (exports pass Infinity).
+		const stride = Math.max(1, Math.ceil((countRow?.count ?? 0) / maxPoints));
+		const stridedIds = sql`
+			${metrics.id} IN (
+				SELECT ${metrics.id} FROM (
+					SELECT ${metrics.id}, ROW_NUMBER() OVER (ORDER BY ${metrics.createdAt} DESC) AS rn
+					FROM ${metrics}
+					WHERE ${gte(metrics.createdAt, cutoff)}
+				) WHERE (rn - 1) % ${stride} = 0
+			)
+		`;
+
+		return await client
 			.select({
 				id: metrics.id,
 				createdAt: metrics.createdAt,
@@ -61,14 +77,8 @@ export const resourceMetricsRepository = {
 				activeWorkers: metrics.activeWorkers,
 			})
 			.from(metrics)
-			.where(gte(metrics.createdAt, cutoff))
+			.where(and(gte(metrics.createdAt, cutoff), stridedIds))
 			.orderBy(desc(metrics.createdAt));
-		// Even stride over the newest-first rows keeps the newest sample and bounds
-		// the payload for charts — a 24 h window at ~30 s cadence spans thousands of
-		// rows, far past what a graph can render.
-		const stride = Math.max(1, Math.ceil(rows.length / maxPoints));
-
-		return rows.filter((_, index) => index % stride === 0);
 	},
 
 	async getAggregates(hours = 24): Promise<{

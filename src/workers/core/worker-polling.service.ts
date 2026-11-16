@@ -1,27 +1,13 @@
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { workerJobRepository } from "@/repositories/worker.repository";
+import type { ClaimNextInput } from "@/repositories/worker-jobs/shared.types";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
 import { getWorkerRuntime } from "./worker.runtime";
 
 /** Upper bound for the idle-poll backoff (see scheduleNextPoll). */
 const IDLE_BACKOFF_CAP_MS = 15_000;
-
-/** Pool doubles may start synchronously; async start failures belong to the pool, not the poll loop. */
-function detachStarted(started: void | Promise<void>): void {
-	if (!(started instanceof Promise)) return;
-
-	detach(
-		(async () => {
-			try {
-				await started;
-			} catch {
-				// Pool start owns its failure reporting; a rejected start is not poll-fatal.
-			}
-		})(),
-	);
-}
 
 export class WorkerPollingService {
 	readonly serviceName = "WorkerPollingService";
@@ -178,55 +164,65 @@ export class WorkerPollingService {
 		return this.isRunning;
 	}
 
-	/** Claims one batch for a worker and starts it; split from `poll` to keep the loop readable. */
-	private async claimForWorker(input: {
-		workerId: string;
+	/** Claims every eligible worker in one write transaction, then starts the claimed jobs. */
+	private async claimAll(input: {
+		workerIds: string[];
 		runtime: ReturnType<typeof getWorkerRuntime>;
 		maxGlobalPool: number;
 		activeJobIds: string[];
 		now: Date;
 	}): Promise<void> {
-		const { workerId, runtime, maxGlobalPool, activeJobIds, now } = input;
-		const definition = runtime.registry.get(workerId);
-		if (!definition) {
-			// Jobs for an unregistered worker (plugin removed/renamed) would
-			// otherwise sit pending forever, re-detected on every poll tick.
-			this.logger.warn("Pending jobs reference an unregistered worker — skipped", { workerId });
+		const { workerIds, runtime, maxGlobalPool, activeJobIds, now } = input;
+		const entries: Array<{ input: ClaimNextInput; definition: NonNullable<ReturnType<typeof runtime.registry.get>>; max: number }> = [];
+		let remainingSlots = maxGlobalPool - runtime.pool.totalRunningCount;
 
-			return;
+		for (const workerId of workerIds) {
+			const definition = runtime.registry.get(workerId);
+			if (!definition) {
+				// Jobs for an unregistered worker (plugin removed/renamed) would
+				// otherwise sit pending forever, re-detected on every poll tick.
+				this.logger.warn("Pending jobs reference an unregistered worker — skipped", { workerId });
+
+				continue;
+			}
+
+			const effectiveConcurrency = definition.concurrency ?? serverConfig.workers.scheduling.defaultConcurrency;
+			const freeSlots = Math.min(effectiveConcurrency - runtime.pool.runningCountFor(workerId), remainingSlots);
+			if (freeSlots <= 0) continue;
+
+			remainingSlots -= freeSlots;
+			entries.push({
+				definition,
+				max: freeSlots,
+				input: {
+					workerId,
+					runnerId: this.runnerId,
+					concurrency: effectiveConcurrency,
+					timeoutMs: definition.timeoutMs ?? serverConfig.workers.scheduling.defaultTimeoutMs,
+					now,
+					// Jobs whose handlers are still hanging in memory must not be
+					// recovered and re-claimed by a parallel poll (double execution).
+					excludeActiveIds: activeJobIds,
+				},
+			});
 		}
+		if (entries.length === 0) return;
 
-		const effectiveConcurrency = definition.concurrency ?? serverConfig.workers.scheduling.defaultConcurrency;
-		const freeSlots = Math.min(
-			effectiveConcurrency - runtime.pool.runningCountFor(workerId),
-			maxGlobalPool - runtime.pool.totalRunningCount,
-		);
-		if (freeSlots <= 0) return;
+		const batches = await workerJobRepository.claimNextBatchMany(entries.map((entry) => ({ input: entry.input, max: entry.max })));
 
-		// One transaction claims every runnable job for this worker — the
-		// sequential claimNext re-ran recover/candidates/counts per job.
-		const claimedItems = await workerJobRepository.claimNextBatch(
-			{
-				workerId,
-				runnerId: this.runnerId,
-				concurrency: effectiveConcurrency,
-				timeoutMs: definition.timeoutMs ?? serverConfig.workers.scheduling.defaultTimeoutMs,
-				now,
-				// Jobs whose handlers are still hanging in memory must not be
-				// recovered and re-claimed by a parallel poll (double execution).
-				excludeActiveIds: activeJobIds,
-			},
-			freeSlots,
-		);
-
-		// The claim itself is a transaction; a stop during it leaves rows running
-		// for the watchdog to recover rather than starting a handler after drain.
+		// The claim is one transaction; a stop during it leaves rows running for
+		// the watchdog to recover rather than starting a handler after drain.
 		if (!this.isRunningNow()) return;
 
-		for (const item of claimedItems) {
-			if (!this.isRunningNow()) break;
+		for (const [index, claimedItems] of batches.entries()) {
+			const definition = entries[index]?.definition;
+			if (!definition) continue;
 
-			detachStarted(runtime.pool.start(definition, item));
+			for (const item of claimedItems) {
+				if (!this.isRunningNow()) return;
+
+				runtime.pool.start(definition, item);
+			}
 		}
 	}
 
@@ -241,7 +237,13 @@ export class WorkerPollingService {
 			const now = new Date();
 			const runtime = getWorkerRuntime();
 			const maxGlobalPool = systemResourcesService.getWorkerPoolMaxConcurrent();
-			if (runtime.pool.totalRunningCount >= maxGlobalPool) return;
+			if (runtime.pool.totalRunningCount >= maxGlobalPool) {
+				// Slot release is event-driven (onSlotFreed), but counting this as an
+				// empty poll lets the idle backoff engage instead of waking pointlessly.
+				this.emptyPolls++;
+
+				return;
+			}
 
 			const pendingWorkerIds = await workerJobRepository.findPendingWorkerIds(now);
 			// `stop()` may have run while the query was in flight; starting a job
@@ -260,11 +262,7 @@ export class WorkerPollingService {
 			// so they cannot be recovered again within this tick.
 			const activeJobIds = runtime.pool.getActiveJobIds();
 
-			for (const workerId of pendingWorkerIds) {
-				if (!this.isRunningNow() || runtime.pool.totalRunningCount >= maxGlobalPool) break;
-
-				await this.claimForWorker({ workerId, runtime, maxGlobalPool, activeJobIds, now });
-			}
+			await this.claimAll({ workerIds: pendingWorkerIds, runtime, maxGlobalPool, activeJobIds, now });
 		} finally {
 			// A superseded poll must not clear the flag of the poll that replaced it.
 			if (generation === this.pollGeneration) {

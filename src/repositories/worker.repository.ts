@@ -11,7 +11,16 @@ import {
 	findCancelledByOperation,
 	findRunningByOperation,
 } from "./worker-jobs/cancellation.writer";
-import { claimNextBatch, complete, fail, recoverOrphanedRunning, requeueRunning, retry, updateProgress } from "./worker-jobs/claims.writer";
+import {
+	claimNextBatch,
+	claimNextBatchMany,
+	complete,
+	fail,
+	recoverOrphanedRunning,
+	requeueRunning,
+	retry,
+	updateProgress,
+} from "./worker-jobs/claims.writer";
 import {
 	enqueue,
 	enqueueMany,
@@ -50,6 +59,7 @@ class WorkerJobRepository {
 	readonly listItems = listItems;
 	readonly findPendingWorkerIds = findPendingWorkerIds;
 	readonly claimNextBatch = claimNextBatch;
+	readonly claimNextBatchMany = claimNextBatchMany;
 	readonly updateProgress = updateProgress;
 	readonly complete = complete;
 	readonly retry = retry;
