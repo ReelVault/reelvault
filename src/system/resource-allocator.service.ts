@@ -18,8 +18,8 @@ import { computeWorkerAllocation, workerConcurrencyCeiling } from "./resource-al
 
 const METRICS_FLUSH_INTERVAL_MS = 25_000;
 const ALERT_COOLDOWN_MS = 5 * MINUTE;
+/** Keep the newest half when the bounded alert list fills up. */
 const MAX_RECENT_ALERTS = 100;
-const RECENT_ALERTS_KEPT = 50;
 
 export class ResourceAllocator {
 	readonly serviceName = "ResourceAllocator";
@@ -130,7 +130,7 @@ export class ResourceAllocator {
 		try {
 			const { cpuUsedPercent, memory, disk } = await this.readMetrics();
 			const activeStreams = this.getActiveStreams();
-			const workers = this.activeWorkersProvider?.() ?? {};
+			const workers = this.getActiveWorkers();
 			const pressure = calculatePressure(cpuUsedPercent, memory.percent, disk.percent);
 			const now = Date.now();
 
@@ -144,9 +144,8 @@ export class ResourceAllocator {
 				workers,
 			};
 
-			if (now - this.lastFlushAt > METRICS_FLUSH_INTERVAL_MS) {
-				await this.flushToDatabase(false);
-			}
+			// The cadence guard lives in flushToDatabase, so there is one clock read.
+			await this.flushToDatabase(false);
 
 			for (const alert of thresholdAlerts(this.currentSnapshot)) this.createAlert(alert);
 		} catch (error) {
@@ -163,6 +162,16 @@ export class ResourceAllocator {
 			this.logger.warn("Active streams provider failed", { error });
 
 			return 0;
+		}
+	}
+
+	private getActiveWorkers(): Record<string, number> {
+		try {
+			return this.activeWorkersProvider?.() ?? {};
+		} catch (error) {
+			this.logger.warn("Active workers provider failed", { error });
+
+			return {};
 		}
 	}
 
@@ -204,7 +213,8 @@ export class ResourceAllocator {
 		this.alertCooldowns.set(draft.type, now);
 
 		if (this.recentAlerts.length > MAX_RECENT_ALERTS) {
-			this.recentAlerts = this.recentAlerts.slice(-RECENT_ALERTS_KEPT);
+			const keep = Math.floor(MAX_RECENT_ALERTS / 2);
+			this.recentAlerts = this.recentAlerts.slice(-keep);
 		}
 
 		this.publishAlert(alert);
