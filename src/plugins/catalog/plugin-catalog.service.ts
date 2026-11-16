@@ -6,6 +6,7 @@ import { assertChecksumMatches } from "@/utils/crypto.utils";
 import { DomainError, errorCodeOf, errorMessage, toErrorCode } from "@/utils/domain.errors";
 import { consumeStreamBounded } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 import { decryptSecret, encryptSecret } from "@/utils/secret-crypto.utils";
 import { minServerVersionError } from "@/utils/semver.utils";
 import { guardedFetch } from "@/utils/url-guard.utils";
@@ -119,7 +120,13 @@ interface CachedManifest {
 
 class PluginCatalogService {
 	readonly logger = createLogger("PluginCatalogService");
-	private readonly cache = new Map<string, CachedManifest>();
+	// `fetchedAt` stays in the value: the stale-on-error fallback needs an entry
+	// even after its freshness window has passed. MemoryCache supplies the cap.
+	private readonly cache = new MemoryCache<CachedManifest>({
+		ttlMs: -1,
+		maxSize: 32,
+		name: "plugin-catalog.manifests",
+	});
 
 	async listRepositories(): Promise<PluginRepositoryView[]> {
 		// awaits: sequential — the official repository is ensured before the list is read

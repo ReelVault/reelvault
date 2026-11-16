@@ -7,6 +7,7 @@ import { isWebApiPath } from "@/api/utils/route-classification.utils";
 import { resolveWebDistRoot } from "@/config/server/web-dist.utils";
 import { getPathname, getRequestPathname, matchesIfNoneMatch } from "@/utils/http.utils";
 import { byteRangeResponse } from "@/utils/http-range.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 import { contentTypeForPath, MIME_TYPES } from "@/utils/mime.utils";
 import { getExtension } from "@/utils/path.utils";
 
@@ -46,16 +47,11 @@ function toFileStatView(fileStat: Stats | null): FileStatView | null {
  * only bounds a long-lived process.
  */
 const ASSET_STAT_CACHE_MAX_ENTRIES = 512;
-const assetStatCache = new Map<string, FileStatView>();
-
-function rememberAssetStat(filePath: string, fileStat: FileStatView): void {
-	if (assetStatCache.size >= ASSET_STAT_CACHE_MAX_ENTRIES) {
-		const oldest = assetStatCache.keys().next().value;
-		if (oldest !== undefined) assetStatCache.delete(oldest);
-	}
-
-	assetStatCache.set(filePath, fileStat);
-}
+const assetStatCache = new MemoryCache<FileStatView>({
+	ttlMs: -1, // content-hashed names never change in place
+	maxSize: ASSET_STAT_CACHE_MAX_ENTRIES,
+	name: "web.asset-stat",
+});
 
 async function statIndexEntry(root: string): Promise<FileStatView | null> {
 	return toFileStatView(
@@ -88,7 +84,7 @@ async function resolveEntryStat(
 				.stat()
 				.catch(() => null),
 		);
-		if (fileStat?.isFile) rememberAssetStat(filePath, fileStat);
+		if (fileStat?.isFile) assetStatCache.set(filePath, fileStat);
 
 		return { isHtmlEntry: false, fileStat };
 	}

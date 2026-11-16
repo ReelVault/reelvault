@@ -12,6 +12,7 @@ import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
 import { unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { getFileStats, readJsonFile } from "@/utils/file.utils";
+import { MemoryCache } from "@/utils/memory.cache";
 import { isValidSemver } from "@/utils/semver.utils";
 import { isRecord } from "@/utils/type.utils";
 import { validatePluginCsp } from "./manifest/csp.validator";
@@ -85,7 +86,11 @@ export function validatePluginManifest(value: unknown): asserts value is PluginM
  * its sub-millisecond precision: a manifest rewritten in the same millisecond
  * (the version bump of an upgrade) must not read as unchanged.
  */
-const manifestCache = new Map<string, { signature: string; manifest: PluginManifest }>();
+const manifestCache = new MemoryCache<{ signature: string; manifest: PluginManifest }>({
+	ttlMs: -1, // the file signature is the freshness check
+	maxSize: 64,
+	name: "plugin.manifests",
+});
 
 export async function loadPluginManifest(pluginDir: string, options?: { fresh?: boolean | undefined }): Promise<PluginManifest> {
 	const manifestPath = join(pluginDir, "plugin.json");
