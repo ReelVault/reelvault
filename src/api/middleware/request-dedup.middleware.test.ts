@@ -280,6 +280,43 @@ test("oversized composed keys are hashed and still deduplicate concurrent reques
 	expect(calls).toBe(1);
 });
 
+test("an abandoned leader gives up its slot so later requests lead again", async () => {
+	stubs.push(stubMethod(systemResourcesService, "scaledTimeoutMs", () => 30));
+	const gates = [gate(), gate(), gate(), gate()];
+	const secondEntered = gate();
+	const thirdEntered = gate();
+	let calls = 0;
+	const app = createApp(async () => {
+		const index = calls++;
+		if (index === 1) secondEntered.open();
+		if (index === 2) thirdEntered.open();
+		await gates[index]!.promise;
+
+		return `run-${index + 1}`;
+	});
+
+	const headers = { authorization: "Bearer abandoned" };
+	const request = () => app.handle(new Request("http://localhost/test", { headers }));
+
+	const leader = request();
+	await settle();
+	const follower = request();
+	await secondEntered.promise;
+	// The leader is still parked, so its entry is now older than two wait windows.
+	await Bun.sleep(70);
+
+	const third = request();
+	await thirdEntered.promise;
+	await settle();
+	const fourth = request();
+
+	for (const opened of gates) opened.open();
+	const responses = await Promise.all([leader, follower, third, fourth]);
+	expect(calls).toBe(3);
+	expect(await responses[2].text()).toBe("run-3");
+	expect(await responses[3].text()).toBe("run-3");
+});
+
 test("a follower runs the handler itself when the leader does not settle within the wait timeout", async () => {
 	stubs.push(stubMethod(systemResourcesService, "scaledTimeoutMs", () => 30));
 	const release = gate();

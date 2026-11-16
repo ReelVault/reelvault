@@ -9,16 +9,13 @@ import { serializedBodyCache } from "./response-cache.middleware";
 // own work instead of joining an identical in-flight response.
 const dedupDisabledByEnv = env.REELVAULT_BENCH_DISABLE_DEDUP === "true";
 
-interface DedupContext {
-	_dedupKey?: string | undefined;
-}
-
 interface DedupWaiter {
 	resolve: (response: Response) => void;
 	reject: (reason?: unknown) => void;
 }
 
 interface InflightEntry {
+	readonly key: string;
 	/** Set by the leader once the handler produced a value (or threw). */
 	settled: boolean;
 	/** When the leader registered; a leader that never settles is swept after a few wait windows. */
@@ -32,6 +29,8 @@ interface InflightEntry {
 }
 
 const inflight = new Map<string, InflightEntry>();
+/** Which entry (if any) each request created as leader — identity survives key reuse. */
+const leaderEntries = new WeakMap<object, InflightEntry>();
 let trackedCount = 0;
 
 /**
@@ -39,19 +38,63 @@ let trackedCount = 0;
  * would otherwise stay in `inflight` forever and permanently consume a slot.
  * Sweeping only when the cap is reached keeps the common path allocation-free.
  */
-function sweepStaleEntries(): void {
-	const cutoff = Date.now() - serverConfig.requestDedup.waitTimeoutMs * 2;
-	for (const [key, entry] of inflight) {
-		if (entry.settled || entry.createdAt > cutoff) continue;
+function evictEntry(entry: InflightEntry): void {
+	inflight.delete(entry.key);
+	trackedCount--;
+	const error = new Error("Dedup leader expired");
+	const waiters = entry.waiters;
+	entry.waiters = [];
+	entry.settled = true;
+	entry.error = error;
+	for (const waiter of waiters) waiter.reject(error);
+}
 
-		inflight.delete(key);
-		trackedCount--;
-		const error = new Error("Dedup leader expired");
-		const waiters = entry.waiters;
-		entry.waiters = [];
-		entry.settled = true;
-		entry.error = error;
-		for (const waiter of waiters) waiter.reject(error);
+/** A leader older than two wait windows is abandoned: its key stops blocking new requests. */
+function isStale(entry: InflightEntry, now: number): boolean {
+	return entry.settled || now - entry.createdAt > serverConfig.requestDedup.waitTimeoutMs * 2;
+}
+
+function sweepStaleEntries(): void {
+	const now = Date.now();
+	for (const entry of inflight.values()) {
+		if (!isStale(entry, now)) continue;
+
+		evictEntry(entry);
+	}
+}
+
+/** Undefined means the leader disappeared: the caller must run its own handler. */
+async function waitForLeader(entry: InflightEntry): Promise<Response | undefined> {
+	try {
+		const response = await new Promise<Response>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("Dedup wait timeout")), serverConfig.requestDedup.waitTimeoutMs);
+			timer.unref();
+			if (entry.settled) {
+				clearTimeout(timer);
+				if (entry.error === undefined) {
+					resolve(buildSharedResponse(entry));
+				} else {
+					reject(entry.error);
+				}
+
+				return;
+			}
+
+			entry.waiters.push({
+				resolve: (resolved) => {
+					clearTimeout(timer);
+					resolve(resolved);
+				},
+				reject: (failed) => {
+					clearTimeout(timer);
+					reject(failed);
+				},
+			});
+		});
+
+		return response.clone();
+	} catch {
+		return undefined;
 	}
 }
 
@@ -108,7 +151,7 @@ function settleEntry(entry: InflightEntry): void {
 export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 	.macro({
 		deduplicate: (_options: { enabled?: boolean } = {}) => ({
-			async beforeHandle(context: { request: Request } & DedupContext): Promise<Response | undefined> {
+			async beforeHandle(context: { request: Request }): Promise<Response | undefined> {
 				if (_options.enabled === false || dedupDisabledByEnv || !serverConfig.requestDedup.enabled) return undefined;
 
 				if (!(context.request.method === "GET" || context.request.method === "HEAD")) return undefined;
@@ -126,82 +169,45 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 				const key = composed.length > serverConfig.requestDedup.rawKeyMaxLength ? bunHash(composed).toString(16) : composed;
 
 				const existing = inflight.get(key);
-				if (existing) {
-					// Followers must not depend on the leader's cleanup running: cap the
-					// wait and execute normally when the leader disappears (or is stuck).
-					try {
-						const response = await new Promise<Response>((resolve, reject) => {
-							const timer = setTimeout(() => reject(new Error("Dedup wait timeout")), serverConfig.requestDedup.waitTimeoutMs);
-							timer.unref();
-							if (existing.settled) {
-								clearTimeout(timer);
-								if (existing.error === undefined) {
-									resolve(buildSharedResponse(existing));
-								} else {
-									reject(existing.error);
-								}
+				// Followers must not depend on the leader's cleanup running: cap the
+				// wait and execute normally when the leader disappears (or is stuck).
+				if (existing && !isStale(existing, Date.now())) return await waitForLeader(existing);
 
-								return;
-							}
-
-							existing.waiters.push({
-								resolve: (resolved) => {
-									clearTimeout(timer);
-									resolve(resolved);
-								},
-								reject: (failed) => {
-									clearTimeout(timer);
-									reject(failed);
-								},
-							});
-						});
-
-						return response.clone();
-					} catch {
-						return undefined;
-					}
-				}
-
-				inflight.set(key, { settled: false, createdAt: Date.now(), status: 200, waiters: [] });
+				if (existing) evictEntry(existing);
+				const entry: InflightEntry = { key, settled: false, createdAt: Date.now(), status: 200, waiters: [] };
+				inflight.set(key, entry);
 				trackedCount++;
-				context._dedupKey = key;
+				leaderEntries.set(context, entry);
 
 				return undefined;
 			},
 		}),
 	})
 	.mapResponse({ as: "global" }, (context) => {
-		// Only the registered leader may clean up the entry. Fallback key derivation
-		// here would let a follower delete/resolve a *new* leader's entry (race) and
-		// inflate trackedCount, permanently disabling deduplication.
+		// Identity, not just the key: a leader whose entry was evicted while it was
+		// still running must never resolve the *next* leader's entry.
 		const { responseValue, set } = context;
-		const key = "_dedupKey" in context && typeof context._dedupKey === "string" ? context._dedupKey : undefined;
-		if (!key) return;
+		const entry = leaderEntries.get(context);
+		if (!entry || inflight.get(entry.key) !== entry) return;
 
-		const entry = inflight.get(key);
-		if (entry) {
-			inflight.delete(key);
-			trackedCount--;
-			entry.responseValue = responseValue;
-			entry.status = getResponseStatus(set);
-			settleEntry(entry);
-		}
+		inflight.delete(entry.key);
+		trackedCount--;
+		entry.responseValue = responseValue;
+		entry.status = getResponseStatus(set);
+		settleEntry(entry);
 	})
 	.onError({ as: "global" }, (context) => {
-		const key = "_dedupKey" in context && typeof context._dedupKey === "string" ? context._dedupKey : undefined;
-		if (!key) return;
+		const entry = leaderEntries.get(context);
+		if (!entry || inflight.get(entry.key) !== entry) return;
 
-		const entry = inflight.get(key);
-		if (entry) {
-			inflight.delete(key);
-			trackedCount--;
-			entry.error = context.error;
-			const waiters = entry.waiters;
-			entry.waiters = [];
-			entry.settled = true;
-			for (const waiter of waiters) {
-				waiter.reject(context.error);
-			}
+		inflight.delete(entry.key);
+		trackedCount--;
+		entry.error = context.error;
+		const waiters = entry.waiters;
+		entry.waiters = [];
+		entry.settled = true;
+		for (const waiter of waiters) {
+			waiter.reject(context.error);
 		}
 	})
 	.as("global");
