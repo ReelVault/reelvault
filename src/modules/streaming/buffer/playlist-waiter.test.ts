@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $, spawn } from "bun";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { SessionStore } from "@/modules/streaming/runtime/session-state/session.store";
 import { SessionReservationTracker } from "@/modules/streaming/runtime/session-state/session-reservation.tracker";
 import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
@@ -27,6 +28,7 @@ function createWaiter(caseName: string, options: { session?: { exitCode: number 
 	const dir = join(root, caseName);
 	const store = new SessionStore();
 	const reservations = new SessionReservationTracker(store, 5);
+	let process: Bun.Subprocess | undefined;
 	if (options.session) {
 		store.register({
 			id: "s1",
@@ -36,14 +38,15 @@ function createWaiter(caseName: string, options: { session?: { exitCode: number 
 			inputPath: "/media/f.mkv",
 			tempDir: dir,
 		});
-		store.attachProcess("s1", fakeProcess(options.session.exitCode), 0);
+		process = fakeProcess(options.session.exitCode);
+		store.attachProcess("s1", process, 0);
 	}
 
 	if (options.pending) reservations.reserve("s1");
 
 	const waiter = new PlaylistWaiter(store, reservations, (_sessionId, fileName) => join(dir, fileName), 4);
 
-	return { waiter, dir };
+	return { waiter, dir, process };
 }
 
 describe("playlist waiter", () => {
@@ -96,6 +99,21 @@ describe("playlist waiter", () => {
 			category: "internal",
 			code: "streaming_process_exited",
 		});
+	});
+
+	test("carries ffmpeg's last lines when the process dies before the playlist", async () => {
+		const { waiter, process } = createWaiter("dead-process-stderr", { session: { exitCode: 137 } });
+		if (!process) throw new Error("test setup did not create a process");
+		const stderr = "Out of memory: Killed process 123 (ffmpeg)";
+		ffmpegProcessTracker.track(process, "streaming", () => stderr);
+
+		try {
+			const failure: unknown = await waiter.waitForPlaylist("s1", 50, async () => false).catch((error: unknown) => error);
+			expect(failure).toMatchObject({ category: "internal", code: "streaming_process_exited" });
+			expect((failure as Error).message).toContain(stderr);
+		} finally {
+			ffmpegProcessTracker.forgetStderrTail(process);
+		}
 	});
 
 	test("waits for the playlist of a pending reservation and surfaces the generation timeout", async () => {

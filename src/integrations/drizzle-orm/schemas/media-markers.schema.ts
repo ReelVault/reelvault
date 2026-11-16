@@ -25,6 +25,8 @@ export const mediaMarkers = sqliteTable(
 		index("media_markers_file_start_idx").on(t.mediaFileId, t.startSeconds),
 		// The list page sorts by created_at and appends the id as a tiebreaker.
 		index("media_markers_created_at_id_idx").on(t.createdAt, t.id),
+		// Admin stats aggregates marker types and sources without a media-file id.
+		index("media_markers_type_source_idx").on(t.type, t.source),
 		check("media_markers_range_check", sql`${t.startSeconds} >= 0 AND ${t.endSeconds} >= ${t.startSeconds}`),
 	],
 );

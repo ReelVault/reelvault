@@ -102,14 +102,15 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 				else this.logger.error(errorLogMessage, err, { sessionId });
 			})
 			.onProgress((progress) => detach(transcodeProgressMonitor.onFfmpegProgress(sessionId, progress)))
-			.onExit((_, exitCode, signalCode, error) => {
+			.onExit((process, exitCode, signalCode, error) => {
 				const intentional = ffmpegProcessTracker.isIntentionalKill(sessionId);
 				ffmpegProcessTracker.clearIntentionalKill(sessionId);
+				const stderrTail = ffmpegProcessTracker.getStderrTail(process);
 
 				if (exitCode === 0) this.logger.debug("FFmpeg process completed successfully", { sessionId, mode });
-				else if (intentional || !isNullish(signalCode))
-					this.logger.warn("FFmpeg process stopped", { sessionId, mode, exitCode, signalCode });
-				else this.logger.error("FFmpeg process exited with error", error, { sessionId, exitCode, signalCode });
+				else if (intentional) this.logger.warn("FFmpeg process stopped", { sessionId, mode, exitCode, signalCode, intentional });
+				else if (isNullish(signalCode)) this.logger.error("FFmpeg process exited with error", error, { sessionId, exitCode, stderrTail });
+				else this.logger.error("FFmpeg process killed", error, { sessionId, mode, exitCode, signalCode, stderrTail });
 
 				detach(transcodeProgressMonitor.onFfmpegExit(sessionId, exitCode, signalCode, handle.process));
 			})

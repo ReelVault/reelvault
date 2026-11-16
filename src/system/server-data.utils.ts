@@ -1,6 +1,6 @@
 import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
@@ -44,16 +44,25 @@ export async function ensureDataDirectories(): Promise<void> {
 	}
 }
 
-export async function cleanupStartupDirectories(
-	targets?: string[],
-	excludeEntryNames?: ReadonlySet<string>,
-	signal?: AbortSignal,
-): Promise<void> {
+export async function cleanupStartupDirectories({
+	targets,
+	excludeEntryNames,
+	signal,
+	includeTempDirectories = false,
+}: {
+	targets?: string[];
+	excludeEntryNames?: ReadonlySet<string>;
+	signal?: AbortSignal;
+	/** Only the boot call may wipe `.tmp`: background jobs keep scratch files
+	 * there, and a periodic sweep would delete them while ffmpeg still writes. */
+	includeTempDirectories?: boolean;
+} = {}): Promise<void> {
 	// images/.cache is deliberately NOT wiped: it holds resized poster/backdrop
 	// variants keyed by source mtime/size with its own eviction. Deleting it on
 	// every boot would force a full artwork re-encode on first view after each
 	// restart — a sustained CPU storm on weak hosts.
 	const cleanupTargets = targets ?? [serverConfig.paths.transcodes, serverConfig.paths.imageTmp];
+	const tempDirectoryNames = new Set([basename(serverConfig.paths.transcodeTmp), basename(serverConfig.paths.imageTmp)]);
 
 	for (const targetDir of cleanupTargets) {
 		signal?.throwIfAborted();
@@ -69,6 +78,7 @@ export async function cleanupStartupDirectories(
 					systemResourcesService.getIoConcurrency(),
 					(entry) => {
 						if (excludeEntryNames?.has(entry)) return Promise.resolve();
+						if (!includeTempDirectories && tempDirectoryNames.has(entry)) return Promise.resolve();
 
 						return removeTree(join(targetDir, entry));
 					},
@@ -82,7 +92,7 @@ export async function cleanupStartupDirectories(
 		}
 	}
 
-	logger.info("Startup temporary directories cleaned up successfully");
+	logger.info("Temporary directories cleaned up successfully", { tempDirectoriesPreserved: !includeTempDirectories });
 }
 
 /**

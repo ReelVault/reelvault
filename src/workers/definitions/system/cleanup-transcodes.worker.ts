@@ -10,9 +10,11 @@ export const cleanupTranscodesWorker = defineMaintenanceWorker({
 	run: async ({ signal }) => {
 		// Deleting the tempDir of a live session breaks playback mid-stream (paused
 		// sessions keep their heartbeat alive far longer than this interval), so the
-		// sweep skips every directory belonging to an active session.
+		// sweep skips every directory belonging to an active session. `.tmp` is
+		// protected by cleanupStartupDirectories itself: trickplay and plugin jobs
+		// keep scratch files there for much longer than this interval.
 		const activeSessionIds = new Set(streamingManager.getAllActiveSessions().map((session) => session.id));
-		await cleanupStartupDirectories(undefined, activeSessionIds, signal);
+		await cleanupStartupDirectories({ excludeEntryNames: activeSessionIds, signal });
 
 		return { success: true };
 	},

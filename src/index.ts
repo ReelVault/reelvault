@@ -91,7 +91,7 @@ async function setupServer(): Promise<void> {
 		logger.info("Checking directories and files...");
 		// awaits: sequential — the data directories exist before startup cleanup runs
 		await ensureDataDirectories();
-		await cleanupStartupDirectories();
+		await cleanupStartupDirectories({ includeTempDirectories: true });
 		updateInstallService.cleanupStaleArtifacts();
 
 		// Apply pending schema migrations before any repository touches the DB.

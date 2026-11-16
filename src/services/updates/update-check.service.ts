@@ -27,6 +27,16 @@ export interface UpdateCheckState {
 }
 
 type ReleaseFetcher = (url: string) => Promise<Response>;
+type ReleaseHttpFetch = (url: string, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<Response>;
+
+/** GitHub's API rejects requests without a User-Agent, so the release check sends one. */
+export function buildReleaseFetcher(httpFetch: ReleaseHttpFetch): ReleaseFetcher {
+	return (url) =>
+		httpFetch(url, {
+			headers: { accept: "application/vnd.github+json", "user-agent": `ReelVault/${SERVER_VERSION}` },
+			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+		});
+}
 
 function toRelease(payload: unknown): AdminUpdateRelease | null {
 	if (!isRecord(payload)) return null;
@@ -104,10 +114,7 @@ export class UpdateCheckService {
 	private webLastError: string | null = null;
 	private inFlight: Promise<void> | null = null;
 
-	constructor(
-		fetcher: ReleaseFetcher = (url) =>
-			guardedFetch(url, { headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
-	) {
+	constructor(fetcher: ReleaseFetcher = buildReleaseFetcher(guardedFetch)) {
 		this.fetcher = fetcher;
 	}
 

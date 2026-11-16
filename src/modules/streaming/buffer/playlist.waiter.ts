@@ -1,6 +1,7 @@
 import type { StreamingSession } from "@reelvault/sdk/common";
-import { sleep } from "bun";
+import { type Subprocess, sleep } from "bun";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { playlistFileCache } from "@/modules/streaming/playlist/playlist.cache";
 import type { SessionStore } from "@/modules/streaming/runtime/session-state/session.store";
 import type { SessionReservationTracker } from "@/modules/streaming/runtime/session-state/session-reservation.tracker";
@@ -23,6 +24,18 @@ interface PlaylistWaitHandle {
 /** One error for every path that ends a playlist wait: the client sees a typed 404, not a timeout. */
 function sessionEndedError(): DomainError {
 	return new DomainError("not_found", "Streaming session ended while waiting for its playlist", { code: "stream.session_not_found" });
+}
+
+/** The exit code alone says nothing about an OOM kill — carry ffmpeg's last lines into the log. */
+function processExitedError(process: Subprocess, exitCode: number | null): DomainError {
+	const stderrTail = ffmpegProcessTracker.getStderrTail(process);
+	const reason = stderrTail ? `; stderr: ${stderrTail}` : "";
+
+	return new DomainError(
+		"internal",
+		`Streaming process exited before creating the playlist (exit code ${String(exitCode)}, signal ${String(process.signalCode ?? "none")}${reason})`,
+		{ code: "streaming_process_exited" },
+	);
 }
 
 export class PlaylistWaiter {
@@ -57,13 +70,9 @@ export class PlaylistWaiter {
 		if (!(await fileExists(playlistPath))) {
 			let session = this.store.get(sessionId);
 			const exitCode = session?.process?.exitCode ?? null;
-			if (session && !isNullish(exitCode)) {
+			if (session && !isNullish(exitCode) && session.process) {
 				const restarted = await retryWithSoftwareEncoder(sessionId, session);
-				if (!restarted) {
-					throw new DomainError("internal", `Streaming process exited before creating the playlist (exit code ${exitCode})`, {
-						code: "streaming_process_exited",
-					});
-				}
+				if (!restarted) throw processExitedError(session.process, exitCode);
 
 				session = this.store.get(sessionId);
 			}
@@ -77,9 +86,7 @@ export class PlaylistWaiter {
 			if (processHandle) {
 				exitPromise = (async () => {
 					const code = await processHandle.exited;
-					throw new DomainError("internal", `Streaming process exited before creating the playlist (exit code ${code})`, {
-						code: "streaming_process_exited",
-					});
+					throw processExitedError(processHandle, code);
 				})();
 			} else {
 				exitPromise = new Promise<never>(() => {

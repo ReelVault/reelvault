@@ -1,0 +1,1 @@
+CREATE INDEX `media_markers_type_source_idx` ON `media_markers` (`type`,`source`);

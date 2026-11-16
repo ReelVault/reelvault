@@ -102,4 +102,27 @@ describe("scanAndEnqueueTask", () => {
 		expect(result).toEqual({ requested: 3, queued: 3 });
 		expect(batches).toEqual([[{ imageId: "id-1" }, { imageId: "id-2" }], [{ imageId: "id-3" }]]);
 	});
+
+	test("lets queued work run between pages of a bulk scan", async () => {
+		let otherWorkRan = false;
+		const timer = setTimeout(() => {
+			otherWorkRan = true;
+		}, 0);
+
+		try {
+			await scanAndEnqueueTask(
+				baseInput({
+					findIds: undefined,
+					scanPages: async (onPage) => {
+						for (const page of [["id-1"], ["id-2"], ["id-3"]]) await onPage(page);
+						return 3;
+					},
+				}),
+			);
+		} finally {
+			clearTimeout(timer);
+		}
+
+		expect(otherWorkRan).toBe(true);
+	});
 });

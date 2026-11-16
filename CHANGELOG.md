@@ -890,6 +890,10 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 
 ## Fixes
 
+- **Bulk catalog scans no longer starve HTTP requests.** Enqueueing a large audit now yields to pending work between pages, so heartbeats and other requests stay responsive while the scan runs.
+- **Release checks no longer fail with HTTP 403.** The GitHub API needs a User-Agent header, which the update check now sends.
+- **A killed stream now logs why ffmpeg died.** An unexpected signal is reported as an error with ffmpeg's last output lines, and the playlist failure carries the same detail. Exit code 137 no longer appears without its cause.
+- **Periodic cleanup no longer deletes preview scratch files while they are being written.** The sweep of the transcode directory now leaves `.tmp` untouched; only startup cleanup removes leftovers from crashed workers. Previews no longer fail with an empty sprite or a missing output file when the sweep runs.
 - **Bare-host and scheme-less wildcard origins now match both HTTP and HTTPS.** An entry such as `example.com` or `*.lan:3000` in `APP_ALLOWED_ORIGINS` or `network.allowedOrigins` was accepted by validation but never matched the browser origin. The same applies to wildcard entries without a scheme.
 - **Preview generation can no longer exhaust a server's memory.** Each trickplay frame is decoded in its own short-lived process and the tiles are assembled afterwards, instead of opening one decoder per tile inside a single ffmpeg command. Memory now stays bounded regardless of the title's length or resolution.
 - **A file that hangs the library storage is skipped instead of retried forever.** Repeated read timeouts block that file, and several distinct failures degrade its mount for a cooldown while the rest of the queue continues.

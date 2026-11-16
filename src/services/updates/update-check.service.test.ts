@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { UpdateCheckService } from "./update-check.service";
+import { SERVER_VERSION } from "@/config/version.constants";
+import { buildReleaseFetcher, UpdateCheckService } from "./update-check.service";
 
 const SERVER_PAYLOAD = {
 	tag_name: "v99.0.0",
@@ -114,6 +115,20 @@ describe("UpdateCheckService (two sources)", () => {
 		expect(state.serverLastError).toBe("update.check_failed");
 		expect(state.webLatest?.version).toBe("0.2.0");
 		expect(state.webLastError).toBeNull();
+	});
+
+	test("sends a User-Agent so GitHub accepts the release check", async () => {
+		let sentHeaders: Record<string, string> | undefined;
+		const service = new UpdateCheckService(
+			buildReleaseFetcher((_url, init) => {
+				sentHeaders = init.headers;
+				return Promise.resolve(new Response(JSON.stringify(SERVER_PAYLOAD), { status: 200 }));
+			}),
+		);
+
+		await service.checkLatest(true);
+
+		expect(sentHeaders).toMatchObject({ "user-agent": `ReelVault/${SERVER_VERSION}` });
 	});
 
 	test("a garbage tag never counts as an available update", async () => {

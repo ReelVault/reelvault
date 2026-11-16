@@ -1,3 +1,4 @@
+import { sleep } from "bun";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { enqueueInBatches } from "@/workers/utils/batch-enqueue.utils";
 import type { WorkerEnqueueOptions } from "@/workers/worker.types";
@@ -69,7 +70,12 @@ export async function scanAndEnqueueTask<TId, T>({
 	if (scanPages) {
 		await scanPages(async (ids) => {
 			context.signal?.throwIfAborted();
+			// awaits: sequential — the page must be enqueued before the loop yields
 			await enqueuePage(ids);
+			// SQLite inserts are synchronous; sleep(0) only drains microtasks in Bun,
+			// so a full catalog scan still starves HTTP. One millisecond yields the
+			// timer phase and lets queued requests run between pages.
+			await sleep(1);
 		});
 	} else {
 		const ids = (await findIds?.(context.signal)) ?? [];

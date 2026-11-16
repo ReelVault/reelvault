@@ -33,12 +33,39 @@ test("cleanupStartupDirectories removes contents of target directories", async (
 	expect(existsSync(join(testTranscodes, "master.m3u8"))).toBe(true);
 	expect(existsSync(join(testTmp, "temp-image.bin"))).toBe(true);
 
-	await cleanupStartupDirectories([testTranscodes, testTmp]);
+	await cleanupStartupDirectories({ targets: [testTranscodes, testTmp] });
 
 	expect(existsSync(testTranscodes)).toBe(true);
 	expect(existsSync(testTmp)).toBe(true);
 	expect(readdirSync(testTranscodes).length).toBe(0);
 	expect(readdirSync(testTmp).length).toBe(0);
+});
+
+test("periodic cleanup keeps scratch files while removing old sessions", async () => {
+	const base = makeTemporaryDirectory();
+	const testTranscodes = join(base, "transcodes");
+	const trickplayScratch = join(testTranscodes, ".tmp", "trickplay_media-1_uuid");
+	mkdirSync(trickplayScratch, { recursive: true });
+	writeFileSync(join(trickplayScratch, "sprite_0.webp"), "sprite bytes");
+	mkdirSync(join(testTranscodes, "session-123"), { recursive: true });
+	writeFileSync(join(testTranscodes, "session-123", "segment001.ts"), "stale segment");
+
+	await cleanupStartupDirectories({ targets: [testTranscodes] });
+
+	expect(existsSync(join(trickplayScratch, "sprite_0.webp"))).toBe(true);
+	expect(existsSync(join(testTranscodes, "session-123"))).toBe(false);
+});
+
+test("boot cleanup removes scratch files left by a crashed worker", async () => {
+	const base = makeTemporaryDirectory();
+	const testTranscodes = join(base, "transcodes");
+	const trickplayScratch = join(testTranscodes, ".tmp", "trickplay_media-1_uuid");
+	mkdirSync(trickplayScratch, { recursive: true });
+	writeFileSync(join(trickplayScratch, "sprite_0.webp"), "sprite bytes");
+
+	await cleanupStartupDirectories({ targets: [testTranscodes], includeTempDirectories: true });
+
+	expect(existsSync(join(trickplayScratch, "sprite_0.webp"))).toBe(false);
 });
 
 test("measureDirectory sums file sizes recursively", async () => {

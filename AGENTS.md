@@ -293,8 +293,10 @@ Before you add or move a file, check this section. If no folder fits, ask the us
 
 - The schema, relations and migrations live in `src/integrations/drizzle-orm/` (`migrations/`).
 - A new table that references another table must add its relations to `src/integrations/drizzle-orm/relations.schema.ts` in the same change — both the owning side and the inverse (`r.one`/`r.many`) where the domain traverses it. A schema is never left out of the relation graph.
-- Schema changes go through `bun run db:generate --name "..."`. Never `db:push`. Never hand-write, edit or assemble migration files.
-- Between releases, squash the unreleased migrations: delete their folders and run `db:generate` once. Never edit a released migration.
+- Schema changes go through `bun run db:generate --name "<version>_release"`, where `<version>` is the version being prepared (for example `1.3.2_release`, `1.3.5_release`). Never `db:push`. Never hand-write, edit or assemble migration files.
+- There is exactly **one unreleased migration folder**, named for that upcoming release. Until the release is tagged, every further schema change rebuilds that same folder: delete it and run `db:generate` once with the same `--name`. Never add a second migration folder for the same unreleased version — several dated folders for one release are a mess.
+- A tagged release freezes its migration. Never edit, rename or regenerate a released migration; the next schema change starts a new `<next-version>_release` folder.
+- `bun run lint migrations` fails when the schema changes without a matching migration.
 - After a change in `sdk/`, publish from `sdk/`, then bump `@reelvault/sdk` here and in the website and plugin consumers.
 
 ## Runtime invariants
