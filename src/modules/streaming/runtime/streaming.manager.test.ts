@@ -1,13 +1,24 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { streamingManager } from "./streaming.manager";
 
 const sessionIds: string[] = [];
 
 const decision = createMockPlaybackDecision({ mode: "direct-stream", videoTranscode: false, audioTranscode: false, reason: "test" });
 
+const noOp = (): void => {
+	// intentionally empty
+};
+const noOpAsync = (): Promise<void> => Promise.resolve();
+
 afterEach(async () => {
 	await Promise.all(sessionIds.splice(0).map((sessionId) => streamingManager.discardSession(sessionId)));
+	streamingManager.configureLifecycleCallbacks({
+		cancelOperation: noOpAsync,
+		onSessionStarted: noOp,
+		onSessionEnded: noOp,
+	});
 });
 
 describe("streaming session isolation", () => {
@@ -65,6 +76,44 @@ describe("streaming session isolation", () => {
 		expect(await streamingManager.releaseSession(sessionId, "client-release")).toBe("released");
 		expect(await streamingManager.releaseSession(sessionId, "client-release")).toBe("already-ended");
 		expect(await streamingManager.releaseSession("never-existed", "client-release")).toBe("unknown");
+	});
+
+	test("tears down the attached process when a post-attach callback fails", async () => {
+		const sessionId = "session-post-attach-failure";
+		sessionIds.push(sessionId);
+		streamingManager.registerSession(sessionId, {
+			mediaFileId: "media-post-attach",
+			profileId: "profile-post-attach",
+			decision,
+			inputPath: "/media/a.mkv",
+		});
+
+		const processManager: object = Reflect.get(streamingManager, "processManager");
+		const stubs: MethodStub[] = [
+			stubMethod(processManager, "startSession", () => {
+				const store: { get(id: string): { generation: number } | undefined } = Reflect.get(streamingManager, "store");
+				const session = store.get(sessionId);
+				if (session) session.generation = 1;
+
+				return Promise.resolve();
+			}),
+			stubMethod(processManager, "stopRunningProcess", noOpAsync),
+			stubMethod(processManager, "removeTempDirectory", noOpAsync),
+		];
+		streamingManager.configureLifecycleCallbacks({
+			cancelOperation: noOpAsync,
+			onSessionStarted: () => {
+				throw new Error("callback failed");
+			},
+			onSessionEnded: noOp,
+		});
+
+		try {
+			await expect(streamingManager.startSession({ sessionId, inputPath: "/media/a.mkv", decision })).rejects.toBeInstanceOf(Error);
+			expect(stubs[1]!.calls).toHaveLength(1);
+		} finally {
+			for (const stub of stubs.splice(0)) stub.restore();
+		}
 	});
 
 	test("discarding a creating session removes it", async () => {

@@ -208,6 +208,15 @@ const shutdownSteps: ShutdownStep[] = [
 		run: () => systemdWatchdogService.stop(),
 		timeoutMs: SHUTDOWN_FAST_STEP_MS,
 	},
+	// Streaming before realtime: releasing sessions emits session-ended frames and
+	// plugin events. Telling sockets to go away first made every session log a
+	// spurious failure against an already-shutdown realtime service.
+	{
+		name: "streaming",
+		message: "Closing streaming sessions...",
+		run: () => streamingManager.shutdown(),
+		timeoutMs: SHUTDOWN_STREAMING_STEP_MS,
+	},
 	// Realtime next: app.stop() waits for open sockets to drain, and a connected
 	// events WebSocket never closes on its own — stopping the server before telling
 	// clients to go away deadlocked shutdown until the timeout.
@@ -239,6 +248,12 @@ const shutdownSteps: ShutdownStep[] = [
 		timeoutMs: SHUTDOWN_FAST_STEP_MS,
 	},
 	{
+		name: "system-resources",
+		message: "Stopping the event-loop probe...",
+		run: () => systemResourcesService.shutdown(),
+		timeoutMs: SHUTDOWN_FAST_STEP_MS,
+	},
+	{
 		name: "server-rescue",
 		message: "Stopping server rescue monitor...",
 		run: () => serverRescueService.shutdown(),
@@ -256,12 +271,6 @@ const shutdownSteps: ShutdownStep[] = [
 		message: "Stopping download retention sweeps...",
 		run: () => downloadsService.shutdown(),
 		timeoutMs: SHUTDOWN_FAST_STEP_MS,
-	},
-	{
-		name: "streaming",
-		message: "Closing streaming sessions...",
-		run: () => streamingManager.shutdown(),
-		timeoutMs: SHUTDOWN_STREAMING_STEP_MS,
 	},
 	{
 		name: "ffmpeg",

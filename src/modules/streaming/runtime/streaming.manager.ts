@@ -150,6 +150,11 @@ class StreamingManager {
 		} catch (error) {
 			this.reservations.release(sessionId);
 			this.logger.error("Failed to start streaming session", error, { sessionId, mode: decision.mode, startTime });
+			// A post-attach callback may have failed while ffmpeg is already writing
+			// into this directory. Kill the process first; deleting the dir under a
+			// live encoder leaves it burning CPU on a path that no longer exists.
+			// awaits: sequential — the process must stop before its output directory is deleted
+			await this.processManager.stopRunningProcess(sessionId, session);
 			// Remove the (re)created temp dir on any start failure — an empty dir left
 			// behind would linger until the session is released.
 			await this.processManager.removeTempDirectory(session.tempDir);
