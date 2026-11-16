@@ -154,7 +154,7 @@ The gate matches the static forms above. Reality, outcome and sensitivity need a
 
 ## Changelog
 
-- A behavior change updates `CHANGELOG.md` in the same task, under the newest heading without a git tag (currently `# v1.3.2`).
+- A behavior change updates `CHANGELOG.md` in the same task, under the newest heading without a git tag.
 - Sections: `### Features` (user-facing functionality and API changes), `### Fixes` (concrete bugs and their cause), `### Performance`, `### Performance benchmarks`, `### Additional measurements`.
 - Write for a reader who does not know the codebase: one or two short sentences per entry, in the right section. Say what changed and, for performance, **Before → After**. Never include implementation history, root causes, TODOs, caveats, file paths, internal rationale or "why we did it".
 - Refactors and test cleanups are not logged. Entries are in English, with no commit hashes.
