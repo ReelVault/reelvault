@@ -96,8 +96,24 @@ describe("WorkerSchedulerService.evaluateTriggers", () => {
 		await new WorkerSchedulerService().evaluateTriggers(ANCHOR);
 
 		// Exactly one catch-up run (no minute replay flood), then the next boundary after `now`.
-		expect(await queuedJobs()).toEqual([{ workerId: "w-interval", dedupeKey: `schedule:w-interval:${overdue.getTime()}` }]);
+		// The dedupe key belongs to the worker, not the due timestamp: a long run must
+		// not accumulate a duplicate for every interval it misses.
+		expect(await queuedJobs()).toEqual([{ workerId: "w-interval", dedupeKey: "schedule:w-interval" }]);
 		expect(await nextRunOf("w-interval")).toEqual(new Date((ANCHOR_MINUTE + 30) * MINUTE));
+	});
+
+	test("a long-running schedule does not pile up a queued run for every missed interval", async () => {
+		defs = [def("w-slow", { defaultTriggers: [{ id: "t4", type: "interval", intervalMinutes: 1 }] })];
+		const overdue = new Date((ANCHOR_MINUTE - 2) * MINUTE);
+		await workerSchedulesRepository.setNextRunAt("w-slow", overdue);
+		const scheduler = new WorkerSchedulerService();
+
+		await scheduler.evaluateTriggers(ANCHOR);
+		expect(await queuedJobs()).toHaveLength(1);
+
+		// The first run is still queued; a later tick must not add a second copy.
+		await scheduler.evaluateTriggers(new Date((ANCHOR_MINUTE + 1) * MINUTE));
+		expect(await queuedJobs()).toHaveLength(1);
 	});
 
 	test("a schedule whose payload cannot be stored keeps its deadline due for the next tick", async () => {
@@ -134,7 +150,7 @@ describe("WorkerSchedulerService.evaluateTriggers", () => {
 		await scheduler.evaluateTriggers(ANCHOR);
 		await scheduler.evaluateTriggers(new Date(ANCHOR.getTime() + 20_000)); // same minute, 20 s later
 
-		expect(await queuedJobs()).toEqual([{ workerId: "w-interval", dedupeKey: `schedule:w-interval:${ANCHOR.getTime()}` }]);
+		expect(await queuedJobs()).toEqual([{ workerId: "w-interval", dedupeKey: "schedule:w-interval" }]);
 	});
 });
 
@@ -306,6 +322,33 @@ describe("WorkerSchedulerService.runWorkerCategoryManually", () => {
 		const result = await new WorkerSchedulerService().runWorkerCategoryManually("file_cleanup");
 
 		expect(result).toEqual({ success: true, started: [], skipped: [] });
+	});
+});
+
+describe("WorkerSchedulerService.cancelWorker", () => {
+	test("counts each cancelled job once, not once per view of the running row", async () => {
+		defs = [def("w-cancel")];
+		setWorkerRuntime({
+			...createMockWorkerRuntime({
+				registry: {
+					getAll: () => defs,
+					has: (id: string) => defs.some((d) => d.id === id),
+				},
+				pool: { cancelAllForWorker: () => 1 },
+			}),
+			queue: new WorkerQueueService(),
+		});
+		await db
+			.client()
+			.insert(schema.workerJobs)
+			.values([
+				{ id: "cancel-pending", workerId: "w-cancel", data: "{}", status: "pending", runAt: new Date() },
+				{ id: "cancel-running", workerId: "w-cancel", data: "{}", status: "running", runAt: new Date() },
+			]);
+
+		const result = await new WorkerSchedulerService().cancelWorker("w-cancel");
+
+		expect(result.cancelledCount).toBe(2);
 	});
 });
 

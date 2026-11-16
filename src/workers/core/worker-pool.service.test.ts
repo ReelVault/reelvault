@@ -222,6 +222,35 @@ describe("worker execution pool: aborts and timeouts", () => {
 		expect(await jobRow()).toMatchObject({ status: "pending", error: TIMEOUT_MESSAGE });
 	});
 
+	test("reclaims the slot when a non-cooperative handler keeps extending its timeout after abort", async () => {
+		await insertPendingJob(3);
+		const shortGracePool = new WorkerExecutionPoolService(30);
+		shortGracePool.setRunnerId(RUNNER_ID);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const handler: WorkerDefinition["handler"] = async ({ extendTimeout }) => {
+			const extender = setInterval(() => extendTimeout?.(10), 20);
+			try {
+				await gate; // deliberately ignores the abort signal
+			} finally {
+				clearInterval(extender);
+			}
+
+			return { ok: true };
+		};
+
+		try {
+			shortGracePool.start(makeDefinition(handler, 5), await claimJob());
+			await waitFor(() => shortGracePool.totalRunningCount === 0);
+			expect(await jobRow()).toMatchObject({ status: "failed" });
+		} finally {
+			release();
+			await shortGracePool.drain();
+		}
+	});
+
 	test("fails a timed-out job permanently once attempts are exhausted, and notifies administrators", async () => {
 		await seedAdmin();
 		await insertPendingJob(1);

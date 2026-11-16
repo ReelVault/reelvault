@@ -51,6 +51,12 @@ export class WorkerExecutionPoolService {
 	private readonly runningCountByWorker = new Map<string, number>();
 	private runnerId = "default-runner";
 	private onSlotFreedCallback?: (() => void) | undefined;
+	private readonly forceReleaseGraceMs: number;
+
+	/** The grace period is injectable so a stuck handler can be verified without waiting ten seconds. */
+	constructor(forceReleaseGraceMs: number = FORCE_RELEASE_GRACE_MS) {
+		this.forceReleaseGraceMs = forceReleaseGraceMs;
+	}
 
 	setRunnerId(runnerId: string): void {
 		this.runnerId = runnerId;
@@ -122,7 +128,7 @@ export class WorkerExecutionPoolService {
 		if (!(additionalMs > 0)) return;
 
 		const exec = this.running.get(jobId);
-		if (!exec) return;
+		if (!exec || exec.abortReason !== undefined) return;
 
 		this.armTimeout(exec, jobId, additionalMs);
 	}
@@ -187,8 +193,8 @@ export class WorkerExecutionPoolService {
 					percent,
 				});
 			},
-			// Bound to this execution: a force-released handler that keeps calling
-			// extendTimeout must not re-arm the timer of a newer attempt of the job.
+			// Bound to this execution: a late handler must not extend a newer attempt.
+			// extendTimeout itself refuses once this execution has been aborted.
 			extendTimeout: (additionalMs: number) => {
 				if (this.running.get(item.id) === exec) this.extendTimeout(item.id, additionalMs);
 			},
@@ -313,14 +319,14 @@ export class WorkerExecutionPoolService {
 			this.logger.warn(`Worker task still running after ${reason}, forcing slot release`, {
 				workerId: exec.workerId,
 				taskId: jobId,
-				graceMs: FORCE_RELEASE_GRACE_MS,
+				graceMs: this.forceReleaseGraceMs,
 			});
 			this.releaseSlot(jobId, exec);
 			// The handler ignored its abort. Finalize the DB row now so recovery cannot
 			// re-claim a still-`running` row and run the task a second time. Race the
 			// row's own outcome only when the handler eventually settles.
 			detach(this.finalizeAbandonedExecution(exec));
-		}, FORCE_RELEASE_GRACE_MS);
+		}, this.forceReleaseGraceMs);
 	}
 
 	/**

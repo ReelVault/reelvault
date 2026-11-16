@@ -14,7 +14,7 @@ export interface WorkerRuntimePool {
 	getActiveJobIds(): string[];
 	cancel(jobId: string): void;
 	cancelAllForWorker(workerId: string): number;
-	start(definition: WorkerDefinition, item: WorkerItem): void | Promise<void>;
+	start(definition: WorkerDefinition, item: WorkerItem): void;
 }
 
 export interface WorkerRuntimeQueue {

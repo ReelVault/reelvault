@@ -127,7 +127,7 @@ export class WorkerSchedulerService {
 		// replay, no flood), then advances past `now`. Deadlines are armed and
 		// advanced in one batched write after the loop instead of one per worker.
 		const deadlineUpdates: Array<{ workerId: string; nextRunAt: Date | null }> = [];
-		const dueWorkers: Array<{ def: WorkerDefinition; dedupeKey: string; due: Date }> = [];
+		const dueWorkers: Array<{ def: WorkerDefinition; dedupeKey: string }> = [];
 		for (const def of definitions) {
 			if (isPaused(def.id)) continue;
 
@@ -150,7 +150,9 @@ export class WorkerSchedulerService {
 			if (due.getTime() > now.getTime()) continue;
 
 			this.logger.debug("Triggering scheduled worker", { workerId: def.id, dueAt: due.toISOString() });
-			dueWorkers.push({ def, dedupeKey: `schedule:${def.id}:${due.getTime()}`, due });
+			// Keyed by worker: a run that outlives its interval must not accumulate
+			// one duplicate per missed deadline.
+			dueWorkers.push({ def, dedupeKey: `schedule:${def.id}` });
 		}
 
 		// The due workers are enqueued side by side: each one costs a dedupe
@@ -315,13 +317,15 @@ export class WorkerSchedulerService {
 			throw new DomainError("not_found", `Worker "${workerId}" was not found`, { code: "worker.not_found" });
 		}
 
-		const abortedCount = getWorkerRuntime().pool.cancelAllForWorker(workerId);
+		// Stops in-memory executions; the DB counts below are the reported total.
+		// Adding this count would double-count every running job (same row, two views).
+		getWorkerRuntime().pool.cancelAllForWorker(workerId);
 		const [pendingCount, runningDbCount] = await Promise.all([
 			getWorkerRuntime().queue.cancelAllPending(workerId),
 			workerJobRepository.cancelAllRunning(workerId),
 		]);
 
-		return { success: true, cancelledCount: abortedCount + pendingCount + runningDbCount };
+		return { success: true, cancelledCount: pendingCount + runningDbCount };
 	}
 
 	async listWorkerSummaries(): Promise<WorkerSummary[]> {
