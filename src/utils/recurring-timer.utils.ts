@@ -12,6 +12,8 @@ export class RecurringTimer {
 	private readonly intervalMs: number | (() => number);
 	private readonly onError: ((error: unknown) => void) | undefined;
 	private stopped = true;
+	/** A stop/start cycle during an in-flight tick must not let the old chain reschedule itself. */
+	private generation = 0;
 
 	constructor(run: () => void | Promise<void>, intervalMs: number | (() => number), onError?: (error: unknown) => void) {
 		this.run = run;
@@ -27,19 +29,22 @@ export class RecurringTimer {
 		if (!this.stopped) return;
 
 		this.stopped = false;
+		this.generation++;
 		this.scheduleNext();
 	}
 
 	private scheduleNext(): void {
 		if (this.stopped) return;
 
+		const generation = this.generation;
 		const delayMs = typeof this.intervalMs === "function" ? this.intervalMs() : this.intervalMs;
 		this.handle = setTimeout(() => {
 			this.handle = undefined;
+			if (generation !== this.generation || this.stopped) return;
 			detach(
 				(async () => {
 					await this.runSafely();
-					this.scheduleNext();
+					if (generation === this.generation && !this.stopped) this.scheduleNext();
 				})(),
 			);
 		}, delayMs);
@@ -58,6 +63,7 @@ export class RecurringTimer {
 		if (this.stopped) return;
 
 		this.stopped = true;
+		this.generation++;
 		if (this.handle) {
 			clearTimeout(this.handle);
 			this.handle = undefined;

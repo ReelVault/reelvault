@@ -10,11 +10,14 @@ import type { AlertDraft, ResourceSnapshot } from "./resource-allocator.types";
  * still escalates on event-loop lag.
  */
 export function calculatePressure(cpu: number, mem: number, disk: number): SystemPressure {
+	const { memoryThresholdPercent, memoryCriticalPercent, diskThresholdPercent } = serverConfig.resources;
 	const memoryOrDisk = Math.max(mem, disk);
-	if (memoryOrDisk >= 95) return "critical";
+	// Alerts, worker throttling and server rescue must agree on what "critical" means.
+	// The admin can lower the critical band; the old fixed 95% ignored that setting.
+	if (memoryOrDisk >= memoryCriticalPercent) return "critical";
 
 	const max = Math.max(cpu, memoryOrDisk);
-	if (max >= 85) return "high";
+	if (mem >= memoryThresholdPercent || disk >= diskThresholdPercent || max >= 85) return "high";
 
 	if (max >= 70) return "medium";
 

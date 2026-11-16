@@ -77,4 +77,31 @@ describe("RecurringTimer", () => {
 		expect(errors).toHaveLength(1);
 		expect(errors[0]).toBe(failure);
 	});
+
+	test("a stop/start cycle during a tick leaves a single chain of ticks", async () => {
+		const firstEntered = Promise.withResolvers<void>();
+		const gates = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+		let tick = 0;
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const timer = new RecurringTimer(async () => {
+			const gate = gates[Math.min(tick++, 1)]!;
+			inFlight++;
+			if (inFlight > maxInFlight) maxInFlight = inFlight;
+			if (tick === 1) firstEntered.resolve();
+			await gate.promise;
+			inFlight--;
+		}, 5);
+
+		timer.start();
+		await firstEntered.promise;
+		timer.stop();
+		timer.start();
+		gates[0]!.resolve();
+		await Bun.sleep(40);
+		timer.stop();
+
+		expect(maxInFlight).toBe(1);
+		gates[1]!.resolve();
+	});
 });

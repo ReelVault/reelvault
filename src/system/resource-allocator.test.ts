@@ -9,6 +9,9 @@ const SETTINGS_KEYS = [
 	"system.resources.throttleLowPriorityAbovePercent",
 	"system.resources.streamingGuaranteedCores",
 	"system.resources.monitoringEnabled",
+	"system.resources.memoryThresholdPercent",
+	"system.resources.memoryCriticalPercent",
+	"system.resources.diskThresholdPercent",
 ] as const;
 
 const allocators: ResourceAllocator[] = [];
@@ -43,6 +46,9 @@ function useAllocatorFixture(): void {
 			"system.resources.throttleLowPriorityAbovePercent": 80,
 			"system.resources.streamingGuaranteedCores": 2,
 			"system.resources.monitoringEnabled": false,
+			"system.resources.memoryThresholdPercent": 85,
+			"system.resources.memoryCriticalPercent": 95,
+			"system.resources.diskThresholdPercent": 90,
 		});
 	});
 
@@ -79,6 +85,22 @@ describe("ResourceAllocator pressure", () => {
 		await takeSnapshot(allocator);
 
 		expect(allocator.getCurrentSnapshot()?.pressure).toBe("high");
+	});
+
+	test("configured thresholds decide pressure, not the built-in bands", async () => {
+		systemSettingsStore.setRuntimeValues({
+			"system.resources.memoryThresholdPercent": 80,
+			"system.resources.memoryCriticalPercent": 85,
+			"system.resources.diskThresholdPercent": 75,
+		});
+
+		const high = allocatorWith(metricsAt(50, 82, 50));
+		await takeSnapshot(high);
+		expect(high.getCurrentSnapshot()?.pressure).toBe("high");
+
+		const critical = allocatorWith(metricsAt(50, 50, 86));
+		await takeSnapshot(critical);
+		expect(critical.getCurrentSnapshot()?.pressure).toBe("critical");
 	});
 });
 
