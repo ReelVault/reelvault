@@ -23,6 +23,15 @@ describe("profile PIN attempts", () => {
 		clearWrongPins(key);
 	});
 
+	test("rounds a partially elapsed window up to whole seconds", () => {
+		const key = "user-1:profile-attempts-partial";
+		const start = 4_000_000;
+		recordWrongPin(key, start);
+
+		expect(pinAttemptStatus(key, start + 500)).toEqual({ attemptsRemaining: 9, retryAfterSeconds: 900 });
+		clearWrongPins(key);
+	});
+
 	test("a correct PIN clears the failures recorded so far", () => {
 		const key = "user-1:profile-attempts-clear";
 		recordWrongPin(key, 3_000_000);

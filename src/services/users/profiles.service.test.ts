@@ -1,15 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { env } from "@/config/env.config";
+import { imageProcessingService } from "@/modules/images/image-processing.service";
 import { hashProfilePin } from "@/utils/crypto.utils";
 import { verifyProfileUnlock } from "@/utils/profile-unlock.utils";
+import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { insertProfiles, insertUsers, type ProfileInsert, type ProfileRow, selectProfiles } from "../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
-import { clearWrongPins } from "./profile-pin-attempts.limiter";
+import { clearWrongPins, recordWrongPin } from "./profile-pin-attempts.limiter";
 import { profilesService } from "./profiles.service";
 
 // Profiles are real rows. The PIN attempt counter is process-wide, so the key these tests use is cleared after each one.
 const db = useTestDatabase();
 const KIDS_ATTEMPT_KEY = "user-1:profile-kids";
+const stubs: MethodStub[] = [];
 
 async function seedAccounts(): Promise<void> {
 	await insertUsers(db.client(), [
@@ -37,6 +40,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+	for (const stub of stubs.splice(0).toReversed()) stub.restore();
 	clearWrongPins(KIDS_ATTEMPT_KEY);
 });
 
@@ -68,6 +72,17 @@ describe("profilesService.switch", () => {
 			category: "forbidden",
 			code: "profile.pin_invalid",
 			params: { attemptsRemaining: 9 },
+		});
+	});
+
+	test("locks a profile after ten wrong PINs and reports the retry delay", async () => {
+		await seedProfile({ id: "profile-kids", userId: "user-1", name: "Kids", pin: await kidsPinHash() });
+		for (let attempt = 0; attempt < 10; attempt++) recordWrongPin(KIDS_ATTEMPT_KEY);
+
+		await expect(profilesService.switch({ profileId: "profile-kids", pin: "2468" }, "user-1")).rejects.toMatchObject({
+			category: "too_many_requests",
+			code: "profile.pin_locked",
+			params: { retryAfterSeconds: 900 },
 		});
 	});
 
@@ -113,6 +128,26 @@ describe("profilesService.create", () => {
 		await profilesService.create({ name: "Alex", avatarUrl: "/v1/images/avatar-1" }, undefined, "user-1");
 
 		expect((await selectProfiles(db.client())).map((row) => row.avatarUrl)).toEqual(["/v1/images/avatar-1"]);
+	});
+
+	test("answers profile.name_conflict when creating a profile with a sibling's name", async () => {
+		await seedProfile({ id: "profile-1", userId: "user-1", name: "Alex" });
+
+		await expect(profilesService.create({ name: "Alex" }, undefined, "user-1")).rejects.toMatchObject({
+			category: "conflict",
+			code: "profile.name_conflict",
+		});
+		expect(await selectProfiles(db.client())).toHaveLength(1);
+	});
+
+	test("downloads an external avatar and persists the local copy", async () => {
+		stubs.push(
+			stubMethod(imageProcessingService, "replaceProfileAvatarFromUrl", () => Promise.resolve({ avatarUrl: "/v1/images/local-avatar" })),
+		);
+
+		const profile = await profilesService.create({ name: "Alex", avatarUrl: "https://example.com/avatar.png" }, undefined, "user-1");
+
+		expect((await storedProfile(profile.id))?.avatarUrl).toBe("/v1/images/local-avatar");
 	});
 });
 

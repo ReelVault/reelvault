@@ -20,4 +20,10 @@ describe("seek timeline utils", () => {
 
 		expect(timelineStart).toBe(120);
 	});
+
+	test("direct-stream restarts at a keyframe located at zero", async () => {
+		const timelineStart = await resolveSeekTimelineStart("direct-stream", "/media/f.mkv", 120, async () => 0);
+
+		expect(timelineStart).toBe(0);
+	});
 });

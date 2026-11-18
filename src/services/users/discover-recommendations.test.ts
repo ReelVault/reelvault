@@ -21,7 +21,7 @@ describe("recencyMultiplier", () => {
 	});
 
 	test("a timestamp 130 days old keeps half weight", () => {
-		expect(recencyMultiplier(Date.now() - 130 * DAY)).toBeCloseTo(0.5, 2);
+		expect(recencyMultiplier(Date.now() - 130 * DAY)).toBeCloseTo(0.5, 5);
 	});
 
 	test("timestamp 0 (no engagement) is clamped to the 0.2 floor", () => {

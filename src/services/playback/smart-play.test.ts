@@ -51,6 +51,22 @@ describe("smart play selection", () => {
 		).toEqual({ type: "next_episode", mediaFileId: "file-2" });
 	});
 
+	test("labels the first unwatched file as next_episode once any episode is watched", () => {
+		const episodes = [
+			{ id: "s1e1", seasonNumber: 1, episodeNumber: 1 },
+			{ id: "s1e2", seasonNumber: 1, episodeNumber: 2 },
+		];
+		const files = [
+			{ id: "file-1", episodeId: "s1e1", updatedAt, isDefault: false },
+			{ id: "file-2", episodeId: "s1e2", updatedAt, isDefault: false },
+		];
+		// s1e1 is watched but has no recent progress row, so only firstUnwatched decides.
+		expect(selectEpisodeSmartPlay(episodes, files, new Set(["s1e1"]), [])).toEqual({
+			type: "next_episode",
+			mediaFileId: "file-2",
+		});
+	});
+
 	test("prefers the default file for the next episode", () => {
 		const episodes = [{ id: "s1e1", seasonNumber: 1, episodeNumber: 1 }];
 		const files = [

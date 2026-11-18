@@ -94,6 +94,28 @@ describe("stream preferences", () => {
 
 		expect(selectPreferredAudioStream(onlyCommentary, "en")?.index).toBe(0);
 	});
+
+	test("keeps the unsupported baseline when no compatible stream shares its title", () => {
+		const untitled = [
+			{ index: 0, codecName: "eac3", language: "en", title: null, isDefault: true },
+			{ index: 1, codecName: "aac", language: "de", title: null, isDefault: false },
+			{ index: 2, codecName: "aac", language: "fr", title: "Lektor", isDefault: false },
+		];
+
+		expect(selectPreferredAudioStream(untitled, "en", undefined, { clientAudioCodecs: ["aac"], smartSelectionEnabled: true })?.index).toBe(
+			0,
+		);
+	});
+
+	test("falls back to a compatible stream that shares the baseline title", () => {
+		const titled = [
+			{ index: 0, codecName: "eac3", language: "en", title: "Lektor", isDefault: true },
+			{ index: 1, codecName: "aac", language: "de", title: "Lektor", isDefault: false },
+			{ index: 2, codecName: "aac", language: "fr", title: "Kommentar", isDefault: false },
+		];
+
+		expect(selectPreferredAudioStream(titled, "en", undefined, { clientAudioCodecs: ["aac"], smartSelectionEnabled: true })?.index).toBe(1);
+	});
 });
 
 describe("stream preferences: override precedence", () => {

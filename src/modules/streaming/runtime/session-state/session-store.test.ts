@@ -28,7 +28,7 @@ function fakeProcess(): Bun.Subprocess {
 	return spawn(["true"]);
 }
 
-describe("session store", () => {
+describe("session store: registration and reservations", () => {
 	test("register creates a creating entity with decision bound from the start", () => {
 		const store = new SessionStore();
 		const session = store.register(registration("s1"));
@@ -57,6 +57,18 @@ describe("session store", () => {
 		expect(store.countSoftwareVideoTranscodes()).toBe(0);
 	});
 
+	test("a hardware session that falls back to CPU encoding consumes a software slot", () => {
+		const store = new SessionStore();
+		store.register(registration("s1"));
+		expect(store.countSoftwareVideoTranscodes()).toBe(0);
+
+		store.markSoftwareVideoSession("s1");
+
+		expect(store.countSoftwareVideoTranscodes()).toBe(1);
+		store.delete("s1");
+		expect(store.countSoftwareVideoTranscodes()).toBe(0);
+	});
+
 	test("register refuses a duplicate id", () => {
 		const store = new SessionStore();
 		store.register(registration("s1"));
@@ -65,7 +77,9 @@ describe("session store", () => {
 			expect.objectContaining({ category: "conflict", code: "stream.session_exists" }),
 		);
 	});
+});
 
+describe("session store: process lifecycle", () => {
 	test("attachProcess moves creating → active and bumps the generation", () => {
 		const store = new SessionStore();
 		store.register(registration("s1"));

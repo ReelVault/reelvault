@@ -52,4 +52,45 @@ describe("session creation guard", () => {
 			}),
 		);
 	});
+
+	test("blocks a second default-cooldown creation until 500 ms have passed", () => {
+		let now = 10_000;
+		const guard = new SessionCreationGuard({ now: () => now });
+
+		guard.assertCooldown("profile-default");
+		now = 10_499;
+		expect(() => guard.assertCooldown("profile-default")).toThrow(
+			expect.objectContaining({
+				code: "stream.creation_throttled",
+				params: expect.objectContaining({ retryAfterSeconds: 1 }),
+			}),
+		);
+		now = 10_500;
+		guard.assertCooldown("profile-default");
+	});
+
+	test("keeps independent cooldowns for two profiles", () => {
+		let now = 20_000;
+		const guard = new SessionCreationGuard({ now: () => now });
+		guard.assertCooldown("profile-a");
+		guard.assertCooldown("profile-b");
+		now = 20_100;
+
+		expect(() => guard.assertCooldown("profile-a")).toThrow(expect.objectContaining({ code: "stream.creation_throttled" }));
+		expect(() => guard.assertCooldown("profile-b")).toThrow(expect.objectContaining({ code: "stream.creation_throttled" }));
+	});
+
+	test("rounds a partial remaining second up in the retry hint", () => {
+		let now = 1_000;
+		const guard = new SessionCreationGuard({ cooldownMs: 5_000, now: () => now });
+		guard.assertCooldown("profile-1");
+		now = 4_999;
+
+		expect(() => guard.assertCooldown("profile-1")).toThrow(
+			expect.objectContaining({
+				code: "stream.creation_throttled",
+				params: expect.objectContaining({ retryAfterSeconds: 2 }),
+			}),
+		);
+	});
 });

@@ -10,6 +10,7 @@ describe("clampSeekOffsetToDuration", () => {
 	});
 
 	test("passes the offset through when duration is unknown", () => {
+		expect(clampSeekOffsetToDuration(1)).toBe(1);
 		expect(clampSeekOffsetToDuration(120)).toBe(120);
 		expect(clampSeekOffsetToDuration(120, undefined)).toBe(120);
 		expect(clampSeekOffsetToDuration(120, null)).toBe(120);

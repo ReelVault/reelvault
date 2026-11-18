@@ -1,9 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
 import sharp from "sharp";
+import { serverConfig } from "@/config/server/server.config";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { sourceVersionCache } from "./cache/source-version.cache";
 import { imageOptimizationService } from "./image-optimization.service";
 
 describe("ImageOptimizationService", () => {
@@ -55,6 +58,30 @@ describe("ImageOptimizationService", () => {
 			).rejects.toMatchObject({ name: "CancellationError" });
 		} finally {
 			await rm(sourcePath, { force: true });
+		}
+	});
+
+	it("stores variants under .cache with a filesystem-safe source version", async () => {
+		const previousImagesPath = serverConfig.paths.images;
+		const testRoot = await mkdtemp(join(tmpdir(), "reelvault-image-cache-key-"));
+		serverConfig.paths.images = testRoot;
+		const versionStub = stubMethod(sourceVersionCache, "read", () => Promise.resolve("123:456"));
+		const sourcePath = join(testRoot, "source.png");
+		const source = await sharp({
+			create: { width: 64, height: 64, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+		})
+			.png()
+			.toBuffer();
+		await write(sourcePath, source);
+
+		try {
+			await imageOptimizationService.getOptimizedImage(sourcePath, { width: 1000, height: 256, quality: 85 }, "img-42");
+
+			expect(await readdir(join(testRoot, ".cache"))).toEqual(["img-42_1000_256_85_123-456.webp"]);
+		} finally {
+			versionStub.restore();
+			serverConfig.paths.images = previousImagesPath;
+			await rm(testRoot, { recursive: true, force: true });
 		}
 	});
 });

@@ -26,4 +26,11 @@ describe("encoder map", () => {
 			audioEncoder: "copy",
 		});
 	});
+
+	test("software x264 for a forced fallback even when hardware is available", () => {
+		expect(resolveStreamEncoders({ videoTranscode: true, audioTranscode: false, forceSoftware: true }, hwNvenc)).toEqual({
+			videoEncoder: "libx264",
+			audioEncoder: "copy",
+		});
+	});
 });

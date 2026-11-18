@@ -51,6 +51,25 @@ describe("WatchlistService getAll", () => {
 	});
 });
 
+describe("WatchlistService add and status checks", () => {
+	test("adding a title reports it as added and stores the row", async () => {
+		await seedProfileWithTitles(["metadata-1"]);
+
+		expect(await watchlistService.add("metadata-1", "profile-1")).toEqual({ success: true, added: true });
+		expect(await watchlistMetadataIds()).toEqual(["metadata-1"]);
+	});
+
+	test("status checks are capped at 500 ids", async () => {
+		await seedProfileWithTitles([]);
+		const ids = Array.from({ length: 501 }, (_, index) => `metadata-${index}`);
+
+		const { statuses } = await watchlistService.getStatuses(ids, "profile-1");
+
+		expect(statuses).toHaveLength(500);
+		expect(statuses[0]).toEqual({ metadataId: "metadata-0", inWatchlist: false });
+	});
+});
+
 describe("WatchlistService toggle", () => {
 	test("an unknown title is a 404, not an FK violation", async () => {
 		await seedProfileWithTitles([]);

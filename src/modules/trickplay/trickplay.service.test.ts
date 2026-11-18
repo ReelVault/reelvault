@@ -301,6 +301,23 @@ describe("trickplayService.generateForMediaFile: failures and skips", () => {
 		expect(result).toEqual({ mediaFileId, frames: 60, sprites: 3 });
 		expect(failedFrameCalls).toBe(2);
 	});
+
+	test("rejects an empty sprite instead of storing a zero-byte artifact", async () => {
+		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
+		activeStubs.push(
+			stubMethod(ffMpegService, "runToCompletion", async (args: string[]) => {
+				const outputPath = args.at(-1);
+				if (!outputPath) throw new Error("The ffmpeg command has no output path");
+				const isTile = args.some((arg) => arg.startsWith("tile=layout="));
+				await Bun.write(outputPath, new Uint8Array(isTile ? 0 : SPRITE_BYTES));
+
+				return { exitCode: 0, stderr: "" };
+			}),
+		);
+
+		await expect(trickplayService.generateForMediaFile(mediaFileId)).rejects.toMatchObject({ code: "trickplay_empty_sprite" });
+		expect(await storedArtifacts(mediaFileId)).toEqual([]);
+	});
 });
 
 describe("trickplayService.generateForMediaFile: skips", () => {

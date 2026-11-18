@@ -101,6 +101,18 @@ describe("playlist waiter", () => {
 		});
 	});
 
+	test("refuses to retry a process that already exited when software restart is declined", async () => {
+		const { waiter, process } = createWaiter("exited-before-retry", { session: { exitCode: 1 } });
+		if (!process) throw new Error("test setup did not create a process");
+		// Make the exit code observable to the waiter before it enters the wait.
+		await process.exited;
+
+		await expect(waiter.waitForPlaylist("s1", 50, () => Promise.resolve(false))).rejects.toMatchObject({
+			category: "internal",
+			code: "streaming_process_exited",
+		});
+	});
+
 	test("carries ffmpeg's last lines when the process dies before the playlist", async () => {
 		const { waiter, process } = createWaiter("dead-process-stderr", { session: { exitCode: 137 } });
 		if (!process) throw new Error("test setup did not create a process");

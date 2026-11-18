@@ -3,6 +3,7 @@ import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import {
 	insertProfiles,
 	insertUsers,
+	insertWatchedHistory,
 	selectPlaybackProgress,
 	selectWatchedHistory,
 	updateMediaFileDuration,
@@ -16,6 +17,8 @@ const db = useTestDatabase();
 beforeEach(async () => {
 	await insertUsers(db.client(), { id: "user-1", name: "Alice", email: "alice@example.test", emailVerified: true });
 	await insertProfiles(db.client(), { id: "profile-1", userId: "user-1", name: "Main" });
+	// The insight caches are module-scope and outlive each test's fresh database.
+	watchedHistoryService.clearCache("profile-1");
 });
 
 /** A 600-second movie file, so a full watch stores a position and a duration of 600. */
@@ -32,6 +35,54 @@ describe("WatchedHistoryService getInsights", () => {
 			category: "unauthorized",
 			code: "auth.profile_required",
 		});
+	});
+
+	test("counts a play inside the selected range", async () => {
+		const fileId = await seedMovieFile();
+		await insertWatchedHistory(db.client(), {
+			id: "play-in-range",
+			mediaFileId: fileId,
+			profileId: "profile-1",
+			durationWatched: 600,
+			isFullWatch: false,
+			watchedAt: new Date(Date.now() - 60_000),
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+
+		const insights = await watchedHistoryService.getInsights("7d", "profile-1");
+
+		expect(insights.totalMinutes).toBe(10);
+	});
+
+	test("reports zero minutes for days without activity", async () => {
+		const insights = await watchedHistoryService.getInsights("7d", "profile-1");
+
+		expect(insights.dailyActivity).toHaveLength(7);
+		expect(insights.dailyActivity.every((day) => day.minutes === 0)).toBe(true);
+	});
+});
+
+describe("WatchedHistoryService getWrapped", () => {
+	test("lists at most five most-watched movies", async () => {
+		const year = new Date().getFullYear();
+		for (let index = 1; index <= 6; index++) {
+			const fileId = await insertMovieMediaFile(db.client(), `/media/wrapped-${index}.mkv`, `wrapped-${index}`);
+			await insertWatchedHistory(db.client(), {
+				id: `wrapped-play-${index}`,
+				mediaFileId: fileId,
+				profileId: "profile-1",
+				durationWatched: 600 + index,
+				isFullWatch: true,
+				watchedAt: new Date(year, 5, 15),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			});
+		}
+
+		const wrapped = await watchedHistoryService.getWrapped(year, "profile-1");
+
+		expect(wrapped.topMovies).toHaveLength(5);
 	});
 });
 

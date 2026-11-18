@@ -7,6 +7,7 @@ import {
 	assertUserId,
 	DomainError,
 	errorCodeOf,
+	isMissingFile,
 	toErrorCode,
 } from "./domain.errors";
 
@@ -68,6 +69,14 @@ describe("guards", () => {
 
 	test("assertPresent treats a missing dependency as an internal error", () => {
 		expect(thrownBy(() => assertPresent(null, "db missing"))).toMatchObject({ category: "internal" });
+	});
+});
+
+describe("isMissingFile", () => {
+	test("matches only ENOENT filesystem errors", () => {
+		expect(isMissingFile({ code: "ENOENT" })).toBe(true);
+		expect(isMissingFile({ code: "EACCES" })).toBe(false);
+		expect(isMissingFile(new Error("file gone"))).toBe(false);
 	});
 });
 

@@ -133,6 +133,28 @@ describe("session reaper", () => {
 
 		expect(ended).toEqual([expect.objectContaining({ playedSeconds: 15, furthestPositionSeconds: 25 })]);
 	});
+
+	test("the inactivity timer releases an active session that stopped receiving client contact", async () => {
+		const { reaper, store } = createReaper();
+		registration(store, "s1");
+		store.attachProcess("s1", spawn(["sleep", "100"]), 0);
+		const session = store.get("s1");
+		if (!session) throw new Error("test setup did not register the session");
+		session.lastActivity = Date.now() - 61_000;
+
+		const released = Promise.withResolvers<{ sessionId: string; reason: string }>();
+		reaper.startInactivityTimer({ inactivityTimeout: () => 60_000, cleanupInterval: 5 }, (sessionId, reason) => {
+			released.resolve({ sessionId, reason });
+
+			return Promise.resolve("released");
+		});
+
+		try {
+			expect(await released.promise).toEqual({ sessionId: "s1", reason: "inactivity-timeout" });
+		} finally {
+			await reaper.shutdown(async () => "released");
+		}
+	});
 });
 
 describe("session reaper: never-started session", () => {

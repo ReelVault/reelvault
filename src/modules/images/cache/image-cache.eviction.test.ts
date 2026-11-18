@@ -85,9 +85,10 @@ describe("ImageCacheEviction", () => {
 		expect(harness.deleted).toHaveLength(20);
 	});
 
-	test("treats an entry without stats as the oldest possible entry", async () => {
+	test("treats an entry without stats as older than a real entry with a low mtime", async () => {
 		const harness = createHarness();
-		fillEntries(harness.entries, 5_000, 10);
+		fillEntries(harness.entries, 4_999, 10);
+		harness.entries.set(`${CACHE_DIR}/older-real.webp`, { mtimeMs: 1 });
 		const unreadableFile = `${CACHE_DIR}/unreadable.webp`;
 		harness.unreadable.add(unreadableFile);
 
@@ -95,6 +96,16 @@ describe("ImageCacheEviction", () => {
 
 		expect(harness.deleted).toEqual([unreadableFile]);
 		expect(harness.entries.size).toBe(5_000);
+	});
+
+	test("keeps every entry when the directory is well below the cap", async () => {
+		const harness = createHarness();
+		fillEntries(harness.entries, 3, 1);
+
+		await sweepDue(harness);
+
+		expect(harness.deleted).toEqual([]);
+		expect(harness.entries.size).toBe(3);
 	});
 
 	test("resets the write counter after a sweep so the next scan waits again", async () => {

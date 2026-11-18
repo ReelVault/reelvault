@@ -35,9 +35,13 @@ const fakeSubprocess = {
 } as unknown as Subprocess;
 
 /** A builder that records nothing and starts no process. */
-function stubFfmpegBuilder(): void {
+function stubFfmpegBuilder(onInputArgs?: (args: string[]) => void): void {
 	const builder = {
-		inputArgs: () => builder,
+		inputArgs: (args: string[]) => {
+			onInputArgs?.(args);
+
+			return builder;
+		},
 		input: () => builder,
 		outputArgs: () => builder,
 		withOperationLog: () => builder,
@@ -120,5 +124,44 @@ describe("transcode strategy", () => {
 
 		const video = entries.find((entry) => entry.message === "Transcoding video");
 		expect(video?.meta).toMatchObject({ sessionId: "s2", accelerator: "none", encoder: "libx264" });
+	});
+
+	test("omits the input seek at the default start time", async () => {
+		const root = mkdtempSync(join(tmpdir(), "reelvault-transcode-args-"));
+		const input = join(root, "input.mkv");
+		writeFileSync(input, "not-a-real-media-file");
+		let captured: string[] = [];
+		stubFfmpegBuilder((args) => {
+			captured = args;
+		});
+
+		await new TranscodeStrategy(config).startSession({
+			sessionId: "s3",
+			inputPath: input,
+			outputDir: join(root, "out"),
+			decision: createMockPlaybackDecision({ mode: "transcode" }),
+		});
+
+		expect(captured).not.toContain("-ss");
+	});
+
+	test("seeks from the requested start time", async () => {
+		const root = mkdtempSync(join(tmpdir(), "reelvault-transcode-args-"));
+		const input = join(root, "input.mkv");
+		writeFileSync(input, "not-a-real-media-file");
+		let captured: string[] = [];
+		stubFfmpegBuilder((args) => {
+			captured = args;
+		});
+
+		await new TranscodeStrategy(config).startSession({
+			sessionId: "s4",
+			inputPath: input,
+			outputDir: join(root, "out"),
+			decision: createMockPlaybackDecision({ mode: "transcode" }),
+			startTime: 30,
+		});
+
+		expect(captured[captured.indexOf("-ss") + 1]).toBe("30");
 	});
 });

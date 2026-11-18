@@ -80,6 +80,16 @@ describe("DiscoverService", () => {
 		expect(result.trending.map((item) => item.id)).toEqual(["meta-liked"]);
 	});
 
+	test("a requested limit of one returns one recently added movie", async () => {
+		await seedMovie("meta-a", 10);
+		await seedMovie("meta-b", 20);
+
+		const result = await discoverService.getDiscoverView({ limit: 1 }, "profile-1");
+
+		expect(result.recentlyAddedMovies).toHaveLength(1);
+		expect(result.recentlyAddedShows).toHaveLength(0);
+	});
+
 	test("ranks a title with more plays above a more popular title with fewer plays", async () => {
 		const hot = await seedMovie("meta-hot", 10);
 		const popular = await seedMovie("meta-popular", 100);

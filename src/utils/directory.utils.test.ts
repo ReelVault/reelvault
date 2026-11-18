@@ -89,6 +89,38 @@ describe("DirUtils", () => {
 		}
 	});
 
+	test("rethrows the abort reason when a scan is cancelled", async () => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-dir-abort-"));
+		await writeFile(join(root, "movie.mp4"), "x");
+		const controller = new AbortController();
+		const reason = new Error("scan cancelled");
+		controller.abort(reason);
+
+		try {
+			await expect(scanFiles(root, ["mp4"], 10, controller.signal)).rejects.toBe(reason);
+		} finally {
+			await removeTree(root);
+		}
+	});
+
+	test("scanFilesWithStats includes a file at depth ten by default", async () => {
+		const root = await mkdtemp(join(tmpdir(), "reelvault-dir-depth-"));
+		let nested = root;
+		for (let i = 0; i < 9; i++) {
+			nested = join(nested, `level${i}`);
+			await createDirectory(nested);
+		}
+		const videoPath = join(nested, "movie.mp4");
+		await writeFile(videoPath, "x");
+
+		try {
+			const entries = await scanFilesWithStats(root, ["mp4"]);
+			expect(entries.map((entry) => entry.filePath)).toEqual([videoPath]);
+		} finally {
+			await removeTree(root);
+		}
+	});
+
 	test("scanFiles skips dot-prefixed files and directories", async () => {
 		const root = await mkdtemp(join(tmpdir(), "reelvault-dir-hidden-"));
 		await writeFile(join(root, "movie.mp4"), "visible");

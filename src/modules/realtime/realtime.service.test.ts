@@ -64,6 +64,17 @@ describe("RealtimeService delivery", () => {
 		expect(service.getConnectedCount()).toBe(0);
 	});
 
+	test("delivers to a socket whose readyState is open", () => {
+		const open = recordingSocket();
+		Object.assign(open.socket, { readyState: 1 });
+		service.register({ connectionId: "conn-open", userId: "user-open", socket: open.socket });
+
+		service.broadcast("system:ping", {});
+
+		expect(messageTypes(open.messages)).toEqual(["system:ping"]);
+		expect(service.getConnectedCount()).toBe(1);
+	});
+
 	test("broadcastToAdmins reaches only admin connections", () => {
 		const admin = recordingSocket();
 		const viewer = recordingSocket();
@@ -126,5 +137,71 @@ describe("RealtimeService backpressure", () => {
 		expect(flaky.closes).toEqual([]);
 		expect(service.getConnectedCount()).toBe(1);
 		expect(messageTypes(flaky.messages)).toEqual(["system:ping"]);
+	});
+
+	test("reports an undelivered playback command when the subscriber's socket drops it", () => {
+		const dropped = recordingSocket(() => -1);
+		service.register({ connectionId: "conn-dropped", userId: "user-dropped", socket: dropped.socket });
+		service.subscribeToPlaybackSession("conn-dropped", "play-sess");
+
+		expect(service.sendPlaybackCommand("play-sess", { type: "play" })).toBe(false);
+		expect(service.getConnectedCount()).toBe(1);
+	});
+});
+
+describe("RealtimeService limits", () => {
+	test("refuses an eleventh playback-session subscription on one connection", () => {
+		const player = recordingSocket();
+		service.register({ connectionId: "conn-player", userId: "user-test", socket: player.socket });
+
+		for (let index = 0; index < 10; index++) {
+			expect(service.subscribeToPlaybackSession("conn-player", `play-${index}`)).toBe(true);
+		}
+		expect(service.subscribeToPlaybackSession("conn-player", "play-10")).toBe(false);
+		expect(service.isSubscribedToPlaybackSession("conn-player", "play-10")).toBe(false);
+	});
+
+	test("refuses the thirty-third connection for one user", () => {
+		const rejected = recordingSocket();
+		for (let index = 0; index < 32; index++) {
+			service.register({ connectionId: `conn-${index}`, userId: "user-capped", socket: recordingSocket().socket });
+		}
+		expect(service.getConnectedCount()).toBe(32);
+
+		service.register({ connectionId: "conn-over", userId: "user-capped", socket: rejected.socket });
+
+		expect(service.getConnectedCount()).toBe(32);
+		expect(rejected.closes.map((close) => close.code)).toEqual([1013]);
+	});
+
+	test("refuses a connection after the global ceiling", () => {
+		const rejected = recordingSocket();
+		for (let index = 0; index < 10_000; index++) {
+			service.register({ connectionId: `conn-${index}`, userId: `user-${index}`, socket: recordingSocket().socket });
+		}
+		expect(service.getConnectedCount()).toBe(10_000);
+
+		service.register({ connectionId: "conn-over", userId: "user-over", socket: rejected.socket });
+
+		expect(service.getConnectedCount()).toBe(10_000);
+		expect(rejected.closes.map((close) => close.code)).toEqual([1013]);
+	});
+});
+
+describe("RealtimeService session disconnect", () => {
+	test("closing an auth session unregisters its sockets and reports how many closed", () => {
+		const first = recordingSocket();
+		const second = recordingSocket();
+		const other = recordingSocket();
+		service.register({ connectionId: "conn-1", userId: "user-1", sessionId: "auth-1", socket: first.socket });
+		service.register({ connectionId: "conn-2", userId: "user-1", sessionId: "auth-1", socket: second.socket });
+		service.register({ connectionId: "conn-3", userId: "user-1", sessionId: "auth-2", socket: other.socket });
+
+		expect(service.disconnectAuthSession("auth-1")).toBe(2);
+
+		expect(first.closes.map((close) => close.code)).toEqual([4001]);
+		expect(second.closes.map((close) => close.code)).toEqual([4001]);
+		expect(other.closes).toEqual([]);
+		expect(service.getConnectedCount()).toBe(1);
 	});
 });

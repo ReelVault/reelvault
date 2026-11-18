@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { getBufferedSeekStart, isPositionBuffered, parseHlsBuffer } from "@/modules/streaming/buffer/hls-buffer.utils";
+import {
+	calculateBufferProgress,
+	getBufferedSeekStart,
+	isPositionBuffered,
+	parseHlsBuffer,
+} from "@/modules/streaming/buffer/hls-buffer.utils";
 
 beforeEach(() => {
 	systemSettingsStore.clearRuntimeValues();
@@ -36,5 +41,10 @@ describe("HLS buffering", () => {
 	it("seeks to the start of the segment holding a buffered position and to nothing in a gap", () => {
 		expect(getBufferedSeekStart(analysis, 10, 6)).toBe(6);
 		expect(getBufferedSeekStart(analysis, 15, 6)).toBeNull();
+	});
+
+	it("reports buffer progress to two decimal places", () => {
+		expect(calculateBufferProgress(1, 3)).toBe(33.33);
+		expect(calculateBufferProgress(2, 3)).toBe(66.67);
 	});
 });

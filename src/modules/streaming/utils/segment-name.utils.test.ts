@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { parseSegmentName } from "./segment-name.utils";
+import { isSegmentFile, parseSegmentName } from "./segment-name.utils";
 
 describe("segment name utils", () => {
+	test("accepts the init segment and server-generated segment names only", () => {
+		expect(isSegmentFile("init.mp4")).toBe(true);
+		expect(isSegmentFile("seg_12.m4s")).toBe(true);
+		expect(isSegmentFile("playlist.m3u8")).toBe(false);
+		expect(isSegmentFile("seg_12.mp4")).toBe(false);
+	});
+
 	test("parses segment index and start time", () => {
 		expect(parseSegmentName("seg_12.m4s", 4)).toEqual({ index: 12, startTime: 48 });
 		expect(parseSegmentName("seg_0.m4s", 6)).toEqual({ index: 0, startTime: 0 });

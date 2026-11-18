@@ -4,7 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { write } from "bun";
 import { removeTree } from "@/utils/directory.utils";
-import { checkFileExistence, consumeStreamBounded, withTempPath, writeFileAtomic, writeFileIfChanged } from "./file.utils";
+import {
+	checkFileExistence,
+	consumeStreamBounded,
+	deleteFile,
+	downloadFile,
+	withTempPath,
+	writeFileAtomic,
+	writeFileIfChanged,
+} from "./file.utils";
 
 const temporaryDirectories: string[] = [];
 
@@ -111,6 +119,55 @@ describe("withTempPath", () => {
 
 		expect(result).toBe(42);
 		expect(await Bun.file(tempPath).exists()).toBeFalse();
+	});
+});
+
+describe("deleteFile", () => {
+	test("refuses to remove a video file", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-file-utils-"));
+		temporaryDirectories.push(directory);
+		const videoPath = join(directory, "movie.mkv");
+		await write(videoPath, "video placeholder");
+
+		expect(await deleteFile(videoPath)).toBe(false);
+		expect(await Bun.file(videoPath).exists()).toBeTrue();
+	});
+});
+
+describe("downloadFile", () => {
+	test("rejects a download whose declared Content-Length exceeds the default byte limit", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-file-utils-"));
+		temporaryDirectories.push(directory);
+		const destination = join(directory, "artifact.bin");
+		const errors: unknown[] = [];
+		// One byte over the documented 20 MiB default, declared but not actually sent.
+		const fetcher = () => Promise.resolve(new Response("ok", { status: 200, headers: { "content-length": "20971521" } }));
+
+		const result = await downloadFile("https://example.invalid/artifact", destination, {
+			fetcher,
+			onError: (error) => {
+				errors.push(error);
+			},
+		});
+
+		expect(result).toBe(false);
+		expect(errors).toHaveLength(1);
+		expect(errors[0]).toMatchObject({ category: "validation", code: "download.exceeds_size_limit" });
+		expect(await Bun.file(destination).exists()).toBeFalse();
+	});
+
+	test("does not write a download whose signal is already aborted", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-file-utils-"));
+		temporaryDirectories.push(directory);
+		const destination = join(directory, "artifact.bin");
+		const controller = new AbortController();
+		controller.abort(new Error("cancelled"));
+		const fetcher = () => Promise.resolve(new Response("ok", { status: 200 }));
+
+		const result = await downloadFile("https://example.invalid/artifact", destination, { fetcher, signal: controller.signal });
+
+		expect(result).toBe(false);
+		expect(await Bun.file(destination).exists()).toBeFalse();
 	});
 });
 

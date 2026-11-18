@@ -69,6 +69,30 @@ describe("interrupted playback sessions", () => {
 		expect(rows).toEqual([{ playedSeconds: 120, furthestPositionSeconds: 130, durationSeconds: 3_600, reason: "client-stop" }]);
 	});
 
+	test("the recorder keeps a one-second play when the title has no known duration", async () => {
+		await seedTitle(factory.getClient());
+		const session = {
+			profileId: "profile-1",
+			mediaFileId: "mf-1",
+			reason: "client-stop",
+			startedAt: NOW - HOUR,
+			durationSeconds: null,
+		};
+
+		await recordInterruptedSession({ ...session, playedSeconds: 1.4, furthestPositionSeconds: 2 }, new Date(NOW));
+
+		const rows = await factory
+			.getClient()
+			.select({
+				playedSeconds: schema.interruptedPlaybackSessions.playedSeconds,
+				furthestPositionSeconds: schema.interruptedPlaybackSessions.furthestPositionSeconds,
+				durationSeconds: schema.interruptedPlaybackSessions.durationSeconds,
+				reason: schema.interruptedPlaybackSessions.reason,
+			})
+			.from(schema.interruptedPlaybackSessions);
+		expect(rows).toEqual([{ playedSeconds: 1, furthestPositionSeconds: 2, durationSeconds: null, reason: "client-stop" }]);
+	});
+
 	test("the admin analytics count interrupted sessions above the minimum next to finished titles", async () => {
 		await seedTitle(factory.getClient());
 		const client = factory.getClient();

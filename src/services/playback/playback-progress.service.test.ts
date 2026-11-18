@@ -212,6 +212,15 @@ describe("playback progress service: recording progress", () => {
 
 		expect(await selectWatchedHistory(db.client())).toHaveLength(0);
 	});
+
+	test("marks a file with no known duration watched at position zero", async () => {
+		const fileId = await insertMovieMediaFile(db.client(), "/media/no-duration.mkv", "meta-no-duration");
+
+		await createService().updatePlaybackProgress(fileId, { position: Number.MAX_SAFE_INTEGER }, "profile-1");
+
+		expect(await storedProgress()).toEqual([expect.objectContaining({ mediaFileId: fileId, position: 0, duration: 0, completed: true })]);
+		expect(published[0]).toMatchObject({ position: 0, duration: 0, completed: true });
+	});
 });
 
 describe("playback progress service: resets and bulk changes", () => {
@@ -360,6 +369,38 @@ describe("playback progress service: reads and language preferences", () => {
 		expect(items[0]).toMatchObject({ mediaFileId: fileId, metadata: { type: "movie" } });
 	});
 
+	test("getContinueWatching defaults to twelve items", async () => {
+		const progressRows = Array.from({ length: 13 }, (_, index) => ({
+			mediaFileId: `file-${index}`,
+			metadataId: `meta-${index}`,
+			movieId: `movie-${index}`,
+			episodeId: null,
+			position: 600,
+			duration: 1000,
+			completed: false,
+			audioStreamIndex: null,
+			subtitleId: null,
+			updatedAt: new Date(Date.UTC(2026, 0, index + 1)),
+			dismissedAt: null,
+		}));
+		stubs.push(
+			stubMethod(playbackRepository, "findContinueWatchingData", () =>
+				Promise.resolve({
+					progressRows,
+					metadataList: progressRows.map((row) => ({ id: row.metadataId, title: row.metadataId, type: "movie" as const })),
+					mediaFiles: [],
+					seasons: [],
+					episodes: [],
+					backdrops: [],
+				}),
+			),
+		);
+
+		const { data } = await createService().getContinueWatching("profile-1");
+
+		expect(data).toHaveLength(12);
+	});
+
 	test("dismissing a title hides it without resetting progress", async () => {
 		const fileId = await seedMovie();
 		await seedProgress(fileId, { position: 600 });
@@ -435,6 +476,15 @@ describe("playback progress service: smart play batch", () => {
 
 		expect(result.suggestions[0]).toEqual({ metadataId: "meta-1", suggestion: { type: "new", mediaFileId: fileId }, inWatchlist: true });
 		expect(result.suggestions[1]).toEqual({ metadataId: "meta-2", suggestion: null, inWatchlist: false });
+	});
+
+	test("batch smart play caps the request at fifty ids", async () => {
+		await seedMovie();
+		const ids = Array.from({ length: 60 }, (_, index) => `meta-${index}`);
+
+		const result = await createService().getSmartPlayBatch(ids, "profile-1");
+
+		expect(result.suggestions).toHaveLength(50);
 	});
 
 	test("degrades the whole batch to null suggestions when the repository fails", async () => {
