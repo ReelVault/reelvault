@@ -2,12 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { lstatSync, readFileSync, statSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { strToU8, zipSync } from "fflate";
+import { serverConfig } from "@/config/server/server.config";
 import { assertChecksumMatches } from "@/utils/crypto.utils";
 import { removeTree } from "@/utils/directory.utils";
 import { downloadArchive } from "./download.fetcher";
 import { extractPluginPackage } from "./extract.extractor";
+import { pluginPackageTempDirectory } from "./plugin-package-temp.utils";
 import { createTarStreamExtractor } from "./tar.extractor";
 
 const pluginFailure = {
@@ -196,6 +198,32 @@ describe("plugin package utils: checksum comparison", () => {
 		}
 	});
 
+	test("refuses a download whose declared size exceeds the default 200 MiB cap", async () => {
+		const declared = 200 * 1024 * 1024 + 1;
+		const fetcher = async () =>
+			new Response(new ReadableStream({ start: (controller) => controller.close() }), {
+				headers: { "content-length": String(declared) },
+			});
+
+		await expect(downloadArchive("https://example.com/package.bin", { fetcher })).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.package_too_large",
+			params: { maxBytes: 200 * 1024 * 1024 },
+		});
+	});
+
+	test("reports the HTTP status of a failed download in the error", async () => {
+		const fetcher = async () => new Response("unavailable", { status: 404 });
+
+		await expect(downloadArchive("https://example.com/package.bin", { fetcher })).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.download_failed_http",
+			params: { status: 404 },
+		});
+	});
+});
+
+describe("plugin package utils: extraction edge cases", () => {
 	test("extracts a plain (uncompressed) tar archive", async () => {
 		const tar = buildTar([{ path: "org.example.plain/plugin.json", data: strToU8('{"id":"org.example.plain"}') }]);
 		const extracted = await extractPluginPackage(await writeArchive(tar));
@@ -220,6 +248,54 @@ describe("plugin package utils: checksum comparison", () => {
 		deferCleanup(extracted.cleanup);
 
 		expect(readFileSync(join(extracted.pluginRoot, "data.bin"))).toEqual(Buffer.from(payload));
+	});
+
+	test("refuses a RAR archive before attempting to unpack it", async () => {
+		const rarMagic = Uint8Array.from([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00]);
+		const archivePath = await writeArchive(rarMagic);
+
+		await expect(extractPluginPackage(archivePath)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.archive_format_unsupported",
+		});
+	});
+
+	test("reports a file nested under an earlier file entry as a conflicting path", async () => {
+		const archivePath = await writeArchive(
+			Uint8Array.from(zipSync({ "plugin/lnk": strToU8("first"), "plugin/lnk/sub/child.txt": strToU8("second") })),
+		);
+
+		await expect(extractPluginPackage(archivePath)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.package_path_conflict",
+		});
+	});
+
+	test("accepts a package inflated to exactly the uncompressed cap", async () => {
+		const data = strToU8('{"id":"org.example.exact"}');
+		const archivePath = await writeArchive(new Uint8Array(zipSync({ "org.example.exact/plugin.json": data })));
+
+		const extracted = await extractPluginPackage(archivePath, data.byteLength);
+		deferCleanup(extracted.cleanup);
+
+		expect(basename(extracted.pluginRoot)).toBe("org.example.exact");
+	});
+
+	test("rejects a package inflated one byte beyond the uncompressed cap", async () => {
+		const data = strToU8('{"id":"org.example.over"}');
+		const archivePath = await writeArchive(new Uint8Array(zipSync({ "org.example.over/plugin.json": data })));
+
+		await expect(extractPluginPackage(archivePath, data.byteLength - 1)).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.package_unpacked_too_large",
+		});
+	});
+
+	test("stages plugin packages in a dedicated subdirectory of the tasks root", async () => {
+		const directory = await pluginPackageTempDirectory("reelvault-staging-test-");
+		temporaryDirectories.push(directory);
+
+		expect(dirname(directory)).toBe(join(serverConfig.paths.tasks, "plugin-packages"));
 	});
 });
 
@@ -259,6 +335,20 @@ describe("plugin package utils: tar extraction", () => {
 		extractor.push(tar.subarray(0, 512 + 700)); // header plus a partial data block
 
 		expect(() => extractor.finish()).toThrow(expect.objectContaining({ category: "validation", code: "plugin.archive_truncated" }));
+	});
+
+	test("names the path of an unsupported tar entry in the error params", async () => {
+		const workRoot = await mkdtemp(join(tmpdir(), "reelvault-tar-type-"));
+		temporaryDirectories.push(workRoot);
+		const extractor = createTarStreamExtractor(workRoot, 1024 * 1024);
+
+		expect(() => extractor.push(buildTarHeader({ name: "plugin/unsupported.bin", type: "X" }))).toThrow(
+			expect.objectContaining({
+				category: "validation",
+				code: "plugin.package_entry_unsupported",
+				params: { path: "plugin/unsupported.bin" },
+			}),
+		);
 	});
 });
 

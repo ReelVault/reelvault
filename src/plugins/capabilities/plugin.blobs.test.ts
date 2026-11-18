@@ -199,3 +199,61 @@ describe("pluginBlobsService.delete", () => {
 		expect((await storedBlobs()).map((row) => row.key)).toEqual(["other.json"]);
 	});
 });
+
+describe("pluginBlobsService.put — validation boundaries", () => {
+	test("accepts a blob with the maximum content type length and retention", async () => {
+		const contentType = "a".repeat(serverConfig.plugins.blobs.maxContentTypeLength);
+
+		await expect(
+			pluginBlobsService.put(PLUGIN, "boundary.bin", bytes("x"), {
+				contentType,
+				expiresInMs: serverConfig.plugins.blobs.retentionMs,
+			}),
+		).resolves.toMatchObject({ key: "boundary.bin", contentType });
+	});
+
+	test("accepts the minimum retention of one millisecond", async () => {
+		await expect(
+			pluginBlobsService.put(PLUGIN, "min.bin", bytes("x"), { contentType: "text/plain", expiresInMs: 1 }),
+		).resolves.toMatchObject({ key: "min.bin" });
+	});
+});
+
+describe("pluginBlobsService.purgeExpired", () => {
+	test("deletes an expired entry and its file", async () => {
+		await pluginBlobsService.put(PLUGIN, "stale.json", bytes("stale"), { contentType: "text/plain", expiresInMs: 60_000 });
+		const row = await onlyStoredBlob();
+		await expireBlob("stale.json");
+
+		await pluginBlobsService.purgeExpired();
+
+		expect(await storedBlobs()).toEqual([]);
+		expect(await file(blobPath(row.storageKey)).exists()).toBe(false);
+	});
+
+	test("keeps paginating after a full page of expired entries", async () => {
+		const originalPageSize = serverConfig.database.queryChunkSize;
+		serverConfig.database.queryChunkSize = 2;
+		try {
+			await db
+				.client()
+				.insert(schema.pluginBlobs)
+				.values(
+					Array.from({ length: 3 }, (_, index) => ({
+						pluginId: PLUGIN,
+						key: `stale-${index}.bin`,
+						storageKey: `stale-${index}`,
+						contentType: "text/plain",
+						size: 1,
+						expiresAt: new Date(Date.now() - 1_000),
+					})),
+				);
+
+			await pluginBlobsService.purgeExpired();
+
+			expect(await storedBlobs()).toEqual([]);
+		} finally {
+			serverConfig.database.queryChunkSize = originalPageSize;
+		}
+	});
+});

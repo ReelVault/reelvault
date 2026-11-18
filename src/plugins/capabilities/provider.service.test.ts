@@ -331,3 +331,102 @@ test("fetchDetailsByProvider passes the requested metadata language to the provi
 
 	expect(hints).toEqual([{ language: "pl" }, undefined]);
 });
+
+test("fetchPerson keys its cache by the external id so two people do not share a result", async () => {
+	providerService.resetCaches();
+	const fetched: string[] = [];
+	registerProviders([
+		createProvider("person-provider", {
+			getPersonDetails: (externalId) => {
+				fetched.push(externalId);
+
+				return Promise.resolve({ externalId, name: `Person ${externalId}` });
+			},
+		}),
+	]);
+
+	const first = await providerService.fetchPerson("person-a");
+	const second = await providerService.fetchPerson("person-b");
+
+	expect(first[0]?.metadata.name).toBe("Person person-a");
+	expect(second[0]?.metadata.name).toBe("Person person-b");
+	expect(fetched).toEqual(["person-a", "person-b"]);
+});
+
+test("fetchDetailsByLocalIdentifiers returns the matched provider's normalized details", async () => {
+	registerProviders([
+		createProvider("tmdb", {
+			getDetailsByExternalIds: (_type, identifiers) =>
+				Promise.resolve({ externalId: identifiers.tmdb ?? "", title: "  Local Movie  ", releaseDate: "2020-01-01" }),
+		}),
+	]);
+
+	const details = await providerService.fetchDetailsByLocalIdentifiers("movie", { tmdb: "ext-1" });
+
+	expect(details).toMatchObject([{ provider: "tmdb", metadata: { externalId: "ext-1", title: "Local Movie", cast: [] } }]);
+});
+
+test("search rejects an id lookup that supplies only one half of the pair", async () => {
+	await expect(providerService.search({ type: "movie", providerId: "tmdb" })).rejects.toMatchObject({
+		category: "validation",
+		code: "provider.search_id_incomplete",
+	});
+	await expect(providerService.search({ type: "movie", externalId: "ext-1" })).rejects.toMatchObject({
+		category: "validation",
+		code: "provider.search_id_incomplete",
+	});
+});
+
+test("search rejects a lookup with neither a title nor an id pair", async () => {
+	await expect(providerService.search({ type: "movie" })).rejects.toMatchObject({
+		category: "validation",
+		code: "provider.search_query_missing",
+	});
+});
+
+test("fetchSeasonFromLinks requests the season in the caller's language", async () => {
+	providerService.resetCaches();
+	registerProviders([
+		createProvider("lang-provider", {
+			getSeasonDetails: (_externalId, seasonNumber, hints) =>
+				Promise.resolve({ externalId: "s1", seasonNumber, name: hints?.language ?? "no-language" }),
+		}),
+	]);
+
+	const results = await providerService.fetchSeasonFromLinks([{ providerId: "lang-provider", externalId: "s1" }], 1, "pl");
+
+	expect(results[0]?.metadata.name).toBe("pl");
+});
+
+test("fetchEpisodeFromLinks requests the episode in the caller's language", async () => {
+	providerService.resetCaches();
+	registerProviders([
+		createProvider("lang-provider", {
+			getEpisodeDetails: (_externalId, seasonNumber, episodeNumber, hints) =>
+				Promise.resolve({ externalId: "e1", seasonNumber, episodeNumber, name: hints?.language ?? "no-language" }),
+		}),
+	]);
+
+	const results = await providerService.fetchEpisodeFromLinks([{ providerId: "lang-provider", externalId: "e1" }], 1, 2, "pl");
+
+	expect(results[0]?.metadata.name).toBe("pl");
+});
+
+test("title search passes the requested language to the provider", async () => {
+	providerService.resetCaches();
+	registerProviders([
+		createProvider("lang-provider", {
+			search: (_type, _query, _year, hints) =>
+				Promise.resolve([{ externalId: hints?.language ?? "no-language", title: "Language Movie", releaseDate: "2020-01-01" }]),
+			getDetails: (_type, externalId) => Promise.resolve({ externalId, title: "Language Movie", releaseDate: "2020-01-01" }),
+		}),
+	]);
+
+	const result = await providerService.fetchAggregatedDetails(
+		"movie",
+		{ type: "movie", title: "Language Movie", year: 2020 },
+		{ language: "pl" },
+	);
+
+	expect(result?.providers[0]?.externalId).toBe("pl");
+});

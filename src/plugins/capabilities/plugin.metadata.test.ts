@@ -47,6 +47,16 @@ describe("pluginMetadataService.get", () => {
 		);
 	});
 
+	test("preserves empty provider strings instead of dropping them", async () => {
+		const client = db.client();
+		await insertMovieMediaFile(client, "/media/movie.mkv", "meta-1");
+		await client.update(schema.metadata).set({ originalTitle: "", status: "" }).where(eq(schema.metadata.id, "meta-1"));
+
+		const result = await pluginMetadataService.get("meta-1");
+
+		expect(result).toMatchObject({ originalTitle: "", status: "" });
+	});
+
 	test("returns null for unknown metadata", async () => {
 		await expect(pluginMetadataService.get("missing")).resolves.toBeNull();
 	});

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
+import { insertMovieMediaFile, insertSeriesEpisode } from "../../../tests/helpers/media.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginMediaService } from "./plugin.media";
 
@@ -73,5 +73,65 @@ describe("pluginMediaService.getRevision", () => {
 
 	test("returns null when the media file is unknown", async () => {
 		await expect(pluginMediaService.getRevision("missing")).resolves.toBeNull();
+	});
+});
+
+describe("pluginMediaService.listAllMediaFiles", () => {
+	test("reports the media type from the owning row", async () => {
+		const client = db.client();
+		const movieFileId = await insertMovieMediaFile(client, "/media/movie.mkv", "meta-movie");
+		const episode = await insertSeriesEpisode(client, null);
+		const [episodeFile] = await client
+			.select({ id: schema.mediaFiles.id })
+			.from(schema.mediaFiles)
+			.where(eq(schema.mediaFiles.episodeId, episode.episodeId));
+		if (!episodeFile) throw new Error("Expected the series fixture to insert an episode file");
+
+		const files = await pluginMediaService.listAllMediaFiles();
+		const mediaTypeById = new Map(files.map((file) => [file.mediaFileId, file.mediaType]));
+
+		expect(mediaTypeById.get(movieFileId)).toBe("movie");
+		expect(mediaTypeById.get(episodeFile.id)).toBe("episode");
+	});
+
+	test("treats an explicit zero offset as the first page", async () => {
+		const client = db.client();
+		const firstId = await insertMovieMediaFile(client, "/media/first.mkv", "meta-first");
+		const secondId = await insertMovieMediaFile(client, "/media/second.mkv", "meta-second");
+		const expectedFirst = [firstId, secondId].toSorted()[0];
+		if (!expectedFirst) throw new Error("Expected a seeded media file id");
+
+		const files = await pluginMediaService.listAllMediaFiles({ offset: 0, limit: 1 });
+
+		expect(files.map((file) => file.mediaFileId)).toEqual([expectedFirst]);
+	});
+
+	test("caps the default listing at ten thousand media files", async () => {
+		const client = db.client();
+		const firstId = await insertMovieMediaFile(client, "/media/limit-0.mkv", "meta-limit");
+		const [base] = await client.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.id, firstId));
+		if (!base?.movieId) throw new Error("Expected the seeded media file to belong to a movie");
+		const { libraryId, movieId } = base;
+
+		for (let start = 0; start < 10_000; start += 500) {
+			const count = Math.min(500, 10_000 - start);
+			await client.insert(schema.mediaFiles).values(
+				Array.from({ length: count }, (_, index) => {
+					const number = start + index + 1;
+
+					return {
+						libraryId,
+						movieId,
+						metadataId: "meta-limit",
+						filePath: `/media/limit-${number}.mkv`,
+						fileName: `limit-${number}.mkv`,
+					};
+				}),
+			);
+		}
+
+		const files = await pluginMediaService.listAllMediaFiles();
+
+		expect(files).toHaveLength(10_000);
 	});
 });

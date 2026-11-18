@@ -114,9 +114,26 @@ describe("plugin catalog manifest", () => {
 			),
 		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
 	});
+
+	test("rejects a plugin name longer than 200 characters", () => {
+		expect(() =>
+			parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [{ ...VALID_ENTRY, name: "a".repeat(201) }] })),
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.catalog_entry_invalid" }));
+	});
 });
 
 describe("plugin catalog manifest: history entry validation", () => {
+	test("rejects a version history that is not an array", () => {
+		expect(() => parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [entryWithVersions("1.0.0")] }))).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.catalog_versions_not_array", params: { index: 0 } }),
+		);
+	});
+
+	test("omits an empty version history from the parsed entry", () => {
+		const manifest = parsePluginCatalogManifest(JSON.stringify({ apiVersion: 1, name: "x", plugins: [entryWithVersions([])] }));
+		expect(manifest.plugins[0]?.versions).toBeUndefined();
+	});
+
 	test("rejects a history entry with a non-https download URL", () => {
 		expect(() =>
 			parsePluginCatalogManifest(

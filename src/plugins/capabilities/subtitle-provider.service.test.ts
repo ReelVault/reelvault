@@ -215,3 +215,12 @@ describe("subtitle provider switches", () => {
 		expect(await subtitleProviderSettingsRepository.listDisabledIds()).toEqual([]);
 	});
 });
+
+describe("subtitle provider missing media", () => {
+	test("refuses a search for an unknown media file with a specific code", async () => {
+		await expect(subtitleProviderService.search({ mediaFileId: "missing", languages: ["en"] })).rejects.toMatchObject({
+			category: "not_found",
+			code: "plugin.subtitle.media_not_found",
+		});
+	});
+});

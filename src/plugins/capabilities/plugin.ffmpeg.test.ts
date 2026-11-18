@@ -60,6 +60,17 @@ afterAll(() => {
 	restoreModuleMocks();
 });
 
+describe("pluginFfmpegService.runAnalyse", () => {
+	test("hands ffmpeg the 1000 ms timeout floor when a plugin asks for less", async () => {
+		const stub = stubMethod(ffMpegService, "runToCompletion", () => Promise.resolve({ exitCode: 0, stdout: new Uint8Array(), stderr: "" }));
+		activeStubs.push(stub);
+
+		await pluginFfmpegService.runAnalyse(["-i", "in.mkv", "-f", "null", "-"], { timeoutMs: 500 });
+
+		expect(stub.calls[0]?.[1]).toMatchObject({ timeoutMs: 1_000 });
+	});
+});
+
 describe("pluginFfmpegService.extractFrame", () => {
 	test("rejects an unknown media file", async () => {
 		await expect(pluginFfmpegService.extractFrame({ mediaFileId: "missing", timeMs: 1_000, width: 320 })).rejects.toMatchObject({

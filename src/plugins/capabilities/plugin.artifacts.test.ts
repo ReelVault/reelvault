@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { serverConfig } from "@/config/server/server.config";
 import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
 import { deleteFile as actualDeleteFile, getFileStats as actualGetFileStats } from "@/utils/file.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
@@ -52,6 +53,16 @@ describe("pluginArtifactsService.write — per-plugin quota", () => {
 		mediaArtifactsService.invalidateByteTotals();
 
 		await expect(writeChapters("WEBVTT 3")).rejects.toMatchObject({ code: "plugin.artifact.quota_exceeded" });
+	});
+
+	test("accepts a write that lands exactly on the per-plugin quota", async () => {
+		await writeChapters("seed");
+		// One stored file reporting one byte under the cap leaves room for exactly the next write.
+		getFileStatsImpl = () => Promise.resolve({ size: serverConfig.plugins.artifacts.maxTotalBytesPerPlugin - 1, mtimeMs: 0 });
+		mediaArtifactsService.invalidateByteTotals();
+
+		await expect(writeChapters("x")).resolves.toMatchObject({ kind: "chapters" });
+		expect(await pluginArtifactsService.list(mediaFileId)).toHaveLength(2);
 	});
 });
 

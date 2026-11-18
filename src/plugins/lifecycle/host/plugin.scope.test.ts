@@ -1,9 +1,12 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PluginNotificationChannel } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import { createProvider, createSubtitleProvider } from "@/plugins/lifecycle/plugin-entities.fixture";
 import { dispatchNotificationToChannels } from "@/plugins/runtime/notification-channel.registry";
 import { DomainError } from "@/utils/domain.errors";
+import { scheduledTasksService } from "@/workers/scheduled-tasks.service";
+import { workerService } from "@/workers/worker.service";
+import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { PluginScope } from "./plugin.scope";
 
 /** The registration-limit code thrown by `register`, or undefined when it succeeds. */
@@ -167,10 +170,12 @@ describe("PluginScope lifecycle", () => {
 		await expect(scope.enqueueJob("org.reelvault.x", "missing", {})).rejects.toMatchObject({
 			category: "validation",
 			code: "plugin.job_not_registered",
+			params: { job: "missing" },
 		});
 		await expect(scope.enqueueJobs("org.reelvault.x", "missing", [{ data: {} }])).rejects.toMatchObject({
 			category: "validation",
 			code: "plugin.job_not_registered",
+			params: { job: "missing" },
 		});
 	});
 
@@ -236,6 +241,41 @@ describe("PluginScope lifecycle", () => {
 
 		await scope.cleanup();
 		expect(calls).toEqual(["healthy"]);
+	});
+});
+
+describe("PluginScope job registration", () => {
+	let scope: PluginScope;
+	let registerWorkerStub: MethodStub;
+	let registerTaskStub: MethodStub;
+
+	beforeEach(() => {
+		scope = new PluginScope();
+		// Both registrations leave the process into the global worker registry, so
+		// they are stubbed for the duration of each test and restored afterwards.
+		registerWorkerStub = stubMethod(workerService, "registerWorker", () => undefined);
+		registerTaskStub = stubMethod(scheduledTasksService, "register", () => Promise.resolve());
+	});
+
+	afterEach(() => {
+		registerTaskStub.restore();
+		registerWorkerStub.restore();
+	});
+
+	test("registerJobs records namespaced job ids and registers the scheduled task under a colon-namespaced id", async () => {
+		scope.addJob({ name: "refresh", handler: () => undefined });
+		scope.addScheduledTask({
+			id: "nightly",
+			name: "Nightly",
+			description: "nightly cleanup",
+			defaultTriggers: [],
+			run: async () => undefined,
+		});
+
+		await scope.registerJobs("org.reelvault.jobs");
+
+		expect(scope.getRegisteredJobIds()).toEqual(["org.reelvault.jobs:refresh"]);
+		expect(registerTaskStub.calls[0]?.[0]).toMatchObject({ id: "org.reelvault.jobs:nightly", category: "plugins" });
 	});
 });
 

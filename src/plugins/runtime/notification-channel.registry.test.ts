@@ -109,13 +109,19 @@ describe("notification channel registry", () => {
 		await dispatched;
 		expect(order).toEqual(["fast", "slow"]);
 	});
+});
 
+describe("notification channel failure reporting", () => {
 	test("rejects a duplicate channel id instead of silently overwriting it", () => {
 		const seen: OutgoingNotification[] = [];
 		registerChannel("plugin-a", channel("c1", seen));
 
 		expect(() => registerChannel("plugin-a", channel("c1", seen))).toThrow(
-			expect.objectContaining({ category: "conflict", code: "plugin.notification_channel.duplicate" }),
+			expect.objectContaining({
+				category: "conflict",
+				code: "plugin.notification_channel.duplicate",
+				params: { pluginId: "plugin-a", channelId: "c1" },
+			}),
 		);
 	});
 
@@ -141,6 +147,20 @@ describe("notification channel registry", () => {
 			healthy = false;
 			await dispatchNotificationToChannels(sample);
 			expect(reports).toHaveLength(2);
+		} finally {
+			stop();
+		}
+	});
+
+	test("removing a failure listener stops later failure reports", async () => {
+		const reports: Array<{ pluginId: string; channelId: string }> = [];
+		const stop = onNotificationChannelFailure((failure) => reports.push({ pluginId: failure.pluginId, channelId: failure.channelId }));
+		registerChannel("plugin-listener-cleanup", channel("cleanup", [], new Error("endpoint down")));
+
+		try {
+			stop();
+			await dispatchNotificationToChannels({ ...sample });
+			expect(reports).toEqual([]);
 		} finally {
 			stop();
 		}

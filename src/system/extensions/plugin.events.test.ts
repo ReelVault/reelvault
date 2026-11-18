@@ -62,4 +62,20 @@ describe("plugin event bus", () => {
 
 		expect(started).toEqual(["first", "second", "third"]);
 	});
+
+	it("keeps other plugins' handlers after one plugin unsubscribes", async () => {
+		const bus = new PluginEventBus();
+		const received: string[] = [];
+		const stop = bus.on("first", "media.file.ready", () => {
+			received.push("first");
+		});
+		bus.on("second", "media.file.ready", () => {
+			received.push("second");
+		});
+
+		stop();
+		await bus.emit("media.file.ready", { libraryId: "library", mediaFileId: "file", metadataId: "metadata" });
+
+		expect(received).toEqual(["second"]);
+	});
 });

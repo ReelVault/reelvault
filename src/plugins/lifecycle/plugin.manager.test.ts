@@ -4,9 +4,16 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
+import { KeyedMutex } from "@/utils/concurrency.utils";
 import { removeTree } from "@/utils/directory.utils";
+import { createLogger } from "@/utils/logger.utils";
+import { PromiseTimeoutError } from "@/utils/promise.utils";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { PluginManager } from "./manager/plugin-manager.service";
+import { type PluginManagerState, runLifecycle } from "./manager/state.utils";
+import { PluginConfig } from "./plugin.config";
+import { PluginInstaller } from "./plugin.installer";
+import { PluginLoader } from "./plugin.loader";
 import { pluginRegistry } from "./plugin.registry";
 
 /**
@@ -49,6 +56,29 @@ const LOCALE_CONFIG = `config: {
 			if (!/^[a-z]{2}-[A-Z]{2}$/.test(String(value.language ?? ""))) {
 				throw new Error("Plugin configuration 'language' does not match the expected format");
 			}
+			return value;
+		},
+	},`;
+
+const WRAPPED_LOCALE_CONFIG = `config: {
+		fields: {},
+		descriptors: [{ name: "language", type: "string", label: "Language" }],
+		parse(value) {
+			try {
+				if (!/^[a-z]{2}-[A-Z]{2}$/.test(String(value.language ?? ""))) {
+					throw new Error("Plugin configuration 'language' does not match the expected format");
+				}
+				return value;
+			} catch (error) {
+				throw new Error("Could not validate the submitted settings", { cause: error });
+			}
+		},
+	},`;
+
+const EMPTY_CONFIG = `config: {
+		fields: {},
+		descriptors: [],
+		parse(value) {
 			return value;
 		},
 	},`;
@@ -183,6 +213,7 @@ describe("PluginManager enable and disable", () => {
 		await expect(manager.setEnabled("org.reelvault.unknown", false)).rejects.toMatchObject({
 			category: "validation",
 			code: "plugin.not_installed",
+			params: { plugin: "org.reelvault.unknown" },
 		});
 	});
 
@@ -222,7 +253,9 @@ describe("PluginManager enable and disable", () => {
 		await expect(manager.setEnabled("org.reelvault.broken", true)).rejects.toThrow("setup failed for org.reelvault.broken@1.0.0");
 		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.broken", state: "failed" })]);
 	});
+});
 
+describe("PluginManager unload and uninstall", () => {
 	test("disabling a plugin whose onUnload throws still reports it disabled and surfaces the error", async () => {
 		const manager = new PluginManager();
 		await manager.installFromDirectory(await writePackage("org.reelvault.stuck", "1.0.0"), { source: "test" });
@@ -230,6 +263,35 @@ describe("PluginManager enable and disable", () => {
 
 		await expect(manager.setEnabled("org.reelvault.stuck", false)).rejects.toThrow("onUnload failed for org.reelvault.stuck@1.0.0");
 		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.stuck", state: "disabled" })]);
+	});
+
+	test("unload runs the plugin's onUnload hook and removes it from the loaded registry", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.unloaded", "1.0.0"), { source: "test" });
+		readControl().events.length = 0;
+
+		await manager.unload("org.reelvault.unloaded");
+
+		expect(readControl().events).toEqual(["unload:org.reelvault.unloaded"]);
+		expect(manager.getPlugin("org.reelvault.unloaded")).toBeUndefined();
+	});
+
+	test("disabling a loaded plugin whose on-disk manifest was removed keeps its loaded identity", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.vanished", "1.0.0"), { source: "test" });
+		const directory = await installedDirectory(manager, "org.reelvault.vanished");
+		await rm(join(directory, "plugin.json"));
+
+		await manager.setEnabled("org.reelvault.vanished", false);
+
+		expect(manager.getStatus()).toEqual([
+			expect.objectContaining({
+				id: "org.reelvault.vanished",
+				name: "Manager org.reelvault.vanished",
+				version: "1.0.0",
+				state: "disabled",
+			}),
+		]);
 	});
 
 	test("reloading a disabled plugin leaves it unloaded", async () => {
@@ -349,6 +411,17 @@ describe("PluginManager install and upgrade", () => {
 
 		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.moving", version: "2.0.0", state: "enabled" })]);
 		expect(readControl().events).toContain("setup:org.reelvault.moving");
+	});
+
+	test("a successful upgrade drops the rollback point once the new version loads", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.confirmed", "1.0.0"), { source: "test" });
+		await manager.installFromDirectory(await writePackage("org.reelvault.confirmed", "2.0.0"), { source: "test" });
+
+		const records = await manager.getInstalledRecords();
+		const record = records.find((entry) => entry.id === "org.reelvault.confirmed")?.record;
+		expect(record?.version).toBe("2.0.0");
+		expect(record).not.toHaveProperty("previous");
 	});
 
 	test("an upgrade whose new version fails to load is rolled back to the previous version", async () => {
@@ -496,7 +569,9 @@ describe("PluginManager config", () => {
 		expect(failure).toMatchObject({ category: "validation", code: "plugin.config_invalid", params: { field: "apiKey" } });
 		expect(existsSync(join(await installedDirectory(manager, "org.reelvault.required"), "config.json"))).toBe(false);
 	});
+});
 
+describe("PluginManager config writes and validation", () => {
 	test("a required secret saved with a value is accepted, reported as present and never returned", async () => {
 		const manager = new PluginManager();
 		await manager.installFromDirectory(await writePackage("org.reelvault.filled", "1.0.0", { exportMembers: REQUIRED_API_KEY_CONFIG }), {
@@ -520,5 +595,79 @@ describe("PluginManager config", () => {
 		await manager.savePluginConfig("org.reelvault.kept", { theme: "light" });
 
 		expect(await storedConfig(manager, "org.reelvault.kept")).toEqual({ apiKey: "stored", theme: "light" });
+	});
+
+	test("getPluginConfigDetails reports a plugin with no installed package as not found with its id", async () => {
+		const manager = new PluginManager();
+
+		await expect(manager.getPluginConfigDetails("org.reelvault.absent-config")).rejects.toMatchObject({
+			category: "not_found",
+			code: "plugin.not_found",
+			params: { pluginId: "org.reelvault.absent-config" },
+		});
+	});
+
+	test("savePluginConfig names the field in a wrapped validation error and writes nothing", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.wrapped", "1.0.0", { exportMembers: WRAPPED_LOCALE_CONFIG }), {
+			source: "test",
+		});
+
+		const failure = await manager.savePluginConfig("org.reelvault.wrapped", { language: "not a locale" }).catch((error: unknown) => error);
+
+		expect(failure).toMatchObject({ category: "validation", code: "plugin.config_invalid", params: { field: "language" } });
+		expect(existsSync(join(await installedDirectory(manager, "org.reelvault.wrapped"), "config.json"))).toBe(false);
+	});
+
+	test("a plugin declaring no descriptors still shows stored keys as inferred fields", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.empty-schema", "1.0.0", { exportMembers: EMPTY_CONFIG }), {
+			source: "test",
+		});
+		await writeFile(
+			join(await installedDirectory(manager, "org.reelvault.empty-schema"), "config.json"),
+			JSON.stringify({ theme: "dark" }),
+		);
+
+		const details = await manager.getPluginConfigDetails("org.reelvault.empty-schema");
+
+		expect(details.fields).toEqual([{ name: "theme", type: "string", label: "Theme", default: "dark" }]);
+	});
+
+	test("resetPluginConfig removes every stored key when the caller names none", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.reset-all", "1.0.0"), { source: "test" });
+		await manager.savePluginConfig("org.reelvault.reset-all", { theme: "dark", retries: 2 });
+
+		await manager.resetPluginConfig("org.reelvault.reset-all");
+
+		expect(await storedConfig(manager, "org.reelvault.reset-all")).toEqual({});
+	});
+});
+
+describe("plugin lifecycle guard", () => {
+	test("a timed-out operation reports its code and blocks later lifecycle work", async () => {
+		const config = new PluginConfig();
+		const state: PluginManagerState = {
+			logger: createLogger("PluginManagerTest"),
+			config,
+			registry: pluginRegistry,
+			loader: new PluginLoader(config, pluginRegistry),
+			installer: new PluginInstaller(serverConfig.paths.plugins),
+			lifecycleMutex: new KeyedMutex(),
+			disabledStatuses: new Map(),
+			integrityIssues: new Set(),
+			lifecycleTimedOut: false,
+		};
+
+		await expect(runLifecycle(state, () => Promise.reject(new PromiseTimeoutError("plugin lifecycle")))).rejects.toMatchObject({
+			category: "timeout",
+			code: "plugin.lifecycle_timeout",
+		});
+
+		await expect(runLifecycle(state, () => Promise.resolve("later"))).rejects.toMatchObject({
+			category: "timeout",
+			code: "plugin.lifecycle_unavailable",
+		});
 	});
 });

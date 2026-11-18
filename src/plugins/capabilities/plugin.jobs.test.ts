@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { workerOperationsService } from "@/workers/core/worker-operations.service";
 import { workerService } from "@/workers/worker.service";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { pluginJobsService } from "./plugin.jobs";
+
+useTestDatabase();
 
 const MAX_PLUGIN_JOB_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const MAX_PLUGIN_JOB_ATTEMPTS = 25;
@@ -50,5 +54,48 @@ describe("plugin job clamps", () => {
 		// A plugin job belongs to no resource category, so the allocator gives it the
 		// unbudgeted default of a single slot.
 		expect(definition?.concurrency).toBe(1);
+	});
+});
+
+describe("plugin job name validation", () => {
+	test("refuses to register a job without a name", async () => {
+		await expect(pluginJobsService.register("org.reelvault.jobs", [{ name: "", handler: async () => undefined }])).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.job_name_required",
+		});
+	});
+
+	test("refuses to enqueue a job without a name", async () => {
+		await expect(pluginJobsService.enqueue("org.reelvault.jobs", "", {})).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.job_name_required",
+		});
+	});
+
+	test("reports the validation code when a batch enqueue has no name", async () => {
+		await expect(pluginJobsService.enqueueMany("org.reelvault.jobs", "", [{ data: {} }])).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.job_name_required",
+		});
+	});
+});
+
+describe("plugin job enqueue operations", () => {
+	test("records the plugin as the operation reference for a batch enqueue", async () => {
+		const names = await pluginJobsService.register("org.reelvault.ref", [{ name: "batch", handler: async () => undefined }]);
+		registered.push(names);
+
+		const handles = await pluginJobsService.enqueueMany("org.reelvault.ref", "batch", [{ data: {} }, { data: {} }]);
+		const handle = handles[0];
+		if (!handle) throw new Error("Expected a queued job handle");
+		if (!handle.operationId) throw new Error("Expected the queued job to carry an operation id");
+
+		const operation = await workerOperationsService.getById(handle.operationId);
+
+		expect(operation).toMatchObject({
+			type: "org.reelvault.ref:batch",
+			referenceType: "plugin",
+			referenceId: "org.reelvault.ref",
+		});
 	});
 });

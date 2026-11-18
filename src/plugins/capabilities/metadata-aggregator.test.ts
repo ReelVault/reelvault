@@ -47,6 +47,24 @@ describe("mergeProviderMetadata", () => {
 		expect(merged.metadata.genres).toEqual([{ id: "g1", name: "Horror" }]);
 	});
 
+	test("takes the backdrop from the first provider that supplies one", () => {
+		const merged = mergeProviderMetadata([
+			contribution("tmdb", { backdropPath: undefined }),
+			contribution("imdb", { backdropPath: "/backdrop.jpg" }),
+		]);
+
+		expect(merged.metadata.backdropPath).toBe("/backdrop.jpg");
+	});
+
+	test("takes the collection from the first provider that supplies one", () => {
+		const merged = mergeProviderMetadata([
+			contribution("tmdb", { collection: undefined }),
+			contribution("imdb", { collection: [{ id: "c1", name: "Saga" }] }),
+		]);
+
+		expect(merged.metadata.collection).toEqual([{ id: "c1", name: "Saga" }]);
+	});
+
 	test("ratings are unioned across providers and de-duplicated by source", () => {
 		const merged = mergeProviderMetadata([
 			contribution("tmdb", {
@@ -77,6 +95,12 @@ describe("mergeProviderMetadata", () => {
 		const merged = mergeProviderMetadata([contribution("tmdb", { voteAverage: 7.5, voteCount: 100 })]);
 
 		expect(merged.metadata.ratings).toEqual([{ source: "tmdb", value: 7.5, maxValue: 10, votes: 100 }]);
+	});
+
+	test("leaves ratings undefined when no provider supplies any", () => {
+		const merged = mergeProviderMetadata([contribution("tmdb", {}), contribution("imdb", {})]);
+
+		expect(merged.metadata.ratings).toBeUndefined();
 	});
 
 	test("lists every linked provider in priority order", () => {

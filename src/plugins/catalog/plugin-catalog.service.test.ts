@@ -137,6 +137,38 @@ describe("pluginCatalogService.getCatalog", () => {
 			{ repositoryId: downId, repositoryName: "repo-down", errorCode: "plugin.repository_unavailable" },
 		]);
 	});
+
+	test("carries a historical version's server floor into the catalog view", async () => {
+		await seedRepository("repo-versions", 0);
+		activeStubs.push(
+			stubMethod(pluginManager, "getInstalledRecords", () => Promise.resolve([])),
+			stubMethod(pluginCatalogService, "fetchManifest", () =>
+				Promise.resolve({
+					manifest: {
+						apiVersion: 1,
+						name: "Test",
+						plugins: [
+							{
+								...catalogEntry("org.example.gated", "2.0.0"),
+								versions: [
+									{
+										version: "1.0.0",
+										downloadUrl: "https://example.com/gated-1.0.0.zip",
+										checksum: sha("1"),
+										minServerVersion: "1.4.0",
+									},
+								],
+							},
+						],
+					},
+					fetchedAt: Date.now(),
+				}),
+			),
+		);
+
+		const { plugins } = await pluginCatalogService.getCatalog();
+		expect(plugins[0]?.versions?.[0]).toMatchObject({ version: "1.0.0", minServerVersion: "1.4.0" });
+	});
 });
 
 describe("pluginCatalogService.updatablePluginIds", () => {
@@ -179,5 +211,21 @@ describe("pluginCatalogService.updatablePluginIds", () => {
 		);
 
 		await expect(pluginCatalogService.updatablePluginIds()).resolves.toEqual(new Set());
+	});
+});
+
+describe("pluginCatalogService.uninstallPlugin", () => {
+	test("uninstalls a plugin that has an install record but no live status", async () => {
+		let uninstalled = false;
+		activeStubs.push(
+			stubMethod(pluginManager, "getInstalledRecords", () => Promise.resolve([installedRecord("org.example.record-only", "1.0.0")])),
+			stubMethod(pluginManager, "getStatus", () => []),
+			stubMethod(pluginManager, "uninstall", () => {
+				uninstalled = true;
+			}),
+		);
+
+		await expect(pluginCatalogService.uninstallPlugin("org.example.record-only")).resolves.toBeUndefined();
+		expect(uninstalled).toBe(true);
 	});
 });

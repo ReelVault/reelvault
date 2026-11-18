@@ -41,6 +41,49 @@ describe("guardedPluginFetch", () => {
 		});
 	});
 
+	it.each(["printer.local", "api.localhost", "vault.internal", "nas.home.arpa"])(
+		"rejects the local hostname %s before any request",
+		async (hostname) => {
+			await expect(guardedPluginFetch(`http://${hostname}/x`)).rejects.toMatchObject({
+				category: "forbidden",
+				code: "plugin.http.private_address",
+			});
+		},
+	);
+
+	it("caps every plugin fetch with a 30 second abort timeout", async () => {
+		let capturedMs = -1;
+		const timeoutStub = stubMethod(AbortSignal, "timeout", (ms: number) => {
+			capturedMs = ms;
+			return new AbortController().signal;
+		});
+		const fetchStub = stubMethod(globalThis, "fetch", () => Promise.resolve(new Response("ok")));
+		try {
+			await guardedPluginFetch("http://1.1.1.1/media");
+		} finally {
+			timeoutStub.restore();
+			fetchStub.restore();
+		}
+		expect(capturedMs).toBe(30_000);
+	});
+
+	it("stops after five redirects and refuses the fetch", async () => {
+		let calls = 0;
+		const fetchStub = stubMethod(globalThis, "fetch", () => {
+			calls++;
+			return Promise.resolve(new Response(null, { status: 302, headers: { location: "/next" } }));
+		});
+
+		try {
+			await expect(guardedPluginFetch("http://1.1.1.1/start")).rejects.toMatchObject({
+				code: "download.too_many_redirects",
+			});
+		} finally {
+			fetchStub.restore();
+		}
+		expect(calls).toBe(6);
+	});
+
 	it("enforces the plugins.http.allowedDomains allowlist", async () => {
 		const stub = stubMethod(systemSettingsStore, "get", () => "allowed.example");
 		try {

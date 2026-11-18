@@ -10,14 +10,16 @@ import type {
 	PluginHttpRoute,
 	PluginJobDefinition,
 	PluginJobHandle,
+	PluginNotificationChannel,
 	PluginScheduledTaskDefinition,
 	SubtitleProvider,
 } from "@reelvault/sdk/plugin";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { createProvider, createSubtitleProvider } from "@/plugins/lifecycle/plugin-entities.fixture";
+import { dispatchNotificationToChannels, registerNotificationChannel } from "@/plugins/runtime/notification-channel.registry";
 import type { PluginHookName } from "@/system/extensions/plugin.hooks";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
-import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
+import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { insertUsers, selectNotifications } from "../../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 import type { PluginEventHandlerErased, PluginScopeApi } from "./plugin.scope";
@@ -30,9 +32,17 @@ import { createPluginHost } from "./plugin-host.factory";
 const db = useTestDatabase();
 
 class ScopeSpy implements PluginScopeApi {
-	registerNotificationChannelScope(): void {
-		// Channels are covered by the dedicated registry test.
+	private readonly channelUnregisters: Array<() => void> = [];
+
+	registerNotificationChannelScope(channel: PluginNotificationChannel): void {
+		// Register into the real in-process registry so a test can observe delivery.
+		this.channelUnregisters.push(registerNotificationChannel("org.reelvault.hosted", channel));
 	}
+
+	cleanupNotificationChannels(): void {
+		for (const unregister of this.channelUnregisters.splice(0).toReversed()) unregister();
+	}
+
 	readonly used: PluginCapabilityName[] = [];
 	readonly providers: MetadataProvider[] = [];
 	readonly analyzers: MediaAnalyzer[] = [];
@@ -95,6 +105,9 @@ class ScopeSpy implements PluginScopeApi {
 
 let activeStubs: Array<{ restore(): void }> = [];
 let broadcastStub: { calls: unknown[][]; restore(): void };
+let sendToUserStub: MethodStub;
+let sendToProfileStub: MethodStub;
+let sendToSessionStub: MethodStub;
 let scope: ScopeSpy;
 let host: ReturnType<typeof createPluginHost>;
 
@@ -102,7 +115,10 @@ function useHostFixtures(): void {
 	beforeEach(() => {
 		activeStubs = [];
 		broadcastStub = stubMethod(realtimeService, "broadcast", (type: string) => type);
-		activeStubs.push(broadcastStub);
+		sendToUserStub = stubMethod(realtimeService, "sendToUser", () => undefined);
+		sendToProfileStub = stubMethod(realtimeService, "sendToProfile", () => undefined);
+		sendToSessionStub = stubMethod(realtimeService, "sendToSession", () => undefined);
+		activeStubs.push(broadcastStub, sendToUserStub, sendToProfileStub, sendToSessionStub);
 
 		const pluginLogger: PluginHost["logger"] = {
 			trace: () => undefined,
@@ -120,6 +136,7 @@ function useHostFixtures(): void {
 	});
 
 	afterEach(() => {
+		scope.cleanupNotificationChannels();
 		for (const stub of activeStubs.splice(0).toReversed()) stub.restore();
 	});
 }
@@ -199,6 +216,33 @@ describe("createPluginHost", () => {
 
 		expect(scope.used).toEqual(["eventHandler"]);
 		expect(broadcastStub.calls[0]?.[0]).toBe("plugin:org.reelvault.hosted:progress");
+	});
+
+	test("realtime user, profile and session events are namespaced per plugin", () => {
+		host.realtime.sendToUser("user-1", "progress", { step: 2 });
+		host.realtime.sendToProfile("profile-1", "progress", { step: 3 });
+		host.realtime.sendToSession("session-1", "progress", { step: 4 });
+
+		expect(sendToUserStub.calls[0]?.[1]).toBe("plugin:org.reelvault.hosted:progress");
+		expect(sendToProfileStub.calls[0]?.[1]).toBe("plugin:org.reelvault.hosted:progress");
+		expect(sendToSessionStub.calls[0]?.[1]).toBe("plugin:org.reelvault.hosted:progress");
+	});
+
+	test("a notification channel registered through the host receives dispatched notifications", async () => {
+		const delivered: string[] = [];
+		const channel: PluginNotificationChannel = {
+			id: "hosted-channel",
+			deliver: (notification) => {
+				delivered.push(notification.title);
+
+				return Promise.resolve();
+			},
+		};
+
+		await host.notificationChannels.register(channel);
+		await dispatchNotificationToChannels({ id: "n-hosted", userId: "user-1", type: "info", title: "Plugin delivery" });
+
+		expect(delivered).toEqual(["Plugin delivery"]);
 	});
 
 	test("http fetch is capability-gated before the guarded fetch rejects a non-http URL", async () => {

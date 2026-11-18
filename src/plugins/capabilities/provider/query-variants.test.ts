@@ -64,4 +64,26 @@ describe("searchWithVariants", () => {
 		expect(calls).toBe(2);
 		expect(result).toEqual([{ externalId: "late-1", title: LONG_TITLE }]);
 	});
+
+	test("keeps querying variants after an acceptable but non-confident match", async () => {
+		const queries: string[] = [];
+		const result = await searchWithVariants(
+			(query) => {
+				queries.push(query);
+
+				// The first phrasing matches the title but not the year, so the match
+				// is trusted yet below the score that stops the variant walk.
+				return Promise.resolve(
+					queries.length === 1
+						? [{ externalId: "weak", title: LONG_TITLE, releaseDate: "1990-01-01" }]
+						: [{ externalId: "strong", title: LONG_TITLE, releaseDate: "2020-01-01" }],
+				);
+			},
+			LONG_TITLE,
+			2020,
+		);
+
+		expect(queries).toHaveLength(2);
+		expect(result.map((item) => item.externalId)).toEqual(["weak", "strong"]);
+	});
 });

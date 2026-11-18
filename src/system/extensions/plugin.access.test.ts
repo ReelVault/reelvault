@@ -63,4 +63,47 @@ describe("plugin access bus", () => {
 			code: "PLUGIN_ACCESS_UNAVAILABLE",
 		});
 	});
+
+	test("refuses a duplicate policy id with conflict code and attribution", () => {
+		pluginAccessBus.register("org.example.access", { id: "gate", beforeAccess: () => undefined });
+
+		expect(() => pluginAccessBus.register("org.example.access", { id: "gate", beforeAccess: () => undefined })).toThrow(
+			expect.objectContaining({
+				category: "conflict",
+				code: "plugin.access_policy_duplicate",
+				params: { policy: "gate" },
+			}),
+		);
+	});
+
+	test("stops denying once a policy is unsubscribed", async () => {
+		const stop = pluginAccessBus.register("org.example.access", {
+			id: "expired",
+			beforeAccess: () => ({ allowed: false, code: "EXPIRED", message: "Access expired" }),
+		});
+
+		await expect(pluginAccessBus.check({ userId: "user-1", resource: "stream", action: "play" })).resolves.toMatchObject({
+			code: "EXPIRED",
+		});
+
+		stop();
+
+		await expect(pluginAccessBus.check({ userId: "user-1", resource: "stream", action: "play" })).resolves.toBeUndefined();
+	});
+
+	test("passes the access context to the policy", async () => {
+		let seen: object = {};
+		pluginAccessBus.register("org.example.access", {
+			id: "observer",
+			beforeAccess: (context) => {
+				seen = context;
+
+				return undefined;
+			},
+		});
+
+		await expect(pluginAccessBus.check({ userId: "user-1", resource: "stream", action: "play" })).resolves.toBeUndefined();
+
+		expect(seen).toEqual({ userId: "user-1", resource: "stream", action: "play" });
+	});
 });
