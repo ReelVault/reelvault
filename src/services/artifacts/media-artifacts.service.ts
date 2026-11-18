@@ -286,15 +286,7 @@ class MediaArtifactsService {
 		const artifacts = await mediaArtifactsRepository.findByPluginId(ownerId);
 		if (artifacts.length === 0) return 0;
 
-		// awaits: sequential — rows go first; a file is removed only once no row points at it
-		await forEachChunked(
-			artifacts.map((artifact) => artifact.id),
-			async (ids) => {
-				await mediaArtifactsRepository.delete({ ids });
-			},
-		);
-		await this.removeStorageFiles(artifacts.map((artifact) => artifact.storageKey));
-		this.ownerByteTotals.delete(ownerId);
+		await this.deleteArtifacts(artifacts);
 
 		return artifacts.length;
 	}

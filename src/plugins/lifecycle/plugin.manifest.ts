@@ -2,14 +2,12 @@ import { join } from "node:path";
 import {
 	type ConfigDefinition,
 	PLUGIN_CAPABILITY_SET,
-	type PluginCapabilityName,
 	type PluginConfig,
 	type PluginManifest,
 	type PluginUiManifest,
 	type PluginUiSchemaSurface,
 } from "@reelvault/sdk/plugin";
 import { PLUGIN_IDENTIFIER_PATTERN } from "@/plugins/shared/plugin.constants";
-import { unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { getFileStats, readJsonFile } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory.cache";
@@ -170,20 +168,6 @@ export async function resolvePluginUiSchemas(pluginDir: string, manifest: Plugin
 		...(pages ? { pages } : {}),
 		...(dialogs ? { dialogs } : {}),
 	};
-}
-
-export function assertDeclaredPluginCapabilities(
-	declaredCapabilities: readonly PluginCapabilityName[],
-	usedCapabilities: Iterable<PluginCapabilityName>,
-): void {
-	const declared = new Set(declaredCapabilities);
-	const missing = unique([...usedCapabilities]).filter((capability) => !declared.has(capability));
-	if (missing.length > 0) {
-		throw new DomainError("validation", `Plugin uses capabilities missing from plugin.json: ${missing.join(", ")}`, {
-			code: "plugin.capability_undeclared",
-			params: { capability: missing.join(", ") },
-		});
-	}
 }
 
 export function validatePluginConfig(config: unknown, definition?: ConfigDefinition): PluginConfig {

@@ -322,7 +322,6 @@ export class PluginLoader {
 		await this.runPluginStep("setup", serverConfig.plugins.lifecycle.loadTimeoutMs, () =>
 			plugin.setup(createPluginHost(manifest.id, pluginLogger, config, scope)),
 		);
-		scope.assertDeclaredCapabilities(manifest.capabilities);
 		this.registry.advance(manifest.id, "initialized", "initialization");
 
 		// awaits: sequential — providers are initialized before jobs are registered

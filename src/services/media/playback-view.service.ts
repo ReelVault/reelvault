@@ -31,7 +31,7 @@ export const playbackViewService = {
 				profilePreferencesRepository.getEffective({ profileId }),
 			]);
 
-			// The contract field means "the episode after playbackViewService one"; the overview
+			// The contract field means "the episode after this one"; the overview
 			// derives it from the show data it already loaded. The show-level
 			// smart-play suggestion (type "continue") points back at the current
 			// file, so it must not leak in as a next-episode target.

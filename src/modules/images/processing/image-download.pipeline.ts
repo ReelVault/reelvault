@@ -3,9 +3,9 @@ import { dirname, join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { getImageMetadata, type OptimizedImageResult, optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
+import { toOptimizedImageFields } from "@/modules/images/optimized-image.utils";
 import type { ImageOwnerTarget, PersistedImageInput } from "@/repositories/images.repository";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { createHash } from "@/utils/crypto.utils";
 import { createDirectory } from "@/utils/directory.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { createTempPath, deleteFile, downloadFile, fileExists, getFileStats, writeFile } from "@/utils/file.utils";
@@ -202,15 +202,7 @@ export class ImageDownloadPipeline {
 
 			await this.dependencies.renameFile(optimizedPath, localPath);
 
-			const sourceHash = createHash("sha256").update(data).digest("hex");
-
-			return {
-				contentType: "image/webp",
-				width: info.width,
-				height: info.height,
-				fileSize: info.size,
-				sourceHash,
-			};
+			return toOptimizedImageFields({ data, info });
 		} finally {
 			await Promise.all([this.dependencies.deleteFile(sourcePath), this.dependencies.deleteFile(optimizedPath)]);
 		}

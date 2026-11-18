@@ -84,14 +84,10 @@ export async function listDirectoryEntriesCached(directory: string): Promise<Dir
 	const cached = directoryListingCache.get(directory);
 	if (cached) return cached;
 
-	try {
-		const result = await readDirectoryEntries(directory);
-		directoryListingCache.set(directory, result);
+	const result = await listDirectoryEntries(directory);
+	if (result !== undefined) directoryListingCache.set(directory, result);
 
-		return result;
-	} catch {
-		return undefined;
-	}
+	return result;
 }
 
 export async function directoryExists(path: string): Promise<boolean> {

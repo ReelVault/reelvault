@@ -34,8 +34,9 @@
  * a recomputation, so it is not reported.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
+import { collectTypeScriptFilesSync } from "./source-files.script";
 
 /** The directories the rules apply to. */
 const GUARDED_ROOTS = ["src", "tests"] as const;
@@ -534,22 +535,18 @@ function scanTestFile(file: string, source: string): Finding[] {
 	return findings;
 }
 
-/** Every file under a root whose name matches `include`, skipping build output. */
-function collectFiles(directory: string, include: (entry: string) => boolean): string[] {
-	const files: string[] = [];
-	for (const entry of readdirSync(directory)) {
-		if (entry === "node_modules" || entry === "dist" || entry === "build") continue;
-		const path = join(directory, entry);
-		if (statSync(path).isDirectory()) files.push(...collectFiles(path, include));
-		else if (include(entry)) files.push(path);
-	}
-	return files;
-}
+/** Directories skipped by every scan — build output and installed dependencies. */
+const SKIP_DIRECTORIES = new Set(["node_modules", "dist", "build"]);
 
 /** The module that declares a name, found by scanning the production tree. */
 function findDeclaringModule(name: string): string | undefined {
 	const pattern = new RegExp(`export\\s+(?:async\\s+)?(?:function|const|class)\\s+${name}\\b`);
-	for (const file of collectFiles(SOURCE_ROOT, (entry) => entry.endsWith(".ts") && !entry.endsWith(".test.ts"))) {
+	const files = collectTypeScriptFilesSync(SOURCE_ROOT, {
+		extensions: [".ts"],
+		excludeSuffixes: [".test.ts"],
+		skipDirectories: SKIP_DIRECTORIES,
+	});
+	for (const file of files) {
 		if (pattern.test(readFileSync(file, "utf8"))) return file;
 	}
 	return undefined;
@@ -606,7 +603,8 @@ function scanOwnership(file: string, source: string): Finding[] {
 function main(): void {
 	const findings: Finding[] = [];
 	for (const root of GUARDED_ROOTS) {
-		for (const file of collectFiles(root, (entry) => entry.endsWith(".test.ts"))) {
+		const files = collectTypeScriptFilesSync(root, { extensions: [".test.ts"], skipDirectories: SKIP_DIRECTORIES });
+		for (const file of files) {
 			const source = readFileSync(file, "utf8");
 			findings.push(...scanTestFile(file, source), ...scanOwnership(file, source), ...scanProbeDependency(file, source));
 		}

@@ -6,13 +6,7 @@ import { defineConfig, field, type PluginManifest } from "@reelvault/sdk/plugin"
 import { removeTreeSync } from "@/utils/directory.utils";
 import { validatePluginSchema } from "./manifest/schema.validator";
 import { validatePluginUiManifest } from "./manifest/ui.validator";
-import {
-	assertDeclaredPluginCapabilities,
-	resolvePluginEntry,
-	resolvePluginUiSchemas,
-	validatePluginConfig,
-	validatePluginManifest,
-} from "./plugin.manifest";
+import { resolvePluginEntry, resolvePluginUiSchemas, validatePluginConfig, validatePluginManifest } from "./plugin.manifest";
 
 // Built at runtime so the linter's no-script-url rule does not flag the fixture.
 const SCRIPT_URL = ["javascript", "alert(1)"].join(":");
@@ -86,12 +80,6 @@ describe("plugin manifest", () => {
 
 		expect(() => validatePluginManifest({ ...validManifest, csp: { "img-src": [] } })).toThrow(
 			expect.objectContaining({ category: "validation", code: "plugin.field_empty" }),
-		);
-	});
-
-	it("rejects runtime capabilities that are not declared in the manifest", () => {
-		expect(() => assertDeclaredPluginCapabilities(["eventHandler"], ["eventHandler", "metadataProvider"])).toThrow(
-			expect.objectContaining({ category: "validation", code: "plugin.capability_undeclared" }),
 		);
 	});
 

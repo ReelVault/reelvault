@@ -17,7 +17,6 @@ import type {
 import { serverConfig } from "@/config/server/server.config";
 import { guardedPluginFetch } from "@/plugins/capabilities/plugin.http";
 import { type PluginJobBatchItem, type PluginJobBatchOptions, pluginJobsService } from "@/plugins/capabilities/plugin.jobs";
-import { assertDeclaredPluginCapabilities } from "@/plugins/lifecycle/plugin.manifest";
 import { removePluginRuntime } from "@/plugins/lifecycle/plugin-runtime.service";
 import { PluginEntityTable } from "@/plugins/lifecycle/registry/plugin-entity.registry";
 import { registerNotificationChannel } from "@/plugins/runtime/notification-channel.registry";
@@ -67,7 +66,6 @@ export class PluginScope {
 	private readonly registeredJobIds = new Set<string>();
 	private readonly routeKeys = new Set<string>();
 	private readonly unsubscribers: Array<() => void> = [];
-	private readonly usedCapabilities = new Set<PluginCapabilityName>();
 	private declaredCapabilities: ReadonlySet<PluginCapabilityName> | null = null;
 	private uiManifestData?: PluginUiManifest | undefined;
 	private pluginId?: string | undefined;
@@ -93,12 +91,6 @@ export class PluginScope {
 				params: { capability },
 			});
 		}
-
-		this.usedCapabilities.add(capability);
-	}
-
-	assertDeclaredCapabilities(declaredCapabilities: readonly PluginCapabilityName[]): void {
-		assertDeclaredPluginCapabilities(declaredCapabilities, this.usedCapabilities);
 	}
 
 	/** Refuses one more registration once the plugin reaches its cap; the code names the kind of entry for the admin. */

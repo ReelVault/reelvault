@@ -3,23 +3,18 @@ import { serverConfig } from "@/config/server/server.config";
 import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import { detectImageFormat } from "@/modules/images/image-format.utils";
 import { MIB } from "@/utils/bytes.utils";
-import { createHash } from "@/utils/crypto.utils";
 import { createDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { writeFileAtomic } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
+import { type OptimizedImageFields, toOptimizedImageFields } from "./optimized-image.utils";
 
 type ImageUploadTarget =
 	| { ownerType: "metadata"; ownerId: string; variant: "poster" | "backdrop" }
 	| { ownerType: "profile"; ownerId: string; variant: "avatar" };
 
-export interface UploadedImage {
+export interface UploadedImage extends OptimizedImageFields {
 	localPath: string;
-	contentType: "image/webp";
-	width: number;
-	height: number;
-	fileSize: number;
-	sourceHash: string;
 }
 
 class ImageUploadService {
@@ -56,16 +51,7 @@ class ImageUploadService {
 			throw new DomainError("internal", "Optimized image is invalid", { code: "images.optimized_invalid" });
 		}
 
-		const sourceHash = createHash("sha256").update(data).digest("hex");
-
-		return {
-			localPath,
-			contentType: "image/webp",
-			width: info.width,
-			height: info.height,
-			fileSize: info.size,
-			sourceHash,
-		};
+		return { localPath, ...toOptimizedImageFields({ data, info }) };
 	}
 
 	private createTemporaryImagePath(): string {
