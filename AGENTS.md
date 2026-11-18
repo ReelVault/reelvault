@@ -285,7 +285,7 @@ Know when a piece of code runs before you put it somewhere.
 | `repositories/`             | per request only (data access)                                                                      | no global mutable state beyond bounded caches                                          |
 | `api/`                      | per request only (HTTP transport)                                                                   | no global mutable state                                                                |
 
-Shutdown order (the `shutdownSteps` list in `src/index.ts`): realtime, http, library-watchers, resource-allocator, server-rescue, workers, download-sweeps, streaming, ffmpeg, plugins, database. Intake stops first, and the database closes last.
+Shutdown order (the `shutdownSteps` list in `src/index.ts`): systemd-watchdog, streaming, realtime, http, library-watchers, resource-allocator, system-resources, server-rescue, workers, download-sweeps, ffmpeg, plugins, database. Streaming closes before realtime because ending sessions emits session-ended frames and plugin events to a still-live realtime service; intake stops early and the database closes last.
 
 Before you add or move a file, check this section. If no folder fits, ask the user instead of creating one. Moves and renames are refactors and get no CHANGELOG entry.
 
