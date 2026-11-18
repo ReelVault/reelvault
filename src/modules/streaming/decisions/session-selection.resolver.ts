@@ -1,6 +1,12 @@
 import type { ClientCapabilities, PlaybackDecision } from "@reelvault/sdk/common";
 import { resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
-import type { AudioStream, MediaFileInfo, PlaybackSessionInput, Subtitle } from "@/modules/streaming/streaming.types";
+import type {
+	AudioStream,
+	MediaFileInfo,
+	PlaybackPreferencesInput,
+	PlaybackSessionInput,
+	Subtitle,
+} from "@/modules/streaming/streaming.types";
 import { selectDefaultOrFirstStream } from "@/modules/streaming/utils/stream-selection.utils";
 import { isNullish } from "@/utils/type.utils";
 import { decidePlaybackMode } from "./playback-decision.resolver";
@@ -25,18 +31,11 @@ export interface SessionSelectionInput {
 		subtitles: readonly Subtitle[];
 	};
 	preferences:
-		| {
-				audioLanguage: string | null;
-				subtitleLanguage: string | null;
-				subtitleFallbackLanguages?: string | null | undefined;
-				subtitlesEnabled: boolean;
-				forcedSubtitlesOnly: boolean;
-				autoForcedSubtitles?: boolean | undefined;
+		| (PlaybackPreferencesInput & {
 				hdrMode?: "auto" | "toneMapToSdr" | undefined;
 				maxStreamingBitrateKbps?: number | undefined;
-				preferHearingImpaired?: boolean | undefined;
 				continueWatchingMinutes?: number;
-		  }
+		  })
 		| null
 		| undefined;
 	/** Per-title languages persisted in profile_stream_prefs — between profile prefs and request overrides. */

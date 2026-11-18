@@ -2,7 +2,7 @@ import type { ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import type { AggregatedProviderLink } from "@/plugins/capabilities/metadata-aggregator.service";
 import { metadataPersistenceRepository } from "@/repositories/metadata-persistence.repository";
-import { pluginHookBus } from "@/system/extensions/plugin.hooks";
+import { PLUGIN_HOOK_NAMES, pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { applyMetadataCandidate, toMetadataCandidate } from "./metadata-normalization.mapper";
 
@@ -32,7 +32,7 @@ export async function createFromProvider({
 	matchScore?: number | undefined;
 	providers?: readonly AggregatedProviderLink[] | undefined;
 }): Promise<CreatedProviderMetadata> {
-	const candidate = await pluginHookBus.run("beforeMetadataSave", toMetadataCandidate(type, providerName, providerMetadata));
+	const candidate = await pluginHookBus.run(PLUGIN_HOOK_NAMES.metadataSave, toMetadataCandidate(type, providerName, providerMetadata));
 	const metadata = applyMetadataCandidate(type, providerName, providerMetadata, candidate);
 	const result = await metadataPersistenceRepository.createProviderMetadata({ type, providerName, providers, metadata, matchScore });
 

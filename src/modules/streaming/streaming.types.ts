@@ -57,6 +57,18 @@ export interface PlaybackPreferenceOverrides {
 	forcedSubtitlesOnly?: boolean | undefined;
 }
 
+/** Playback-relevant slice of stored profile preferences. Optional fields fall back
+ * to the configured defaults in `resolvePlaybackPreferences`. */
+export interface PlaybackPreferencesInput {
+	audioLanguage: string | null;
+	subtitleLanguage: string | null;
+	subtitleFallbackLanguages?: string | null | undefined;
+	subtitlesEnabled: boolean;
+	forcedSubtitlesOnly: boolean;
+	autoForcedSubtitles?: boolean | undefined;
+	preferHearingImpaired?: boolean | undefined;
+}
+
 export interface SmartPlay {
 	suggestion: SmartPlaySuggestion | null;
 }

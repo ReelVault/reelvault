@@ -8,6 +8,7 @@ import { KIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
 import {
+	assertKnownDialog,
 	assertLocalizedText,
 	assertNonEmptyString,
 	assertOptionalStringArray,
@@ -364,12 +365,7 @@ function validateSchemaAction(action: unknown, field: string, dialogIds?: Readon
 			return;
 		case "openDialog":
 			assertNonEmptyString(action.dialog, `${field}.dialog`);
-			if (dialogIds && !dialogIds.has(action.dialog)) {
-				throw new DomainError("validation", `Plugin ui.json ${field} references unknown dialog '${action.dialog}'`, {
-					code: "plugin.ui.dialog_unknown",
-					params: { dialog: action.dialog },
-				});
-			}
+			assertKnownDialog(action.dialog, dialogIds, field);
 
 			break;
 		case "close":

@@ -4,7 +4,7 @@ import { metadataPersistenceRepository } from "@/repositories/metadata-persisten
 import { mapProviderLinks, seasonEpisodesFetcher } from "@/services/catalog/catalog.utils";
 import { resolveMetadataLanguage } from "@/services/catalog/metadata/providers/library-metadata-language.resolver";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
-import { pluginHookBus } from "@/system/extensions/plugin.hooks";
+import { PLUGIN_HOOK_NAMES, pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { enqueueImageProcessing } from "@/workers/definitions/images/image-processing.worker";
 import { MetadataRefreshService } from "./metadata-refresh.service";
 import { syncSeasonsAndEpisodes } from "./season-sync.utils";
@@ -14,7 +14,7 @@ export const metadataRefreshService = new MetadataRefreshService({
 	getLockedFields: async (metadataId) => await metadataRepository.getLockedFields(metadataId),
 	fetchProviderDetails: async (providerId, type, externalId, metadataId) =>
 		await providerService.fetchDetailsByProvider(providerId, type, externalId, { language: await resolveMetadataLanguage(metadataId) }),
-	transformMetadata: async (candidate) => await pluginHookBus.run("beforeMetadataSave", candidate),
+	transformMetadata: async (candidate) => await pluginHookBus.run(PLUGIN_HOOK_NAMES.metadataSave, candidate),
 	updateMetadata: async (metadataId, values) => await metadataRepository.update({ primaryId: metadataId, values }),
 	syncCredits: (metadataId, providerName, metadata, lockedFields) => {
 		return metadataPersistenceRepository.syncCredits(metadataId, providerName, metadata, lockedFields);

@@ -12,6 +12,15 @@ export interface MediaFileStatsRow {
 	qualityTag: string | null;
 }
 
+/** The columns that make a {@link MediaFileStatsRow}; every delete path selects this same set. */
+export const mediaFileStatsColumns = {
+	libraryId: schema.mediaFiles.libraryId,
+	size: schema.mediaFiles.size,
+	movieId: schema.mediaFiles.movieId,
+	episodeId: schema.mediaFiles.episodeId,
+	qualityTag: schema.mediaFiles.qualityTag,
+};
+
 interface MediaStatsDelta {
 	libraryId: string;
 	fileCount: number;

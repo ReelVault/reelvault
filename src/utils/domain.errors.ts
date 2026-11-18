@@ -106,6 +106,12 @@ export function notFoundError(entityType: string, entityId?: string): DomainErro
 
 type ErrorFactory = Error | ((cause?: unknown) => Error);
 
+function throwNotFound(entityType: string, entityId: string | undefined, customThrow: ErrorFactory | undefined): never {
+	if (customThrow) throw typeof customThrow === "function" ? customThrow() : customThrow;
+
+	throw notFoundError(entityType, entityId);
+}
+
 /**
  * Not-found guard for records: throws a `not_found` DomainError when the value is null/undefined, or `customThrow`
  * (an instance, or a factory called with no arguments) when one is given. A boolean `isExists()` result of `false`
@@ -118,9 +124,8 @@ export function assertFound<T>(
 	customThrow?: ErrorFactory,
 ): asserts value is T {
 	if (!isNullish(value)) return;
-	if (customThrow) throw typeof customThrow === "function" ? customThrow() : customThrow;
 
-	throw notFoundError(entityType, entityId);
+	throwNotFound(entityType, entityId, customThrow);
 }
 
 /**
@@ -129,9 +134,8 @@ export function assertFound<T>(
  */
 export function assertExists(condition: boolean, entityType: string, entityId?: string, customThrow?: ErrorFactory): asserts condition {
 	if (condition) return;
-	if (customThrow) throw typeof customThrow === "function" ? customThrow() : customThrow;
 
-	throw notFoundError(entityType, entityId);
+	throwNotFound(entityType, entityId, customThrow);
 }
 
 export function assertProfileId(profileId: string | undefined): asserts profileId is string {

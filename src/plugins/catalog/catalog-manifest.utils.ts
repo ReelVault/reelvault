@@ -22,6 +22,7 @@ const MAX_MANIFEST_BYTES = 5 * MIB;
 const MAX_PLUGINS = 500;
 const MAX_VERSIONS_PER_PLUGIN = 50;
 const MAX_DATE_LENGTH = 40;
+const MAX_CHANGELOG_LENGTH = 4000;
 const PLUGIN_CATALOG_CATEGORY_SET: ReadonlySet<string> = new Set(PLUGIN_CATALOG_CATEGORIES);
 
 export function isHttpsUrl(value: string): boolean {
@@ -232,7 +233,7 @@ function validateEntry(entry: unknown, index: number): PluginCatalogEntry {
 		...optionalString(entry.description, where("description"), 1000),
 		...optionalHttpsUrl(entry.homepage, where("homepage")),
 		...optionalHttpsUrl(entry.iconUrl, where("iconUrl")),
-		...optionalString(entry.changelog, where("changelog"), 4000),
+		...optionalString(entry.changelog, where("changelog"), MAX_CHANGELOG_LENGTH),
 		...optionalIsoDate(entry.date, where("date")),
 		...optionalMinServerVersion(entry.minServerVersion, where("minServerVersion")),
 		...(capabilities ? { capabilities } : {}),
@@ -293,14 +294,11 @@ function validateVersions(value: unknown, latestVersion: string, index: number):
 			...optionalMinServerVersion(item.minServerVersion, where("minServerVersion")),
 		};
 		if (item.date !== undefined && item.date !== null) {
-			const date = assertString(item.date, where("date"), MAX_DATE_LENGTH);
-			if (Number.isNaN(Date.parse(date))) throw fieldError(where("date"), "must be an ISO date");
-
-			parsed.date = date;
+			parsed.date = assertIsoDate(item.date, where("date"));
 		}
 
 		if (item.changelog !== undefined && item.changelog !== null) {
-			parsed.changelog = assertString(item.changelog, where("changelog"), 4000);
+			parsed.changelog = assertString(item.changelog, where("changelog"), MAX_CHANGELOG_LENGTH);
 		}
 
 		versions.push(parsed);
@@ -326,13 +324,18 @@ function assertReleaseFields(
 	return { version, downloadUrl, checksum };
 }
 
-function optionalIsoDate(value: unknown, where: CatalogField): Partial<Record<string, string>> {
-	if (value === undefined || value === null) return {};
-
+/** Shared ISO-date rule for the latest entry and every published version entry. */
+function assertIsoDate(value: unknown, where: CatalogField): string {
 	const date = assertString(value, where, MAX_DATE_LENGTH);
 	if (Number.isNaN(Date.parse(date))) throw fieldError(where, "must be an ISO date");
 
-	return { [where.field]: date };
+	return date;
+}
+
+function optionalIsoDate(value: unknown, where: CatalogField): Partial<Record<string, string>> {
+	if (value === undefined || value === null) return {};
+
+	return { [where.field]: assertIsoDate(value, where) };
 }
 
 /** Optional semver floor for the server running the install — absent/null = no floor. */

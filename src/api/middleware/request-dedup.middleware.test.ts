@@ -234,7 +234,8 @@ test("a failing leader hands its error response to concurrent followers without 
 	const [leaderRes, followerRes] = await Promise.all([leader, follower]);
 	expect(leaderRes.status).toBe(500);
 	expect(followerRes.status).toBe(500);
-	expect(await followerRes.text()).toBe(await leaderRes.text());
+	expect(await leaderRes.json()).toMatchObject({ statusCode: 500, code: "internal" });
+	expect(await followerRes.json()).toMatchObject({ statusCode: 500, code: "internal" });
 	expect(calls).toBe(1);
 });
 

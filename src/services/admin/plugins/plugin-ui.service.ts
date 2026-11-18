@@ -13,10 +13,11 @@ export function getPluginUiSettings(pluginId: string): Promise<PluginUiSettings>
 	return pluginUiSettingsService.get(pluginId);
 }
 
-export async function updatePluginUiSettings(
+/** Runs one UI-settings change and audits its compact summary before and after. */
+async function changeUiSettings(
 	pluginId: string,
-	body: UpdatePluginUiSettingsBody,
-	context?: AdminAuditContext,
+	context: AdminAuditContext | undefined,
+	change: () => Promise<PluginUiSettings>,
 ): Promise<PluginUiSettings> {
 	const before = await pluginUiSettingsService.get(pluginId);
 
@@ -25,26 +26,24 @@ export async function updatePluginUiSettings(
 		resourceType: "plugin_ui_settings",
 		resourceId: pluginId,
 		before: summarizeUiSettings(before),
-		change: async () => await pluginUiSettingsService.update(pluginId, body),
+		change,
 		after: summarizeUiSettings,
 		context,
 	});
 }
 
+export async function updatePluginUiSettings(
+	pluginId: string,
+	body: UpdatePluginUiSettingsBody,
+	context?: AdminAuditContext,
+): Promise<PluginUiSettings> {
+	return await changeUiSettings(pluginId, context, async () => await pluginUiSettingsService.update(pluginId, body));
+}
+
 export async function resetPluginUiSettings(pluginId: string, context?: AdminAuditContext): Promise<PluginUiSettings> {
-	const before = await pluginUiSettingsService.get(pluginId);
+	return await changeUiSettings(pluginId, context, async () => {
+		await pluginUiSettingsService.reset(pluginId);
 
-	return await auditedChange({
-		logger: adminLog.logger,
-		resourceType: "plugin_ui_settings",
-		resourceId: pluginId,
-		before: summarizeUiSettings(before),
-		change: async () => {
-			await pluginUiSettingsService.reset(pluginId);
-
-			return await pluginUiSettingsService.get(pluginId);
-		},
-		after: summarizeUiSettings,
-		context,
+		return await pluginUiSettingsService.get(pluginId);
 	});
 }

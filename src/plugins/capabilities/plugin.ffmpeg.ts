@@ -220,15 +220,7 @@ class PluginFfmpegService {
 		columns: number,
 		rows: number,
 	): Promise<ExtractedSprite> {
-		const spriteFile = file(spriteOutputPath);
-		const size = spriteFile.size;
-		if (size === 0 || size > serverConfig.plugins.ffmpeg.maxOutputBytes) {
-			await deleteFile(spriteOutputPath);
-			throw new DomainError("internal", "FFmpeg returned an invalid sprite size", { code: "plugin.ffmpeg.invalid_output" });
-		}
-
-		const content = new Uint8Array(await spriteFile.arrayBuffer());
-		await deleteFile(spriteOutputPath);
+		const content = await this.readBoundedOutputFile(spriteOutputPath, "sprite");
 
 		return {
 			content,
@@ -309,18 +301,25 @@ class PluginFfmpegService {
 			throw new DomainError("internal", `FFmpeg ${label} extraction failed`, { code: "plugin.ffmpeg.process_failed" });
 		}
 
-		const tempFile = file(tempFilePath);
-		const size = tempFile.size;
+		return await this.readBoundedOutputFile(tempFilePath, label);
+	}
+
+	/**
+	 * Reads an ffmpeg output file into memory only after checking it is a
+	 * non-empty image within the size cap, then removes the temp file so no
+	 * bytes leak into the transcode temp dir. Frame and sprite extraction share
+	 * this rule so the two paths cannot drift apart.
+	 */
+	private async readBoundedOutputFile(path: string, label: string): Promise<Uint8Array> {
+		const output = file(path);
+		const size = output.size;
 		if (size === 0 || size > serverConfig.plugins.ffmpeg.maxOutputBytes) {
-			await deleteFile(tempFilePath);
+			await deleteFile(path);
 			throw new DomainError("internal", `FFmpeg returned an invalid ${label} size`, { code: "plugin.ffmpeg.invalid_output" });
 		}
 
-		// Read the (size-bounded) result into memory so the temp file can be
-		// removed before returning — callers get a self-contained payload and
-		// nothing leaks into the transcode temp dir.
-		const bytes = new Uint8Array(await tempFile.arrayBuffer());
-		await deleteFile(tempFilePath);
+		const bytes = new Uint8Array(await output.arrayBuffer());
+		await deleteFile(path);
 
 		return bytes;
 	}

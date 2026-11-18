@@ -11,9 +11,6 @@ import { readPluginManifests } from "./plugin-directory.reader";
  * the plugin, and a manifest scan also sees stale duplicate directories with the
  * same id. A plugin that was dropped on disk is not in the lockfile, so the
  * manifest scan is the fallback.
- *
- * The loader and the installer both need this, and each of them wrote the
- * algorithm out again.
  */
 export async function resolvePluginDirectoryName(
 	pluginId: string,

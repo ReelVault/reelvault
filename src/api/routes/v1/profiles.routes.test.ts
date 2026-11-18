@@ -6,6 +6,8 @@ import { profilesRepository } from "@/repositories/profiles.repository";
 import { hashProfilePin } from "@/utils/crypto.utils";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 
+const UNLOCK_TOKEN_FORMAT = /^profile-3\.\d+\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+$/;
+
 const [{ profilesRoutes }, { auth }] = await Promise.all([
 	import("./profiles.routes"),
 	import("@/integrations/better-auth/better-auth.config"),
@@ -100,7 +102,7 @@ test("profile switch returns the unlock token in the body only for native shells
 	const nativeBody = (await native.json()) as { success: boolean; unlockToken?: string };
 
 	expect(native.status).toBe(200);
-	expect(nativeBody.unlockToken).toEqual(expect.any(String));
+	expect(nativeBody.unlockToken).toMatch(UNLOCK_TOKEN_FORMAT);
 	expect(native.headers.getSetCookie().join("\n")).toContain(`profile_unlock=${nativeBody.unlockToken}`);
 
 	const browser = await app.handle(

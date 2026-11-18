@@ -1,5 +1,4 @@
 import type { AdminDashboardViewResponse, AdminStats } from "@reelvault/sdk/common";
-import { serverConfig } from "@/config/server/server.config";
 import { resolveWebVersion } from "@/config/server/web-dist.utils";
 import { SERVER_VERSION } from "@/config/version.constants";
 import { adminLog } from "@/services/admin/admin.logger";
@@ -11,15 +10,6 @@ import { describeUpdateEnvironment } from "@/services/updates/update-environment
 import { updateInstallService } from "@/services/updates/update-install.service";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { workerService } from "@/workers/worker.service";
-
-export function resourceSettings() {
-	return {
-		monitoringEnabled: serverConfig.resources.monitoringEnabled,
-		memoryThresholdPercent: serverConfig.resources.memoryThresholdPercent,
-		diskThresholdPercent: serverConfig.resources.diskThresholdPercent,
-		enableDynamicThrottling: serverConfig.resources.enableDynamicThrottling,
-	};
-}
 
 /**
  * Composite view for the admin dashboard page: the six calls the client

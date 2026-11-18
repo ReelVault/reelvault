@@ -1,8 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
-import type { useTestDatabase } from "./test-database.helper";
-
-type TestClient = ReturnType<ReturnType<typeof useTestDatabase>["client"]>;
+import type { TestClient } from "./rows.fixture";
 
 function first<T>(rows: T[]): T {
 	const row = rows[0];
@@ -114,4 +112,29 @@ export async function insertSeriesEpisode(
 	});
 
 	return { metadataId: metadata.id, seasonId: season.id, episodeId: episode.id };
+}
+
+/**
+ * One playable movie title, with the user, profile, library, metadata, movie and media file (`mf-1`)
+ * the playback and interrupted-session tests refer to. `duration` is set by tests that need a known runtime.
+ */
+export async function seedTitle(client: TestClient, duration?: number): Promise<void> {
+	await client.insert(schema.users).values({ id: "user-1", name: "Ann", email: "ann@example.com", emailVerified: true });
+	await client.insert(schema.profiles).values({ id: "profile-1", userId: "user-1", name: "Ann" });
+	await client.insert(schema.libraries).values({ id: "lib-1", name: "Movies", type: "movies" });
+	await client
+		.insert(schema.metadata)
+		.values({ id: "meta-1", stableKey: "movie-heat", title: "Heat", type: "movie", releaseDate: "1995-12-15" });
+	await client.insert(schema.movies).values({ id: "movie-1", stableKey: "movie-heat", metadataId: "meta-1" });
+	const file: typeof schema.mediaFiles.$inferInsert = {
+		id: "mf-1",
+		libraryId: "lib-1",
+		metadataId: "meta-1",
+		movieId: "movie-1",
+		fileName: "heat.mkv",
+		filePath: "/heat.mkv",
+		size: 1_000,
+	};
+	if (duration !== undefined) file.duration = duration;
+	await client.insert(schema.mediaFiles).values(file);
 }

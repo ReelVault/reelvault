@@ -88,14 +88,10 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 			const filePath = params["*"];
 
 			// Resolve the directory via the loader's id→directory index — the manifest
-			// id is NOT the directory name ("org.reelvault.x" lives in "x/").
+			// id is NOT the directory name ("org.reelvault.x" lives in "x/"). A missing
+			// directory or a disabled/failed plugin serves no UI bundle.
 			const directoryName = await pluginManager.getPluginDirectoryName(pluginId);
-			if (!directoryName) {
-				throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
-			}
-
-			// A disabled (or failed) plugin must not keep serving its UI bundle.
-			if (pluginRegistry.get(pluginId)?.state !== "enabled") {
+			if (!directoryName || pluginRegistry.get(pluginId)?.state !== "enabled") {
 				throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
 			}
 

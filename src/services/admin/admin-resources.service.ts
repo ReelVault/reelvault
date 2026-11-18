@@ -24,6 +24,15 @@ const DEFAULT_RESOURCE_HOURS = 24;
 
 const CSV_HEADER = "timestamp,cpuPercent,memoryPercent,diskPercent,pressure,activeWorkers";
 
+export function resourceSettings() {
+	return {
+		monitoringEnabled: serverConfig.resources.monitoringEnabled,
+		memoryThresholdPercent: serverConfig.resources.memoryThresholdPercent,
+		diskThresholdPercent: serverConfig.resources.diskThresholdPercent,
+		enableDynamicThrottling: serverConfig.resources.enableDynamicThrottling,
+	};
+}
+
 export const adminResourcesService = {
 	serviceName: "AdminResourcesService",
 	logger: createLogger("AdminResourcesService"),
@@ -50,12 +59,7 @@ export const adminResourcesService = {
 				})),
 				alerts: resourceAllocator.getRecentAlerts(),
 				aggregates,
-				config: {
-					monitoringEnabled: serverConfig.resources.monitoringEnabled,
-					memoryThresholdPercent: serverConfig.resources.memoryThresholdPercent,
-					diskThresholdPercent: serverConfig.resources.diskThresholdPercent,
-					enableDynamicThrottling: serverConfig.resources.enableDynamicThrottling,
-				},
+				config: resourceSettings(),
 				systemCpu: systemResourcesService.getMetrics(),
 				rescue: serverRescueService.getState(),
 				workerAllocations: ALLOCATION_WORKER_IDS.map((id) => resourceAllocator.getWorkerAllocation(id)),

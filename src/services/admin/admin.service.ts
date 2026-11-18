@@ -17,7 +17,8 @@ import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { cacheRegistrySnapshot } from "@/utils/memory-cache/cache-registry.registry";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { dashboardView, resourceSettings } from "./dashboard/dashboard.service";
+import { resourceSettings } from "./admin-resources.service";
+import { dashboardView } from "./dashboard/dashboard.service";
 import { computeStats, measureDiskCaches } from "./dashboard/stats.service";
 import { browseFilesystem } from "./filesystem/filesystem.service";
 import {

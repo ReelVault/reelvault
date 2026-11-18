@@ -12,6 +12,7 @@ import {
 	applyMediaFileSizeDelta,
 	applyMediaFileStats,
 	type MediaFileStatsRow,
+	mediaFileStatsColumns,
 } from "@/repositories/media-stats.repository";
 import { markLatestMediaCreatedAt, refreshLatestMediaCreatedAt } from "@/repositories/metadata/media-presence.writer";
 import { hasEntry } from "@/utils/array.utils";
@@ -333,11 +334,7 @@ export async function deleteByLibraryAndPaths({
 			const rows = await client
 				.select({
 					metadataId: schema.mediaFiles.metadataId,
-					libraryId: schema.mediaFiles.libraryId,
-					size: schema.mediaFiles.size,
-					movieId: schema.mediaFiles.movieId,
-					episodeId: schema.mediaFiles.episodeId,
-					qualityTag: schema.mediaFiles.qualityTag,
+					...mediaFileStatsColumns,
 				})
 				.from(schema.mediaFiles)
 				.where(where);
@@ -367,11 +364,7 @@ export async function deleteByIds(ids: string[], tx?: DatabaseTransaction): Prom
 			const rows = await client
 				.select({
 					metadataId: schema.mediaFiles.metadataId,
-					libraryId: schema.mediaFiles.libraryId,
-					size: schema.mediaFiles.size,
-					movieId: schema.mediaFiles.movieId,
-					episodeId: schema.mediaFiles.episodeId,
-					qualityTag: schema.mediaFiles.qualityTag,
+					...mediaFileStatsColumns,
 				})
 				.from(schema.mediaFiles)
 				.where(inArray(schema.mediaFiles.id, idChunk));

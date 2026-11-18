@@ -66,6 +66,21 @@ export async function fetchDetails(type: "movie" | "tv_show", parsed: MediaIdent
 }
 
 /**
+ * Reads the aggregated-details cache and turns a loader's `NoMatchError` into
+ * `null` without caching the miss. Shared by both aggregation entry points so
+ * the "no match" outcome cannot differ between them.
+ */
+async function getAggregatedOrNull(key: string, load: () => Promise<AggregatedMetadata>): Promise<AggregatedMetadata | null> {
+	try {
+		return await providerCaches().aggregatedDetails.getOrSet(key, load);
+	} catch (error) {
+		if (error instanceof NoMatchError) return null;
+
+		throw error;
+	}
+}
+
+/**
  * Searches every enabled provider, then fetches and merges details from all
  * that produced an acceptable match. The result follows provider priority:
  * the highest-priority provider anchors each field, lower-priority providers
@@ -82,46 +97,40 @@ export async function fetchAggregatedDetails(
 	const language = options?.language;
 	const key = `${providerKey}:${type}:${normalizeLower(parsed.title)}:${parsed.year ?? ""}${libraryScope}:${language ?? ""}`;
 
-	try {
-		return await providerCaches().aggregatedDetails.getOrSet(key, async () => {
-			publishSearchRequested(type, parsed.title, parsed.year);
-			const accepted = await collectAcceptedMatches(type, parsed, options?.libraryId, language);
-			if (accepted.length === 0) throw new NoMatchError();
+	return await getAggregatedOrNull(key, async () => {
+		publishSearchRequested(type, parsed.title, parsed.year);
+		const accepted = await collectAcceptedMatches(type, parsed, options?.libraryId, language);
+		if (accepted.length === 0) throw new NoMatchError();
 
-			const ordered = await mapProvidersSafely(
-				accepted,
-				async (candidate): Promise<ProviderContribution | null> => {
-					const metadata = await candidate.provider.getDetails(
-						type,
-						candidate.bestMatch.item.externalId,
-						language ? { language } : undefined,
-					);
-					if (!metadata) return null;
+		const ordered = await mapProvidersSafely(
+			accepted,
+			async (candidate): Promise<ProviderContribution | null> => {
+				const metadata = await candidate.provider.getDetails(
+					type,
+					candidate.bestMatch.item.externalId,
+					language ? { language } : undefined,
+				);
+				if (!metadata) return null;
 
-					return {
-						providerId: candidate.provider.id,
-						externalId: metadata.externalId,
-						matchScore: Math.min(1, Number(candidate.bestMatch.score.toFixed(3))),
-						metadata: normalizeMetadataDetails(metadata),
-					};
-				},
-				(candidate, error) => {
-					providerLog.logger.warn("Metadata provider details fetch failed during aggregation", {
-						providerId: candidate.provider.id,
-						priorityIndex: candidate.index,
-						error: errorMessage(error),
-					});
-				},
-			);
-			if (ordered.length === 0) throw new NoMatchError();
+				return {
+					providerId: candidate.provider.id,
+					externalId: metadata.externalId,
+					matchScore: Math.min(1, Number(candidate.bestMatch.score.toFixed(3))),
+					metadata: normalizeMetadataDetails(metadata),
+				};
+			},
+			(candidate, error) => {
+				providerLog.logger.warn("Metadata provider details fetch failed during aggregation", {
+					providerId: candidate.provider.id,
+					priorityIndex: candidate.index,
+					error: errorMessage(error),
+				});
+			},
+		);
+		if (ordered.length === 0) throw new NoMatchError();
 
-			return mergeProviderMetadata(ordered);
-		});
-	} catch (error) {
-		if (error instanceof NoMatchError) return null;
-
-		throw error;
-	}
+		return mergeProviderMetadata(ordered);
+	});
 }
 
 /**
@@ -167,18 +176,12 @@ export async function fetchAggregatedDetailsByProvider(
 	const { providerId, type, externalId } = ref;
 	const key = `by-id:${providerId}:${type}:${externalId}:${options.language ?? ""}`;
 
-	try {
-		return await providerCaches().aggregatedDetails.getOrSet(key, async () => {
-			const metadata = await fetchDetailsByProvider(providerId, type, externalId, options);
-			if (!metadata) throw new NoMatchError();
+	return await getAggregatedOrNull(key, async () => {
+		const metadata = await fetchDetailsByProvider(providerId, type, externalId, options);
+		if (!metadata) throw new NoMatchError();
 
-			return mergeProviderMetadata([{ providerId, externalId: metadata.externalId, matchScore: 1, metadata }]);
-		});
-	} catch (error) {
-		if (error instanceof NoMatchError) return null;
-
-		throw error;
-	}
+		return mergeProviderMetadata([{ providerId, externalId: metadata.externalId, matchScore: 1, metadata }]);
+	});
 }
 
 /** Resolves a title to the best matching provider's full metadata (no aggregation). */

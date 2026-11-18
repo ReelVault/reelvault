@@ -66,10 +66,7 @@ class SystemdWatchdogService {
 		if (!this.enabled) return;
 
 		this.enabled = false;
-		if (this.timer) {
-			clearInterval(this.timer);
-			this.timer = undefined;
-		}
+		this.clearTimer();
 
 		await this.send(["--stopping"], true);
 	}
@@ -99,14 +96,18 @@ class SystemdWatchdogService {
 		}
 	}
 
-	private disable(reason: string, context: Record<string, unknown>): void {
-		if (!this.enabled) return;
-
-		this.enabled = false;
+	private clearTimer(): void {
 		if (this.timer) {
 			clearInterval(this.timer);
 			this.timer = undefined;
 		}
+	}
+
+	private disable(reason: string, context: Record<string, unknown>): void {
+		if (!this.enabled) return;
+
+		this.enabled = false;
+		this.clearTimer();
 		this.logger.warn(reason, context);
 	}
 }

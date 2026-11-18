@@ -7,6 +7,7 @@ import { profileStreamPrefsRepository } from "@/repositories/profile-stream-pref
 import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
 import { watchlistRepository } from "@/repositories/watchlist.repository";
 import { PlaybackProgressService } from "@/services/playback/playback-progress.service";
+import { seedTitle } from "../helpers/media.fixture";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 const db = useTestDatabase();
@@ -15,28 +16,6 @@ const spies: Array<{ mockRestore(): void }> = [];
 afterEach(() => {
 	for (const spy of spies.splice(0)) spy.mockRestore();
 });
-
-/** One user, profile, library and a 60-minute movie file: the rows every play refers to. */
-async function seedTitle(): Promise<void> {
-	const client = db.client();
-	await client.insert(schema.users).values({ id: "user-1", name: "Ann", email: "ann@example.com", emailVerified: true });
-	await client.insert(schema.profiles).values({ id: "profile-1", userId: "user-1", name: "Ann" });
-	await client.insert(schema.libraries).values({ id: "lib-1", name: "Movies", type: "movies" });
-	await client
-		.insert(schema.metadata)
-		.values({ id: "meta-1", stableKey: "movie-heat", title: "Heat", type: "movie", releaseDate: "1995-12-15" });
-	await client.insert(schema.movies).values({ id: "movie-1", stableKey: "movie-heat", metadataId: "meta-1" });
-	await client.insert(schema.mediaFiles).values({
-		id: "mf-1",
-		libraryId: "lib-1",
-		metadataId: "meta-1",
-		movieId: "movie-1",
-		fileName: "heat.mkv",
-		filePath: "/heat.mkv",
-		size: 1_000,
-		duration: 3_600,
-	});
-}
 
 function createService(): PlaybackProgressService {
 	return new PlaybackProgressService({
@@ -60,7 +39,7 @@ async function historyRows() {
 
 describe("completing a title writes its progress and its watched-history row together", () => {
 	test("a failed history write leaves no progress behind, so the retry still records the play", async () => {
-		await seedTitle();
+		await seedTitle(db.client(), 3_600);
 		const service = createService();
 		const failure = new Error("history write failed");
 		spies.push(spyOn(watchedHistoryRepository, "recordPlay").mockRejectedValueOnce(failure));

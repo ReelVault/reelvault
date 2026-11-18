@@ -1,5 +1,5 @@
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "@/modules/recognition/recognition.types";
-import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "@/modules/recognition/utils/recognition.utils";
+import { createEpisodeResult, parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "@/modules/recognition/utils/recognition.utils";
 import { GENERIC_FOLDER_NAMES } from "@/utils/release-tags.constants";
 
 export const seriesBasicStrategy: RecognitionStrategy = {
@@ -22,9 +22,6 @@ export const seriesBasicStrategy: RecognitionStrategy = {
 			? { title: fileIdentity?.title ?? showIdentity.title, year: fileIdentity?.year }
 			: resolveShowTitle(showIdentity, fileIdentity);
 
-		return {
-			type: "tv_show",
-			identity: { title, year, type: "episode", season, episode, ...(episodeEnd === undefined ? {} : { episodeEnd }) },
-		};
+		return createEpisodeResult({ title, year, season, episode, episodeEnd });
 	},
 };

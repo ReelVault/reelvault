@@ -84,6 +84,10 @@ export async function fileVersionSignature(path: string): Promise<string> {
 const DEFAULT_MAX_DOWNLOAD_BYTES = 20 * MIB;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 15_000;
 
+function exceedsSizeLimit(maxBytes: number): DomainError {
+	return new DomainError("validation", `Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" });
+}
+
 interface DownloadOptions {
 	/** Hard byte cap enforced while streaming, regardless of what Content-Length claims. @default 20MB */
 	maxBytes?: number | undefined;
@@ -287,7 +291,7 @@ export async function downloadFile(url: string, destination: string, options: Do
 
 		const declaredSize = Number(response.headers.get("content-length"));
 		if (isFiniteNumber(declaredSize) && declaredSize > maxBytes) {
-			throw new DomainError("validation", `Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" });
+			throw exceedsSizeLimit(maxBytes);
 		}
 
 		if (!response.body) throw new DomainError("internal", "Response has no body", { code: "download.no_body" });
@@ -374,7 +378,7 @@ async function streamToFile(body: ReadableStream<Uint8Array>, path: string, maxB
 		await consumeStreamBounded(body, {
 			maxBytes,
 			signal,
-			overflow: () => new DomainError("validation", `Download exceeds the ${maxBytes} byte limit`, { code: "download.exceeds_size_limit" }),
+			overflow: () => exceedsSizeLimit(maxBytes),
 			onChunk: async (value) => {
 				await sink.write(value);
 			},

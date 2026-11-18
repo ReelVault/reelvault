@@ -157,13 +157,9 @@ export function selectNextEpisodeFileInSeries(
 }
 
 export function selectMovieSmartPlay(mediaFiles: readonly MediaFile[], progress?: PlaybackProgress): SmartPlaySuggestion | undefined {
-	if (progress && !progress.completed && progress.position > 0 && mediaFiles.some((f) => f.id === progress.mediaFileId)) {
-		return {
-			type: "continue",
-			mediaFileId: progress.mediaFileId,
-			...(progress.audioStreamIndex === undefined ? {} : { audioStreamIndex: progress.audioStreamIndex }),
-			...(progress.subtitleId === undefined ? {} : { subtitleId: progress.subtitleId }),
-		};
+	if (progress && mediaFiles.some((f) => f.id === progress.mediaFileId)) {
+		const continued = continueSuggestion(progress);
+		if (continued) return continued;
 	}
 
 	const mediaFile = selectPreferredMediaFile(mediaFiles);

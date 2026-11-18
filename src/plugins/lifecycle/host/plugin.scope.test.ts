@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { MetadataProvider, PluginNotificationChannel, SubtitleProvider } from "@reelvault/sdk/plugin";
+import type { PluginNotificationChannel } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
+import { createProvider, createSubtitleProvider } from "@/plugins/lifecycle/plugin-entities.fixture";
 import { dispatchNotificationToChannels } from "@/plugins/runtime/notification-channel.registry";
 import { DomainError } from "@/utils/domain.errors";
 import { PluginScope } from "./plugin.scope";
@@ -14,30 +15,6 @@ function limitCodeOf(register: () => void): string | undefined {
 	}
 
 	return undefined;
-}
-
-function createProvider(id: string): MetadataProvider {
-	return {
-		id,
-		name: id.toUpperCase(),
-		version: "1.0.0",
-		initialize: async () => undefined,
-		search: async () => [],
-		getDetails: async () => null,
-		getSeasonDetails: async () => null,
-		getEpisodeDetails: async () => null,
-	};
-}
-
-function createSubtitleProvider(id: string): SubtitleProvider {
-	return {
-		id,
-		name: id.toUpperCase(),
-		version: "1.0.0",
-		initialize: async () => undefined,
-		search: async () => [],
-		download: async () => null,
-	};
 }
 
 describe("PluginScope registration", () => {

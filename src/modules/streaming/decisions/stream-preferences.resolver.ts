@@ -1,5 +1,5 @@
 import { serverConfig } from "@/config/server/server.config";
-import type { AudioStream, PlaybackPreferenceOverrides, Subtitle } from "@/modules/streaming/streaming.types";
+import type { AudioStream, PlaybackPreferenceOverrides, PlaybackPreferencesInput, Subtitle } from "@/modules/streaming/streaming.types";
 import { selectDefaultOrFirstStream } from "@/modules/streaming/utils/stream-selection.utils";
 import { unique } from "@/utils/array.utils";
 import { normalizeLower } from "@/utils/type.utils";
@@ -81,18 +81,7 @@ function findCompatibleStream<T extends AudioStream>(
 }
 
 export function resolvePlaybackPreferences(
-	preferences:
-		| {
-				audioLanguage: string | null;
-				subtitleLanguage: string | null;
-				subtitleFallbackLanguages?: string | null | undefined;
-				subtitlesEnabled: boolean;
-				forcedSubtitlesOnly: boolean;
-				autoForcedSubtitles?: boolean | undefined;
-				preferHearingImpaired?: boolean | undefined;
-		  }
-		| null
-		| undefined,
+	preferences: PlaybackPreferencesInput | null | undefined,
 	overrides: PlaybackPreferenceOverrides,
 	perTitle?: { audioLanguage?: string | null; subtitleLanguage?: string | null } | null,
 ) {

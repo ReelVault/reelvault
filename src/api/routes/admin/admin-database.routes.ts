@@ -13,7 +13,7 @@ import { FileNameParams } from "@/api/schemas/route-params.schema";
 import { actorContext } from "@/api/utils/audit-context.utils";
 import { attachmentResponse } from "@/api/utils/binary-response.utils";
 import { env } from "@/config/env.config";
-import { DATABASE_BACKUP_UPLOAD_MAX_SIZE, MINUTE } from "@/config/server/server.constants";
+import { IMAGE_UPLOAD_MAX_SIZE, MINUTE } from "@/config/server/server.constants";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import { databaseBackupService } from "@/services/admin/database-backup.service";
 import { databaseMaintenanceService } from "@/services/admin/database-maintenance.service";
@@ -76,7 +76,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 		},
 		{
 			rateLimit: routeLimit("admin-db-backup-upload", 5),
-			body: t.Object({ file: t.File({ maxSize: DATABASE_BACKUP_UPLOAD_MAX_SIZE }) }),
+			body: t.Object({ file: t.File({ maxSize: IMAGE_UPLOAD_MAX_SIZE }) }),
 			response: { ...ROUTE_ERRORS.ADMIN, 201: AdminDatabaseBackupSchema },
 			detail: {
 				description: "Store an uploaded SQLite backup after a SQLite check. Refused unless system.database.backupUploadEnabled is on.",

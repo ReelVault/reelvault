@@ -26,14 +26,17 @@ const FORBIDDEN_PLUGIN_RESPONSE_HEADERS: ReadonlySet<string> = new Set([
 	"host",
 ]);
 
-/** The request context Elysia hands a plugin route handler, typed as far as the dispatch reads it. */
-interface PluginRouteContext {
-	params: { pluginId: string; "*"?: string };
+/** The request fields the dispatch reads, shared by the Elysia handler and the dispatch adapter. */
+interface PluginRouteRequest {
 	request: Request;
 	set: { status?: number | keyof StatusMap; headers: HTTPHeaders };
 	user: { id?: string; role?: string } | null | undefined;
 	profile?: { id: string } | null | undefined;
 	body?: unknown;
+}
+
+interface PluginRouteContext extends PluginRouteRequest {
+	params: { pluginId: string; "*"?: string };
 }
 
 const PLUGIN_ROUTE_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
@@ -103,15 +106,7 @@ async function handlePluginRouteDispatch({
 	user,
 	profile,
 	body,
-}: {
-	pluginId: string;
-	path: string;
-	request: Request;
-	set: { status?: number | keyof StatusMap; headers: HTTPHeaders };
-	user: { id?: string; role?: string } | null | undefined;
-	profile?: { id: string } | null | undefined;
-	body?: unknown;
-}) {
+}: PluginRouteRequest & { pluginId: string; path: string }) {
 	let parsedBody = body;
 	if (parsedBody === undefined) {
 		parsedBody = await parseJsonBody(request);

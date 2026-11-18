@@ -40,6 +40,17 @@ export function filterStartsWith(column: SQLiteColumn, prefix: string): SQL {
 	return sql`${column} LIKE ${`${escapeLike(prefix)}%`} ESCAPE ${"\\"}`;
 }
 
+/** The single filter-size rule, shared by comma-separated and explicit id lists. */
+function assertFilterValueLimit(values: string[]): void {
+	const max = serverConstants.database.filters.maxValues;
+	if (values.length > max) {
+		throw new DomainError("validation", `Filter must not contain more than ${max} values`, {
+			code: "validation.filter_too_many_values",
+			params: { max },
+		});
+	}
+}
+
 export function filterM2M(
 	column: SQLiteColumn,
 	values: string | string[] | undefined,
@@ -52,12 +63,7 @@ export function filterM2M(
 	const ids = Array.isArray(values) ? values : parseCommaSeparated(values);
 	if (!ids || ids.length === 0) return undefined;
 
-	if (ids.length > serverConstants.database.filters.maxValues) {
-		throw new DomainError("validation", `Filter must not contain more than ${serverConstants.database.filters.maxValues} values`, {
-			code: "validation.filter_too_many_values",
-			params: { max: serverConstants.database.filters.maxValues },
-		});
-	}
+	assertFilterValueLimit(ids);
 
 	return inArray(
 		column,
@@ -75,12 +81,7 @@ export function parseCommaSeparated(value: string | undefined): string[] | undef
 	if (!value) return undefined;
 
 	const values = trimAndFilter(value.split(","));
-	if (values.length > serverConstants.database.filters.maxValues) {
-		throw new DomainError("validation", `Filter must not contain more than ${serverConstants.database.filters.maxValues} values`, {
-			code: "validation.filter_too_many_values",
-			params: { max: serverConstants.database.filters.maxValues },
-		});
-	}
+	assertFilterValueLimit(values);
 
 	return values;
 }

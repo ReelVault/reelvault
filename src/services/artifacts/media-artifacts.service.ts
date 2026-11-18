@@ -10,7 +10,7 @@ import { contentByteSize, writeFileWithRollback } from "@/plugins/shared/plugin.
 import { mediaArtifactsRepository } from "@/repositories/media-artifacts.repository";
 import { mediaRepository } from "@/repositories/media-files.repository";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
-import { pluginHookBus } from "@/system/extensions/plugin.hooks";
+import { PLUGIN_HOOK_NAMES, pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { createDirectory } from "@/utils/directory.utils";
 import { assertExists, DomainError } from "@/utils/domain.errors";
@@ -111,7 +111,7 @@ class MediaArtifactsService {
 		await options?.assertWithinQuota?.(ownerId, bytesAfterWrite, incomingBytes);
 
 		const original = { mediaFileId: artifact.mediaFileId, kind: artifact.kind, contentType: artifact.contentType, size: incomingBytes };
-		const candidate = await pluginHookBus.run("beforeArtifactCreate", original);
+		const candidate = await pluginHookBus.run(PLUGIN_HOOK_NAMES.artifactCreate, original);
 		assertValidArtifactCandidate(original, candidate);
 		// A hook may normalize the type, but only to another one the store serves.
 		this.assertAllowedContentType(candidate.contentType, ownerId);

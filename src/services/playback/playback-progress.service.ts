@@ -385,9 +385,7 @@ class PlaybackProgressService {
 		currentEpisode?: { id: string; seasonId: string },
 	): Promise<{ progress: MetadataPlaybackProgress; smartPlay: SmartPlay; nextEpisodeFileId: string | null }> {
 		return await runSafely(this, "getPlaybackOverview", async () => {
-			const data = await this.loadTitleProgressData(metadataId, profileId, (resolvedProfileId) =>
-				this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId),
-			);
+			const data = await this.loadProgressAndSmartPlayData(metadataId, profileId);
 
 			let nextEpisodeFileId: string | null = null;
 			if (currentEpisode) {
@@ -404,9 +402,7 @@ class PlaybackProgressService {
 
 	async getPlaybackProgress(metadataId: string, profileId?: string): Promise<MetadataPlaybackProgress> {
 		return await runSafely(this, "getPlaybackProgress", async () => {
-			const data = await this.loadTitleProgressData(metadataId, profileId, (resolvedProfileId) =>
-				this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId),
-			);
+			const data = await this.loadProgressAndSmartPlayData(metadataId, profileId);
 
 			return computePlaybackProgress(data);
 		});
@@ -439,6 +435,13 @@ class PlaybackProgressService {
 				episodes: data.episodes,
 			});
 		});
+	}
+
+	/** The playback view and the progress read share one dataset so their results cannot drift. */
+	private async loadProgressAndSmartPlayData(metadataId: string, profileId: string | undefined) {
+		return await this.loadTitleProgressData(metadataId, profileId, (resolvedProfileId) =>
+			this.dependencies.playbackRepository.findPlaybackProgressAndSmartPlayData(metadataId, resolvedProfileId),
+		);
 	}
 
 	/** Shared title-progress load: active profile, repository fetch and existence check. */

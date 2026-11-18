@@ -7,6 +7,7 @@ import {
 import { DomainError } from "@/utils/domain.errors";
 import { isNonEmptyString, isRecord } from "@/utils/type.utils";
 import {
+	assertKnownDialog,
 	assertLocalizedText,
 	assertNonEmptyString,
 	assertOptionalStringRecord,
@@ -331,19 +332,12 @@ function validateSlotAction(action: unknown, field: string, pageIds: ReadonlySet
 			return;
 		case "dialog":
 			assertNonEmptyString(action.dialog, `${field}.dialog`);
-			if (!dialogIds.has(action.dialog))
-				throw new DomainError("validation", `Plugin ui.json ${field} references unknown dialog '${action.dialog}'`, {
-					code: "plugin.ui.dialog_unknown",
-					params: { dialog: action.dialog },
-				});
+			assertKnownDialog(action.dialog, dialogIds, field);
 
 			assertOptionalStringRecord(action.params, `${field}.params`);
 
 			return;
 		case "navigate":
-			assertSafeHref(action.href, `${field}.href`);
-
-			return;
 		case "external":
 			assertSafeHref(action.href, `${field}.href`);
 

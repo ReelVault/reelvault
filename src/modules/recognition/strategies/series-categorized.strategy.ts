@@ -1,5 +1,5 @@
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "@/modules/recognition/recognition.types";
-import { parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "@/modules/recognition/utils/recognition.utils";
+import { createEpisodeResult, parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "@/modules/recognition/utils/recognition.utils";
 
 /** Season folder (number captured) or `Specials` (season 0). */
 const SEASON_FOLDER_PATTERN = /^(?:(?:Season|Sezon|S)\s*(\d+)|Specials$)/i;
@@ -26,9 +26,6 @@ export const seriesCategorizedStrategy: RecognitionStrategy = {
 		// the season's year (e.g. "S05" aired 2024) — never use it against the show.
 		const { title, year } = resolveShowTitle(showIdentity, fileIdentity && { ...fileIdentity, year: undefined });
 
-		return {
-			type: "tv_show",
-			identity: { title, year, type: "episode", season, episode, ...(episodeEnd === undefined ? {} : { episodeEnd }) },
-		};
+		return createEpisodeResult({ title, year, season, episode, episodeEnd });
 	},
 };

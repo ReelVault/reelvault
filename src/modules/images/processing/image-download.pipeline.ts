@@ -62,8 +62,6 @@ export class ImageDownloadPipeline {
 		imageType: string,
 		signal?: AbortSignal,
 	): Promise<PersistedImageInput> {
-		throwIfAborted(signal);
-
 		return await this.prepareImage(target, variant, imageType, signal, (sourcePath) => this.downloadSource(url, sourcePath, signal));
 	}
 
@@ -75,8 +73,6 @@ export class ImageDownloadPipeline {
 		imageType: string,
 		signal?: AbortSignal,
 	): Promise<PersistedImageInput> {
-		throwIfAborted(signal);
-
 		return await this.prepareImage(target, variant, imageType, signal, (sourcePath) => this.copySource(sourceFilePath, sourcePath));
 	}
 
@@ -160,6 +156,7 @@ export class ImageDownloadPipeline {
 		let downloadError: string | undefined;
 		const downloaded = await this.dependencies.download(url, sourcePath, {
 			signal,
+			maxBytes: serverConfig.images.maxUploadBytes,
 			validate: async (temporaryPath) => {
 				throwIfAborted(signal);
 				await this.assertRecognizedImage(temporaryPath, "Downloaded file has no recognized image format");

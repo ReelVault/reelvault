@@ -9,6 +9,7 @@ import { recordInterruptedSession } from "@/modules/streaming/runtime/interrupte
 import { interruptedPlaybackSessionRepository } from "@/repositories/interrupted-playback-session.repository";
 import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
 import { removeTreeSync } from "@/utils/directory.utils";
+import { seedTitle } from "../helpers/media.fixture";
 
 // Fixed, so the timestamps the rows store (second precision) can be written as literals.
 const NOW = Date.parse("2026-01-15T12:00:00.123Z");
@@ -31,31 +32,6 @@ afterEach(() => {
 	for (const dir of tempDirs.splice(0)) removeTreeSync(dir);
 });
 
-/** One user, profile, library, title and media file: the rows every play refers to. */
-async function seedTitle(): Promise<void> {
-	const client = factory.getClient();
-	await client.insert(schema.users).values({ id: "user-1", name: "Ann", email: "ann@example.com", emailVerified: true });
-	await client.insert(schema.profiles).values({ id: "profile-1", userId: "user-1", name: "Ann" });
-	await client.insert(schema.libraries).values({ id: "lib-1", name: "Movies", type: "movies" });
-	await client.insert(schema.metadata).values({
-		id: "meta-1",
-		stableKey: "movie-heat",
-		title: "Heat",
-		type: "movie",
-		releaseDate: "1995-12-15",
-	});
-	await client.insert(schema.movies).values({ id: "movie-1", stableKey: "movie-heat", metadataId: "meta-1" });
-	await client.insert(schema.mediaFiles).values({
-		id: "mf-1",
-		libraryId: "lib-1",
-		metadataId: "meta-1",
-		movieId: "movie-1",
-		fileName: "heat.mkv",
-		filePath: "/heat.mkv",
-		size: 1_000,
-	});
-}
-
 function interruptedRow(id: string, playedSeconds: number, endedAtMs: number) {
 	return {
 		id,
@@ -72,7 +48,7 @@ function interruptedRow(id: string, playedSeconds: number, endedAtMs: number) {
 
 describe("interrupted playback sessions", () => {
 	test("the recorder keeps only sessions that played and stopped short of the completion line", async () => {
-		await seedTitle();
+		await seedTitle(factory.getClient());
 		const session = { profileId: "profile-1", mediaFileId: "mf-1", reason: "client-stop", startedAt: NOW - HOUR, durationSeconds: 3_600 };
 
 		await recordInterruptedSession({ ...session, playedSeconds: 120.4, furthestPositionSeconds: 130 }, new Date(NOW));
@@ -94,7 +70,7 @@ describe("interrupted playback sessions", () => {
 	});
 
 	test("the admin analytics count interrupted sessions above the minimum next to finished titles", async () => {
-		await seedTitle();
+		await seedTitle(factory.getClient());
 		const client = factory.getClient();
 		await client.insert(schema.watchedHistory).values({
 			id: "wh-1",
@@ -132,7 +108,7 @@ describe("interrupted playback sessions", () => {
 	});
 
 	test("pruneOlderThan deletes interrupted sessions that ended before the cutoff", async () => {
-		await seedTitle();
+		await seedTitle(factory.getClient());
 		await factory
 			.getClient()
 			.insert(schema.interruptedPlaybackSessions)

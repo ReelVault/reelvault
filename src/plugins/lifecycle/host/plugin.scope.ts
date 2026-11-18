@@ -108,6 +108,15 @@ export class PluginScope {
 		throw new DomainError("validation", `Plugin registration limit of ${limit} reached (${code})`, { code, params: { limit } });
 	}
 
+	private assertJobRegistered(name: string): void {
+		if (this.jobNames.has(name)) return;
+
+		throw new DomainError("validation", `Plugin job ${name} is not registered`, {
+			code: "plugin.job_not_registered",
+			params: { job: name },
+		});
+	}
+
 	addProvider(provider: MetadataProvider): void {
 		this.registerEntity("plugin.registration_limit.providers", this.providers, provider);
 	}
@@ -232,12 +241,7 @@ export class PluginScope {
 	}
 
 	async enqueueJob(pluginId: string, name: string, data: unknown, options?: PluginEnqueueOptions): Promise<PluginJobHandle> {
-		if (!this.jobNames.has(name)) {
-			throw new DomainError("validation", `Plugin job ${name} is not registered`, {
-				code: "plugin.job_not_registered",
-				params: { job: name },
-			});
-		}
+		this.assertJobRegistered(name);
 
 		return await pluginJobsService.enqueue(pluginId, name, data, options);
 	}
@@ -248,12 +252,7 @@ export class PluginScope {
 		items: PluginJobBatchItem[],
 		commonOptions?: PluginJobBatchOptions,
 	): Promise<PluginJobHandle[]> {
-		if (!this.jobNames.has(name)) {
-			throw new DomainError("validation", `Plugin job ${name} is not registered`, {
-				code: "plugin.job_not_registered",
-				params: { job: name },
-			});
-		}
+		this.assertJobRegistered(name);
 
 		return await pluginJobsService.enqueueMany(pluginId, name, items, commonOptions);
 	}

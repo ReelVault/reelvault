@@ -31,6 +31,12 @@ interface RootHealth {
 	files: Set<string>;
 }
 
+interface FailureHistory {
+	failures: number;
+	firstFailureAt: number;
+	lastFailureAt: number;
+}
+
 export interface DegradedStorageRoot {
 	root: string;
 	failures: number;
@@ -75,6 +81,20 @@ const MAX_TRACKED_ROOTS = 64;
 const MAX_ROOT_FAILURE_FILES = 100;
 /** A full expiry sweep walks every tracked file; a burst of failures must not make it O(n²). */
 const EXPIRY_SWEEP_MS = 30_000;
+
+/** The shared failure-count window: a recent prior failure extends the streak, otherwise it restarts. */
+function countFailure(
+	previous: FailureHistory | undefined,
+	now: number,
+): { recentlyFailed: boolean; failures: number; firstFailureAt: number } {
+	const recentlyFailed = previous !== undefined && now - previous.lastFailureAt <= FAILURE_WINDOW_MS;
+
+	return {
+		recentlyFailed,
+		failures: recentlyFailed ? previous.failures + 1 : 1,
+		firstFailureAt: recentlyFailed ? previous.firstFailureAt : now,
+	};
+}
 
 let cachedMounts: { readAt: number; points: string[] } | undefined;
 
@@ -244,9 +264,7 @@ export class StorageHealthService {
 
 	private recordFileFailure(path: string, reason: StorageFailureReason, now: number): void {
 		const previous = this.files.get(path);
-		const recentlyFailed = previous !== undefined && now - previous.lastFailureAt <= FAILURE_WINDOW_MS;
-		const failures = recentlyFailed ? previous.failures + 1 : 1;
-		const firstFailureAt = recentlyFailed ? previous.firstFailureAt : now;
+		const { failures, firstFailureAt } = countFailure(previous, now);
 		const alreadyBlocked = previous !== undefined && previous.blockedUntil > now;
 		const blockedUntil = failures >= 2 ? now + FILE_BLOCK_MS : (previous?.blockedUntil ?? 0);
 
@@ -265,10 +283,8 @@ export class StorageHealthService {
 
 	private recordRootFailure(root: string, path: string, reason: StorageFailureReason, now: number): void {
 		const previous = this.roots.get(root);
-		const recentlyFailed = previous !== undefined && now - previous.lastFailureAt <= FAILURE_WINDOW_MS;
-		const failures = recentlyFailed ? previous.failures + 1 : 1;
-		const firstFailureAt = recentlyFailed ? previous.firstFailureAt : now;
-		const files = recentlyFailed ? previous.files : new Set<string>();
+		const { recentlyFailed, failures, firstFailureAt } = countFailure(previous, now);
+		const files = recentlyFailed && previous !== undefined ? previous.files : new Set<string>();
 		if (files.size < MAX_ROOT_FAILURE_FILES) files.add(path);
 
 		const shouldDegrade =

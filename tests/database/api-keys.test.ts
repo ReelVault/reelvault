@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { apiKeys } from "@/integrations/drizzle-orm/schemas/api-keys.schema";
-import { users } from "@/integrations/drizzle-orm/schemas/auth.schema";
 import { apiKeysService } from "@/services/admin/api-keys.service";
+import { insertVerifiedUser } from "../helpers/rows.fixture";
 import { useTestDatabase } from "../helpers/test-database.helper";
 
 const testDatabase = useTestDatabase();
@@ -10,11 +10,7 @@ const testDatabase = useTestDatabase();
 const KEY_PREFIX_PATTERN = /^rv_/;
 
 async function seedUser(id: string): Promise<void> {
-	const now = new Date();
-	await testDatabase
-		.client()
-		.insert(users)
-		.values({ id, name: `Creator ${id}`, email: `${id}@example.com`, emailVerified: true, createdAt: now, updatedAt: now });
+	await insertVerifiedUser(testDatabase.client(), id, `Creator ${id}`);
 }
 
 describe("apiKeysService", () => {
@@ -38,7 +34,7 @@ describe("apiKeysService", () => {
 	test("a revoked key stops authenticating at once, and revoking it again reports not found", async () => {
 		await seedUser("owner-2");
 		const created = await apiKeysService.create({ name: "temp", scope: "full", creatorUserId: "owner-2" });
-		expect(await apiKeysService.authenticate(created.key)).toBeDefined();
+		expect(await apiKeysService.authenticate(created.key)).toMatchObject({ scope: "full", user: { id: "owner-2" } });
 
 		await apiKeysService.revoke(created.id);
 
@@ -61,7 +57,7 @@ describe("apiKeysService", () => {
 	test("rotating a key replaces its secret: the old key stops at once, the new one authenticates, and name, scope and expiry are kept", async () => {
 		await seedUser("owner-4");
 		const created = await apiKeysService.create({ name: "Rotate me", scope: "full", expiresAtDays: 30, creatorUserId: "owner-4" });
-		expect(await apiKeysService.authenticate(created.key)).toBeDefined();
+		expect(await apiKeysService.authenticate(created.key)).toMatchObject({ scope: "full", user: { id: "owner-4" } });
 		const expiryBefore = (await apiKeysService.list()).find((key) => key.id === created.id)?.expiresAt ?? null;
 
 		const rotated = await apiKeysService.rotate(created.id);

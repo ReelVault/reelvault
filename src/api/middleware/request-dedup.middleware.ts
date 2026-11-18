@@ -33,20 +33,24 @@ const inflight = new Map<string, InflightEntry>();
 const leaderEntries = new WeakMap<object, InflightEntry>();
 let trackedCount = 0;
 
+/** Release a leader's slot and pass its failure to every waiter. */
+function failEntry(entry: InflightEntry, error: unknown): void {
+	inflight.delete(entry.key);
+	trackedCount--;
+	const waiters = entry.waiters;
+	entry.waiters = [];
+	entry.settled = true;
+	entry.error = error;
+	for (const waiter of waiters) waiter.reject(error);
+}
+
 /**
  * A leader whose request was aborted without running `mapResponse`/`onError`
  * would otherwise stay in `inflight` forever and permanently consume a slot.
  * Sweeping only when the cap is reached keeps the common path allocation-free.
  */
 function evictEntry(entry: InflightEntry): void {
-	inflight.delete(entry.key);
-	trackedCount--;
-	const error = new Error("Dedup leader expired");
-	const waiters = entry.waiters;
-	entry.waiters = [];
-	entry.settled = true;
-	entry.error = error;
-	for (const waiter of waiters) waiter.reject(error);
+	failEntry(entry, new Error("Dedup leader expired"));
 }
 
 /** A leader older than two wait windows is abandoned: its key stops blocking new requests. */
@@ -200,14 +204,6 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 		const entry = leaderEntries.get(context);
 		if (!entry || inflight.get(entry.key) !== entry) return;
 
-		inflight.delete(entry.key);
-		trackedCount--;
-		entry.error = context.error;
-		const waiters = entry.waiters;
-		entry.waiters = [];
-		entry.settled = true;
-		for (const waiter of waiters) {
-			waiter.reject(context.error);
-		}
+		failEntry(entry, context.error);
 	})
 	.as("global");

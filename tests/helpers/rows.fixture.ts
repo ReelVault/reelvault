@@ -23,6 +23,12 @@ export async function insertUsers(client: TestClient, values: Insertable<typeof 
 	await client.insert(schema.users).values(rowsOf(values));
 }
 
+/** One verified user with the given id and name and email `<id>@example.com`. */
+export async function insertVerifiedUser(client: TestClient, id: string, name: string): Promise<void> {
+	const now = new Date();
+	await client.insert(schema.users).values({ id, name, email: `${id}@example.com`, emailVerified: true, createdAt: now, updatedAt: now });
+}
+
 export async function insertProfiles(client: TestClient, values: Insertable<typeof schema.profiles>): Promise<void> {
 	await client.insert(schema.profiles).values(rowsOf(values));
 }

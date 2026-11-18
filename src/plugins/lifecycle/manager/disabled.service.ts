@@ -33,7 +33,8 @@ export async function disabledStatusFromRecord(
 	record: InstalledPluginRecord,
 ): Promise<PluginStatus> {
 	return (
-		(await manifestStatus(state, pluginId, record.directory)) ?? disabledStatus({ id: pluginId, name: pluginId, version: record.version })
+		(await statusFromManifest(state, pluginId, record.directory)) ??
+		disabledStatus({ id: pluginId, name: pluginId, version: record.version })
 	);
 }
 
@@ -42,27 +43,23 @@ export function statusFromRegistry(state: PluginManagerState, pluginId: string):
 	const runtime = state.registry.get(pluginId);
 	if (!runtime) return undefined;
 
-	const { manifest } = runtime;
-
-	return disabledStatus({ id: manifest.id, name: manifest.name, version: manifest.version, description: manifest.description });
+	return disabledStatus(runtime.manifest);
 }
 
-/** Status of a plugin that is installed but not loaded, read from its manifest on disk. */
+/**
+ * Status of a plugin that is installed but not loaded, read from its manifest on disk.
+ * Undefined when the manifest is unreadable or belongs to another plugin.
+ */
 export async function statusFromManifest(
 	state: PluginManagerState,
 	pluginId: string,
 	directoryName: string,
 ): Promise<PluginStatus | undefined> {
-	return await manifestStatus(state, pluginId, directoryName);
-}
-
-/** Manifest-derived disabled status; undefined when the manifest is unreadable or belongs to another plugin. */
-async function manifestStatus(state: PluginManagerState, pluginId: string, directoryName: string): Promise<PluginStatus | undefined> {
 	try {
 		const manifest = await loadPluginManifest(state.config.resolvePluginDirectory(directoryName));
 		if (manifest.id !== pluginId) return undefined;
 
-		return disabledStatus({ id: manifest.id, name: manifest.name, version: manifest.version, description: manifest.description });
+		return disabledStatus(manifest);
 	} catch {
 		return undefined;
 	}

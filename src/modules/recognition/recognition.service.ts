@@ -1,5 +1,5 @@
 import type { MediaRecognitionCandidate } from "@reelvault/sdk/plugin";
-import { pluginHookBus } from "@/system/extensions/plugin.hooks";
+import { PLUGIN_HOOK_NAMES, pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { createLogger } from "@/utils/logger.utils";
 import { normalizePath } from "@/utils/path.utils";
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "./recognition.types";
@@ -62,7 +62,7 @@ export async function recognizeWithPluginHooks(filePath: string): Promise<Recogn
 	const result = recognitionService.recognize(filePath);
 	if (!result) return null;
 
-	const candidate = await pluginHookBus.run("beforeMediaRecognition", {
+	const candidate = await pluginHookBus.run(PLUGIN_HOOK_NAMES.mediaRecognition, {
 		type: result.type,
 		title: result.identity.title,
 		year: result.identity.year,

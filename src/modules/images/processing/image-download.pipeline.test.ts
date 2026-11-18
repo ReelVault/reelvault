@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { serverConfig } from "@/config/server/server.config";
 import { ImageDownloadPipeline } from "./image-download.pipeline";
 
 const DATA = Buffer.from([1, 2, 3, 4]);
@@ -23,7 +24,7 @@ interface PipelineConfig {
 }
 
 interface PipelineSpies {
-	downloads: Array<{ url: string; destination: string }>;
+	downloads: Array<{ url: string; destination: string; maxBytes?: number | undefined }>;
 	deleted: string[];
 	renamed: Array<[string, string]>;
 	createdDirectories: string[];
@@ -42,7 +43,7 @@ function createPipeline(config: PipelineConfig = {}): { pipeline: ImageDownloadP
 	};
 	const pipeline = new ImageDownloadPipeline({
 		download: async (url, destination, downloadOptions) => {
-			spies.downloads.push({ url, destination });
+			spies.downloads.push({ url, destination, maxBytes: downloadOptions?.maxBytes });
 			try {
 				if (config.downloadSucceeds === false) throw config.downloadError ?? new Error("boom");
 
@@ -94,7 +95,7 @@ describe("ImageDownloadPipeline", () => {
 
 		const result = await pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster");
 
-		expect(spies.downloads).toEqual([{ url: URL, destination: expect.any(String) }]);
+		expect(spies.downloads).toEqual([{ url: URL, destination: expect.any(String), maxBytes: serverConfig.images.maxUploadBytes }]);
 		expect(result).toEqual({
 			contentType: "image/webp",
 			width: 320,

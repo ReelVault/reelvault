@@ -76,11 +76,7 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 			beforeHandle({ user }) {
 				if (!required) return;
 
-				requireUser(user);
-				if (user.role !== "admin") {
-					logger.debug("Admin access required");
-					throw new DomainError("forbidden", "Admin access required", { code: "auth.admin_required" });
-				}
+				requireAdmin(user);
 			},
 		}),
 		profileRequired: (required: boolean) => ({

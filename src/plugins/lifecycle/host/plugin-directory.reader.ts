@@ -7,7 +7,7 @@ import { isPluginDirectoryName } from "./plugin-directory.indexer";
 /**
  * Walks the plugins root and yields every loadable manifest with its directory.
  * An unreadable or non-plugin directory is skipped; callers that need a first
- * match, an index or duplicate cleanup share this one walk.
+ * match or duplicate cleanup share this one walk.
  */
 export async function* readPluginManifests(pluginsDirectory: string): AsyncGenerator<{ directoryName: string; manifest: PluginManifest }> {
 	for (const directoryName of await listDirectories(pluginsDirectory)) {

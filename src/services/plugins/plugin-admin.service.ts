@@ -21,6 +21,17 @@ async function findAdminStatus(pluginId: string): Promise<PluginAdminStatus | un
 	return await withAdminDetails(status, await pluginCatalogService.updatablePluginIds());
 }
 
+/** Applies a lifecycle change, then reports the state the manager recorded even when the change failed. */
+async function applyAndReadStatus(pluginId: string, apply: () => Promise<void>): Promise<PluginAdminStatus | undefined> {
+	try {
+		await apply();
+	} catch {
+		// pluginManager records the failure on the plugin state returned below.
+	}
+
+	return await findAdminStatus(pluginId);
+}
+
 export const pluginAdminService = {
 	async list(): Promise<PluginAdminStatus[]> {
 		const updatable = await pluginCatalogService.updatablePluginIds();
@@ -33,32 +44,14 @@ export const pluginAdminService = {
 	},
 
 	async reload(pluginId: string): Promise<PluginAdminStatus | undefined> {
-		try {
-			await pluginManager.reload(pluginId);
-		} catch {
-			// Reloading may fail again; the recorded state is returned below.
-		}
-
-		return await findAdminStatus(pluginId);
+		return await applyAndReadStatus(pluginId, async () => await pluginManager.reload(pluginId));
 	},
 
 	async enable(pluginId: string): Promise<PluginAdminStatus | undefined> {
-		try {
-			await pluginManager.setEnabled(pluginId, true);
-		} catch {
-			// Enabling may fail; the recorded state is returned below.
-		}
-
-		return await findAdminStatus(pluginId);
+		return await applyAndReadStatus(pluginId, async () => await pluginManager.setEnabled(pluginId, true));
 	},
 
 	async disable(pluginId: string): Promise<PluginAdminStatus | undefined> {
-		try {
-			await pluginManager.setEnabled(pluginId, false);
-		} catch {
-			// Disabling may fail; the recorded state is returned below.
-		}
-
-		return await findAdminStatus(pluginId);
+		return await applyAndReadStatus(pluginId, async () => await pluginManager.setEnabled(pluginId, false));
 	},
 };

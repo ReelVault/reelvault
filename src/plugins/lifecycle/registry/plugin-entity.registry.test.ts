@@ -1,19 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { MetadataProvider } from "@reelvault/sdk/plugin";
+import { createProvider } from "@/plugins/lifecycle/plugin-entities.fixture";
 import { PluginEntityTable } from "./plugin-entity.registry";
-
-function createProvider(id: string): MetadataProvider {
-	return {
-		id,
-		name: id.toUpperCase(),
-		version: "1.0.0",
-		initialize: async () => undefined,
-		search: async () => [],
-		getDetails: async () => null,
-		getSeasonDetails: async () => null,
-		getEpisodeDetails: async () => null,
-	};
-}
 
 describe("PluginEntityTable", () => {
 	let table: PluginEntityTable<MetadataProvider>;

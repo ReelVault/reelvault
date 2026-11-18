@@ -152,13 +152,13 @@ export async function deleteTemporaryDirectory(path: string): Promise<boolean> {
  * Runs a directory scan and turns a failure into an empty listing. An aborted
  * scan is rethrown: the caller asked to stop.
  */
-async function withScanErrorHandling(
+async function withScanErrorHandling<T>(
 	basePath: string,
 	extensions: readonly string[],
 	maxDepth: number,
 	signal: AbortSignal | undefined,
-	run: () => Promise<string[]>,
-): Promise<string[]> {
+	run: () => Promise<T[]>,
+): Promise<T[]> {
 	try {
 		return await run();
 	} catch (error) {
@@ -193,40 +193,40 @@ export async function scanFilesWithStats(
 	signal?: AbortSignal,
 	options?: { dot?: boolean | undefined },
 ): Promise<ScannedFileEntry[]> {
-	const ioConcurrency = systemResourcesService.getIoConcurrency();
-	const results: ScannedFileEntry[] = [];
-	let batch: string[] = [];
+	return await withScanErrorHandling(basePath, extensions, maxDepth, signal, async () => {
+		const ioConcurrency = systemResourcesService.getIoConcurrency();
+		const results: ScannedFileEntry[] = [];
+		let batch: string[] = [];
 
-	const flush = async (): Promise<void> => {
-		if (batch.length === 0) return;
+		const flush = async (): Promise<void> => {
+			if (batch.length === 0) return;
 
-		const paths = batch;
-		batch = [];
-		const entries = await mapConcurrent(
-			paths,
-			ioConcurrency,
-			async (fullPath) => {
-				try {
-					const fileStat = await statWithTimeout(fullPath);
+			const paths = batch;
+			batch = [];
+			const entries = await mapConcurrent(
+				paths,
+				ioConcurrency,
+				async (fullPath) => {
+					try {
+						const fileStat = await statWithTimeout(fullPath);
 
-					return {
-						filePath: fullPath,
-						size: fileStat.size,
-						mtimeMs: Math.floor(fileStat.mtimeMs),
-					};
-				} catch {
-					// File vanished between listing and stat — skip it.
-					return null;
-				}
-			},
-			signal,
-		);
-		for (const entry of entries) {
-			if (entry) results.push(entry);
-		}
-	};
+						return {
+							filePath: fullPath,
+							size: fileStat.size,
+							mtimeMs: Math.floor(fileStat.mtimeMs),
+						};
+					} catch {
+						// File vanished between listing and stat — skip it.
+						return null;
+					}
+				},
+				signal,
+			);
+			for (const entry of entries) {
+				if (entry) results.push(entry);
+			}
+		};
 
-	try {
 		for await (const fullPath of iterateGlob(basePath, extensions, maxDepth, signal, options)) {
 			batch.push(fullPath);
 			if (batch.length >= STAT_BATCH_SIZE) await flush();
@@ -234,13 +234,7 @@ export async function scanFilesWithStats(
 		await flush();
 
 		return results;
-	} catch (error) {
-		if (signal?.aborted) throw error;
-
-		logger.error("Scan directory error", error, { directoryPath: basePath, extensions, maxDepth });
-
-		return [];
-	}
+	});
 }
 
 export async function listDirectories(basePath: string): Promise<string[]> {

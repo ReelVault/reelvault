@@ -294,28 +294,26 @@ function readImportedModules(source: string, directory: string): string[] {
 	return [...modules];
 }
 
-/** The functions and constants a module exports. */
-function readExportedNames(source: string): Set<string> {
+/** The first capture group of every match of `pattern` in `source`. */
+function readFirstCaptureGroup(source: string, pattern: RegExp): Set<string> {
 	const names = new Set<string>();
-	const pattern = new RegExp(EXPORTED_NAME_PATTERN.source, "g");
-	let match = pattern.exec(source);
+	const global = new RegExp(pattern.source, "g");
+	let match = global.exec(source);
 	while (match !== null) {
 		names.add(match[1] ?? "");
-		match = pattern.exec(source);
+		match = global.exec(source);
 	}
 	return names;
 }
 
+/** The functions and constants a module exports. */
+function readExportedNames(source: string): Set<string> {
+	return readFirstCaptureGroup(source, EXPORTED_NAME_PATTERN);
+}
+
 /** The constants a module exports — a value the subject itself defines. */
 function readExportedConstants(source: string): Set<string> {
-	const names = new Set<string>();
-	const pattern = new RegExp(EXPORTED_CONSTANT_PATTERN.source, "g");
-	let match = pattern.exec(source);
-	while (match !== null) {
-		names.add(match[1] ?? "");
-		match = pattern.exec(source);
-	}
-	return names;
+	return readFirstCaptureGroup(source, EXPORTED_CONSTANT_PATTERN);
 }
 
 /**
@@ -536,14 +534,14 @@ function scanTestFile(file: string, source: string): Finding[] {
 	return findings;
 }
 
-/** Every production file under the source root. */
-function collectProductionFiles(directory: string): string[] {
+/** Every file under a root whose name matches `include`, skipping build output. */
+function collectFiles(directory: string, include: (entry: string) => boolean): string[] {
 	const files: string[] = [];
 	for (const entry of readdirSync(directory)) {
 		if (entry === "node_modules" || entry === "dist" || entry === "build") continue;
 		const path = join(directory, entry);
-		if (statSync(path).isDirectory()) files.push(...collectProductionFiles(path));
-		else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) files.push(path);
+		if (statSync(path).isDirectory()) files.push(...collectFiles(path, include));
+		else if (include(entry)) files.push(path);
 	}
 	return files;
 }
@@ -551,7 +549,7 @@ function collectProductionFiles(directory: string): string[] {
 /** The module that declares a name, found by scanning the production tree. */
 function findDeclaringModule(name: string): string | undefined {
 	const pattern = new RegExp(`export\\s+(?:async\\s+)?(?:function|const|class)\\s+${name}\\b`);
-	for (const file of collectProductionFiles(SOURCE_ROOT)) {
+	for (const file of collectFiles(SOURCE_ROOT, (entry) => entry.endsWith(".ts") && !entry.endsWith(".test.ts"))) {
 		if (pattern.test(readFileSync(file, "utf8"))) return file;
 	}
 	return undefined;
@@ -605,22 +603,10 @@ function scanOwnership(file: string, source: string): Finding[] {
 	return [{ file, problem: "the file exercises no module from its own folder — it belongs to the folder of the code it covers" }];
 }
 
-/** Every test file under the guarded roots. */
-function collectTestFiles(directory: string): string[] {
-	const files: string[] = [];
-	for (const entry of readdirSync(directory)) {
-		if (entry === "node_modules" || entry === "dist" || entry === "build") continue;
-		const path = join(directory, entry);
-		if (statSync(path).isDirectory()) files.push(...collectTestFiles(path));
-		else if (entry.endsWith(".test.ts")) files.push(path);
-	}
-	return files;
-}
-
 function main(): void {
 	const findings: Finding[] = [];
 	for (const root of GUARDED_ROOTS) {
-		for (const file of collectTestFiles(root)) {
+		for (const file of collectFiles(root, (entry) => entry.endsWith(".test.ts"))) {
 			const source = readFileSync(file, "utf8");
 			findings.push(...scanTestFile(file, source), ...scanOwnership(file, source), ...scanProbeDependency(file, source));
 		}

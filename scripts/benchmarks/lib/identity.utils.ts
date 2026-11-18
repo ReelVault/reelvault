@@ -6,25 +6,30 @@ export function workerCookie(server: ManagedServer, workerIndex: number): string
 	return server.workerCookies[workerIndex % server.workerCookies.length] ?? server.cookie;
 }
 
+/** The shared identity header payload: an `x-profile-id` is present only when one was resolved. */
+function requestHeaders(cookie: string, profileId: string | undefined, forwardedFor: string): Record<string, string> {
+	return {
+		cookie,
+		...(profileId === undefined ? {} : { "x-profile-id": profileId }),
+		"x-forwarded-for": forwardedFor,
+	};
+}
+
 /**
  * Session cookie + per-worker client IP for one simulated identity. The
  * optional `x-profile-id` is required by per-profile routes.
  */
 export function authHeaders(server: ManagedServer, workerIndex: number, subnet: number, withProfile = false): Record<string, string> {
-	return {
-		cookie: workerCookie(server, workerIndex),
-		...(withProfile ? { "x-profile-id": server.profileIdFor(workerIndex) } : {}),
-		"x-forwarded-for": subnetIp(subnet, workerIndex),
-	};
+	return requestHeaders(
+		workerCookie(server, workerIndex),
+		withProfile ? server.profileIdFor(workerIndex) : undefined,
+		subnetIp(subnet, workerIndex),
+	);
 }
 
 /** Admin session cookie (+ profile) with the caller's suite-specific client IP. */
 export function adminHeaders(server: ManagedServer, forwardedFor: string, withProfile = true): Record<string, string> {
-	return {
-		cookie: server.cookie,
-		...(withProfile ? { "x-profile-id": server.adminProfileId } : {}),
-		"x-forwarded-for": forwardedFor,
-	};
+	return requestHeaders(server.cookie, withProfile ? server.adminProfileId : undefined, forwardedFor);
 }
 
 /** Cookie+profile pair of the rotating identity scheme, bound to one managed server. */
@@ -51,9 +56,9 @@ export function contextHeaders(
 	requestIndex: number,
 	withProfile = false,
 ): Record<string, string> {
-	return {
-		cookie: context.cookieFor(workerIndex, requestIndex),
-		...(withProfile ? { "x-profile-id": context.profileIdFor(workerIndex, requestIndex) } : {}),
-		"x-forwarded-for": subnetIp(subnet, workerIndex),
-	};
+	return requestHeaders(
+		context.cookieFor(workerIndex, requestIndex),
+		withProfile ? context.profileIdFor(workerIndex, requestIndex) : undefined,
+		subnetIp(subnet, workerIndex),
+	);
 }

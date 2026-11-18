@@ -59,7 +59,7 @@ describe("enqueueWithOperation failure cleanup", () => {
 			),
 		).rejects.toBe(failure);
 
-		expect(await workerOperationRepository.findById(operation.id)).toBeDefined();
+		expect(await workerOperationRepository.findById(operation.id)).toMatchObject({ id: operation.id, type: "test-worker" });
 		expect(await workerJobRepository.findItem(jobId)).toMatchObject({ status: "pending" });
 	});
 
@@ -71,7 +71,7 @@ describe("enqueueWithOperation failure cleanup", () => {
 		});
 
 		expect(result).toBe(`queued:${operationId}`);
-		expect(await workerOperationRepository.findById(operationId)).toBeDefined();
+		expect(await workerOperationRepository.findById(operationId)).toMatchObject({ id: operationId, type: "test-worker" });
 	});
 
 	test("removes a fresh operation whose enqueue deduped onto another one", async () => {
@@ -83,6 +83,6 @@ describe("enqueueWithOperation failure cleanup", () => {
 
 		expect(result).toBe(winner.id);
 		expect(await workerOperationRepository.findById(operationId)).toBeUndefined();
-		expect(await workerOperationRepository.findById(winner.id)).toBeDefined();
+		expect(await workerOperationRepository.findById(winner.id)).toMatchObject({ id: winner.id, type: "test-worker" });
 	});
 });

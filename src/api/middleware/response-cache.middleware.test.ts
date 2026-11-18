@@ -34,10 +34,13 @@ describe("responseCacheMiddleware", () => {
 		const miss = await app.handle(new Request("http://localhost/headers"));
 		const hit = await app.handle(new Request("http://localhost/headers"));
 
-		expect(hit.headers.get("Cache-Control")).toBe("private, max-age=60");
-		for (const name of ["Cache-Control", "Vary", "ETag"]) {
-			expect(hit.headers.get(name)).toBe(miss.headers.get(name));
-		}
+		const expectedHeaders = {
+			"Cache-Control": "private, max-age=60",
+			Vary: "Accept-Encoding, Cookie",
+			ETag: '"d6afcbd8ff7a55df"',
+		};
+		expect(Object.fromEntries(Object.keys(expectedHeaders).map((name) => [name, miss.headers.get(name)]))).toEqual(expectedHeaders);
+		expect(Object.fromEntries(Object.keys(expectedHeaders).map((name) => [name, hit.headers.get(name)]))).toEqual(expectedHeaders);
 	});
 
 	test("answers 304 when the validator matches the served ETag", async () => {

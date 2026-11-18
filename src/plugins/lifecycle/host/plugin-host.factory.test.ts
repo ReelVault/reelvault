@@ -14,6 +14,7 @@ import type {
 	SubtitleProvider,
 } from "@reelvault/sdk/plugin";
 import { realtimeService } from "@/modules/realtime/realtime.service";
+import { createProvider, createSubtitleProvider } from "@/plugins/lifecycle/plugin-entities.fixture";
 import type { PluginHookName } from "@/system/extensions/plugin.hooks";
 import { insertMovieMediaFile } from "../../../../tests/helpers/media.fixture";
 import { stubMethod } from "../../../../tests/helpers/method-stub.helper";
@@ -135,25 +136,8 @@ describe("createPluginHost", () => {
 	});
 
 	test("registration capabilities gate and forward into the scope", async () => {
-		const provider: MetadataProvider = {
-			id: "p",
-			name: "P",
-			version: "1.0.0",
-			initialize: async () => undefined,
-			search: async () => [],
-			getDetails: async () => null,
-			getSeasonDetails: async () => null,
-			getEpisodeDetails: async () => null,
-		};
-		await host.providers.register(provider);
-		await host.subtitles.register({
-			id: "s",
-			name: "S",
-			version: "1.0.0",
-			initialize: async () => undefined,
-			search: async () => [],
-			download: async () => null,
-		});
+		await host.providers.register(createProvider("p"));
+		await host.subtitles.register(createSubtitleProvider("s"));
 		await host.media.registerAnalyzer({ id: "a", name: "A", version: "1.0.0", analyze: () => ({}) });
 		await host.jobs.register({ name: "refresh", handler: () => undefined });
 		await host.tasks.register({ id: "t", name: "t", description: "t", defaultTriggers: [], run: async () => undefined });

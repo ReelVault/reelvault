@@ -4,8 +4,6 @@ import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { assertStorageKey, serializeStorageValue } from "./plugin.storage.validator";
 
-/** Property access keeps the repository off array-iterator name matching in static analysis. */
-
 /** Hard cap on keys returned by `list` so a plugin cannot pull an unbounded result set into memory. */
 const MAX_STORAGE_KEYS = 10_000;
 

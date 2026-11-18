@@ -131,27 +131,24 @@ function isPluginLockfile(value: unknown): value is PluginLockfile {
 		(record) =>
 			isRecord(record) &&
 			isNonEmptyString(record.directory) &&
-			isNonEmptyString(record.integrity) &&
-			isNonEmptyString(record.installedAt) &&
-			isNonEmptyString(record.source) &&
-			isNonEmptyString(record.version) &&
-			(record.disabled === undefined || typeof record.disabled === "boolean") &&
-			(record.cspDisabled === undefined || typeof record.cspDisabled === "boolean") &&
-			(record.pinned === undefined || typeof record.pinned === "boolean") &&
+			isInstallFields(record) &&
 			(record.previous === undefined || isPreviousInstall(record.previous)),
 	);
 }
 
-function isPreviousInstall(value: unknown): value is PluginPreviousInstall {
+/** Identity and admin-choice fields shared by an installed record and an upgrade's rollback point. */
+function isInstallFields(value: Record<string, unknown>): boolean {
 	return (
-		isRecord(value) &&
 		isNonEmptyString(value.version) &&
 		isNonEmptyString(value.integrity) &&
 		isNonEmptyString(value.installedAt) &&
 		isNonEmptyString(value.source) &&
-		isNonEmptyString(value.backupDirectory) &&
 		(value.disabled === undefined || typeof value.disabled === "boolean") &&
 		(value.cspDisabled === undefined || typeof value.cspDisabled === "boolean") &&
 		(value.pinned === undefined || typeof value.pinned === "boolean")
 	);
+}
+
+function isPreviousInstall(value: unknown): value is PluginPreviousInstall {
+	return isRecord(value) && isNonEmptyString(value.backupDirectory) && isInstallFields(value);
 }

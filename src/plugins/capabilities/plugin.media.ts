@@ -19,6 +19,23 @@ interface PluginEpisodeMediaFile {
 	title?: string | undefined;
 }
 
+interface PluginFileRow {
+	mediaFileId: string;
+	filePath: string;
+	fileName: string;
+	duration: number | null;
+}
+
+/** The common file fields both catalog listings expose, with the same unknown-duration default. */
+function toFileFields(row: PluginFileRow) {
+	return {
+		mediaFileId: row.mediaFileId,
+		filePath: row.filePath,
+		fileName: row.fileName,
+		durationSeconds: row.duration ?? 0,
+	};
+}
+
 export const pluginMediaService = {
 	serviceName: "PluginMediaService",
 	logger: createLogger("PluginMediaService"),
@@ -62,10 +79,7 @@ export const pluginMediaService = {
 			rows,
 			(row) => row.seasonId,
 			(row) => ({
-				mediaFileId: row.mediaFileId,
-				filePath: row.filePath,
-				fileName: row.fileName,
-				durationSeconds: row.duration ?? 0,
+				...toFileFields(row),
 				episodeId: row.episodeId,
 				seasonId: row.seasonId,
 				episodeNumber: row.episodeNumber,
@@ -83,10 +97,7 @@ export const pluginMediaService = {
 		const rows = await pluginMediaData.findFileRowsPage({ limit, offset });
 
 		return rows.map((row) => ({
-			mediaFileId: row.mediaFileId,
-			filePath: row.filePath,
-			fileName: row.fileName,
-			durationSeconds: row.duration ?? 0,
+			...toFileFields(row),
 			mediaType: row.movieId ? ("movie" as const) : ("episode" as const),
 			title: row.metadataTitle ?? undefined,
 			movieId: row.movieId,

@@ -9,22 +9,10 @@ import type {
 	ReelVaultPlugin,
 	SubtitleProvider,
 } from "@reelvault/sdk/plugin";
+import { createProvider, createSubtitleProvider } from "@/plugins/lifecycle/plugin-entities.fixture";
 import { PluginRegistry } from "./plugin.registry";
 
 const plugin: ReelVaultPlugin = { setup: async () => undefined };
-
-function createProvider(id: string): MetadataProvider {
-	return {
-		id,
-		name: id.toUpperCase(),
-		version: "1.0.0",
-		initialize: async () => undefined,
-		search: async () => [],
-		getDetails: async () => null,
-		getSeasonDetails: async () => null,
-		getEpisodeDetails: async () => null,
-	};
-}
 
 function createRuntime(id: string, providers: MetadataProvider[] = [], subtitleProviders: SubtitleProvider[] = []): PluginRuntime {
 	const manifest: PluginManifest = {
@@ -43,17 +31,6 @@ function createRuntime(id: string, providers: MetadataProvider[] = [], subtitleP
 		subtitleProviderIds: subtitleProviders.map((provider) => provider.id),
 		analyzerIds: [],
 		jobNames: [],
-	};
-}
-
-function createSubtitleProvider(id: string): SubtitleProvider {
-	return {
-		id,
-		name: id.toUpperCase(),
-		version: "1.0.0",
-		initialize: async () => undefined,
-		search: async () => [],
-		download: async () => null,
 	};
 }
 

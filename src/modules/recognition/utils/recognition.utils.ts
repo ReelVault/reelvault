@@ -1,4 +1,5 @@
 import type { MediaIdentity } from "@reelvault/sdk/common";
+import type { RecognitionResult } from "@/modules/recognition/recognition.types";
 import { MemoryCache } from "@/utils/memory.cache";
 import { RESOLUTION_NOISE, SCENE_NOISE } from "@/utils/release-tags.constants";
 import {
@@ -244,4 +245,25 @@ export function resolveShowTitle(
 	}
 
 	return { title, year };
+}
+
+/** Builds the tv_show result both series strategies return; the episode-range tail is
+ * present only when the file actually spans more than one episode. */
+export function createEpisodeResult({
+	title,
+	year,
+	season,
+	episode,
+	episodeEnd,
+}: {
+	title: string;
+	year: number | undefined;
+	season: number | undefined;
+	episode: number | undefined;
+	episodeEnd: number | undefined;
+}): RecognitionResult {
+	return {
+		type: "tv_show",
+		identity: { title, year, type: "episode", season, episode, ...(episodeEnd === undefined ? {} : { episodeEnd }) },
+	};
 }

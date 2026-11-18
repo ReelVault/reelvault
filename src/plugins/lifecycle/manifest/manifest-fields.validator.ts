@@ -82,6 +82,19 @@ export function assertOptionalStringRecord(value: unknown, field: string): void 
 	}
 }
 
+/**
+ * A dialog reference must name a dialog declared in the same ui.json. Callers
+ * that have not collected the declared ids yet skip the check.
+ */
+export function assertKnownDialog(dialog: string, dialogIds: ReadonlySet<string> | undefined, field: string): void {
+	if (!dialogIds || dialogIds.has(dialog)) return;
+
+	throw new DomainError("validation", `Plugin ui.json ${field} references unknown dialog '${dialog}'`, {
+		code: "plugin.ui.dialog_unknown",
+		params: { dialog },
+	});
+}
+
 const ALLOWED_HREF_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"]);
 
 /**
