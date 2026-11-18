@@ -54,8 +54,8 @@ export interface MetadataCheckInput {
 }
 
 /**
- * Matches a recognised file against metadata providers. The application layer
- * implements it and the worker injects it, so the scanner never imports `application/`.
+ * Matches a recognised file against metadata providers. The service layer
+ * implements it and the worker injects it, so the scanner keeps no dependency on it.
  */
 export interface MetadataMatcher {
 	checkMetadata(input: MetadataCheckInput): Promise<MetadataMatch | undefined>;

@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalWorkerId } from "./worker-ids.utils";
+import { canonicalWorkerId, LIBRARY_SCAN_WORKER_ID } from "./worker-ids.utils";
 
 describe("worker id categories", () => {
 	test("every resource category resolves from at least one spelling", () => {
+		expect(LIBRARY_SCAN_WORKER_ID).toBe("library-scan");
+		expect(canonicalWorkerId(LIBRARY_SCAN_WORKER_ID)).toBe("scanning");
 		expect(canonicalWorkerId("image-optimization-all")).toBe("image-processing");
 		expect(canonicalWorkerId("imageProcessing")).toBe("image-processing");
-		expect(canonicalWorkerId("library-scan")).toBe("scanning");
 		expect(canonicalWorkerId("scanning")).toBe("scanning");
 		expect(canonicalWorkerId("transcode")).toBe("transcode");
 		expect(canonicalWorkerId("metadata-refresh")).toBe("metadata-refresh");

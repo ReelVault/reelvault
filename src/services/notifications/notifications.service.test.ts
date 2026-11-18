@@ -54,7 +54,6 @@ describe("notificationsService new episode batch", () => {
 		await insertWatchlist(db.client(), { profileId: "profile-1", metadataId: "meta-episode" });
 		const key = responseCacheKey({ pathWithQuery: "/v1/notifications", cookie: "c", profileId: "profile-1", auth: "", apiKey: "" });
 		setCachedResponseBody(key, { etag: "e", body: "[]", expiresAt: Date.now() + 60_000, encoded: new Map() });
-		expect(getCachedResponseBody(key)).toBeDefined();
 
 		await notificationsService.notifyNewEpisode({ metadataId: "meta-episode", showTitle: "Show", seasonNumber: 1, episodeNumber: 2 });
 

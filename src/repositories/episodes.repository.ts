@@ -21,11 +21,7 @@ import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/prima
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
-import {
-	defineRepository,
-	defineTableAccess,
-	parseFieldsForRead,
-} from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { upsertByStableKeyIdentity } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
 import {
@@ -36,6 +32,7 @@ import {
 } from "@/integrations/drizzle-orm/utils/media-file-projection.builder";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { unique } from "@/utils/array.utils";
+import { defineFindByIdForRead, type ReadByIdParams } from "./find-by-id-for-read.utils";
 
 const episodes = defineTableAccess("episodes", {
 	primaryKeyColumn: "id",
@@ -112,6 +109,10 @@ const episodeQueryMap: QueryMap<EpisodeFilters, EpisodeSorting> = {
 	defaults: { sortBy: "episodeNumber", sortOrder: "asc" },
 };
 
+function loadEpisodeByPrimaryId<F extends string>(params: ReadByIdParams<F>): Promise<SelectFields<EpisodeWithRelations, F> | undefined> {
+	return getEpisodesRepository().findByPrimaryId(params);
+}
+
 const overrides = {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & EpisodeFilters & EpisodeSorting,
@@ -123,9 +124,7 @@ const overrides = {
 			findMany: (params) => getEpisodesRepository().findMany(params),
 		});
 	},
-	async findByIdForRead<F extends string>(episodeId: string, query?: FieldsQuery<F>) {
-		return await getEpisodesRepository().findByPrimaryId({ primaryId: episodeId, fields: parseFieldsForRead(query) });
-	},
+	findByIdForRead: defineFindByIdForRead<EpisodeWithRelations>(loadEpisodeByPrimaryId),
 
 	/** All episodes belonging to any of the given seasons (raw rows). */
 	async findBySeasonIds(seasonIds: readonly string[]) {

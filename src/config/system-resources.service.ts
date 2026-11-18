@@ -1,6 +1,7 @@
 import type { Logger } from "@reelvault/sdk/common";
 import { env } from "@/config/env.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { MIB } from "@/utils/bytes.utils";
 import { EventLoopMonitor } from "@/utils/event-loop-monitor.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
@@ -199,7 +200,7 @@ export class SystemResourcesService {
 		const totalKiB = this.getTotalMemoryKiB();
 		if (totalKiB === undefined) return cpuBudget;
 
-		const totalGb = totalKiB / (1024 * 1024);
+		const totalGb = totalKiB / MIB;
 
 		return Math.min(cpuBudget, totalGb < 16 ? 1 : 2);
 	}
@@ -210,7 +211,7 @@ export class SystemResourcesService {
 		const capacityBudget = this.getMetrics().capacity >= 3 ? 2 : 1;
 		const totalKiB = this.getTotalMemoryKiB();
 		let ramBudget = 2;
-		if (totalKiB !== undefined && totalKiB / (1024 * 1024) < 8) ramBudget = 1;
+		if (totalKiB !== undefined && totalKiB / MIB < 8) ramBudget = 1;
 
 		return Math.min(2, capacityBudget, ramBudget);
 	}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getSidecarPathPolicy, KodiPathPolicy, ReelVaultPathPolicy } from "./sidecar-path.policy";
+import { getSidecarMediaKind, getSidecarPathPolicy, KodiPathPolicy, ReelVaultPathPolicy } from "./sidecar-path.policy";
 
 describe("ReelVaultPathPolicy", () => {
 	test("builds sidecar paths inside the media directory", () => {
@@ -31,5 +31,18 @@ describe("getSidecarPathPolicy", () => {
 	test("selects the Kodi policy for kodi and the ReelVault policy for reelvault", () => {
 		expect(getSidecarPathPolicy("kodi").movie("/media/movie")).toBe("/media/movie/movie.nfo");
 		expect(getSidecarPathPolicy("reelvault").movie("/media/movie")).toBe("/media/movie/movie.reelvault.nfo");
+	});
+});
+
+describe("getSidecarMediaKind", () => {
+	test("classifies movie, series, season and episode documents by file name", () => {
+		expect(getSidecarMediaKind("/media/movie.nfo")).toBe("movie");
+		expect(getSidecarMediaKind("/media/movie.reelvault.nfo")).toBe("movie");
+		expect(getSidecarMediaKind("/media/show/tvshow.nfo")).toBe("series");
+		expect(getSidecarMediaKind("/media/show/tvshow.reelvault.nfo")).toBe("series");
+		expect(getSidecarMediaKind("/media/show/Season 01/season.nfo")).toBe("season");
+		expect(getSidecarMediaKind("/media/show/Season 01/season01.nfo")).toBe("season");
+		expect(getSidecarMediaKind("/media/show/Season 01/season01-reelvault.nfo")).toBe("season");
+		expect(getSidecarMediaKind("/media/show/Season 01/s01e01.reelvault.nfo")).toBe("episode");
 	});
 });

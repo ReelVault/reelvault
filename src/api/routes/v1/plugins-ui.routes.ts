@@ -9,32 +9,17 @@ import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { pluginUiSettingsService } from "@/plugins/lifecycle/plugin-ui-settings.service";
 import { DomainError } from "@/utils/domain.errors";
 import { fileExists } from "@/utils/file.utils";
-import { contentTypeForPath } from "@/utils/mime.utils";
+import { contentTypeForPath, MIME_TYPES } from "@/utils/mime.utils";
 import { getExtension, isSubpath } from "@/utils/path.utils";
 
 /**
  * UI assets are an allowlist — plugin sources and `config.json` (may hold
- * secrets) never leave the plugin dir. Content types come from the shared
- * extension table; this set only decides what may be served at all.
+ * secrets) never leave the plugin dir. The shared MIME table also lists data
+ * types (JSON, source maps, plain text) and formats the UI bundle contract does
+ * not ship; everything else in that table is a servable static asset.
  */
-const SERVABLE_EXTENSIONS = new Set([
-	".html",
-	".js",
-	".mjs",
-	".css",
-	".png",
-	".jpg",
-	".jpeg",
-	".gif",
-	".webp",
-	".svg",
-	".ico",
-	".woff",
-	".woff2",
-	".ttf",
-	".wasm",
-	".vtt",
-]);
+const NON_SERVABLE_EXTENSIONS = new Set([".avif", ".htm", ".json", ".map", ".txt", ".webmanifest"]);
+const SERVABLE_EXTENSIONS = new Set(Object.keys(MIME_TYPES).filter((ext) => !NON_SERVABLE_EXTENSIONS.has(ext)));
 
 /** Bound the upward search for a plugin SPA entry so a bad request cannot walk the filesystem. */
 const MAX_SPA_FALLBACK_DEPTH = 8;

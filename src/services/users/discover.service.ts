@@ -29,6 +29,12 @@ import {
 	WATCHLIST_BASE_BONUS,
 } from "./discover-recommendations.service";
 
+interface RecommendationInput {
+	candidates: Awaited<ReturnType<typeof discoverRepository.findRecommendationCandidates>>;
+	progressSignals: Awaited<ReturnType<typeof discoverRepository.findPlaybackCompletionSignals>>;
+	dislikedIds: ReadonlySet<string>;
+}
+
 function buildSeedWeights(
 	watched: Array<{ metadataId: string | null; watchCount: number }>,
 	watchlist: Array<{ metadataId: string | null; createdAt: Date }>,
@@ -97,10 +103,20 @@ class DiscoverService {
 	private async buildDiscoverView(profileId: string): Promise<DiscoverResponse> {
 		// Cache the maximum-size view once per profile; callers slice to their limit.
 		const limit = 50;
-		const dislikedIds = new Set(await discoverRepository.findDislikedMetadataIds(profileId));
+		const [candidates, progressSignals] = await Promise.all([
+			discoverRepository.findRecommendationCandidates(profileId),
+			discoverRepository.findPlaybackCompletionSignals(profileId),
+		]);
+		// A rating of 0 is the one "not interested" definition, shared by
+		// recommendations and trending.
+		const dislikedIds = toIdSet(
+			candidates.ratings.filter((item) => item.rating === 0),
+			(item) => item.metadataId,
+		);
+		const input: RecommendationInput = { candidates, progressSignals, dislikedIds };
 		const [recentlyAdded, recommendationIds, trendingRaw] = await Promise.all([
 			metadataRepository.findRecentlyAddedByTypes(["movie", "tv_show"], limit),
-			this.getRecommendations(profileId, limit).catch((error: unknown) => {
+			this.getRecommendations(input, limit).catch((error: unknown) => {
 				this.logger.warn("Failed to generate recommendations for discover view, falling back to empty list", { profileId, err: error });
 
 				return [];
@@ -152,27 +168,17 @@ class DiscoverService {
 		}
 	}
 
-	private async getRecommendations(profileId: string, limit: number): Promise<string[]> {
-		return await runSafely(this, "getRecommendations", async () => {
-			const [{ watched, ratings, watchlist, catalog }, progressSignals] = await Promise.all([
-				discoverRepository.findRecommendationCandidates(profileId),
-				discoverRepository.findPlaybackCompletionSignals(profileId),
-			]);
-
+	private async getRecommendations(input: RecommendationInput, limit: number): Promise<string[]> {
+		return await runSafely(this, "getRecommendations", () => {
+			const { watched, ratings, watchlist, catalog } = input.candidates;
 			const watchedIds = toIdSet(watched, (item) => item.metadataId);
 			const watchlistIds = toIdSet(watchlist, (item) => item.metadataId);
-			// "Not interested" must stick: a disliked title never comes back through
-			// recommendations or trending.
-			const dislikedIds = toIdSet(
-				ratings.filter((item) => item.metadataId && item.rating === 0),
-				(item) => item.metadataId,
-			);
-			const progressMap = toMap(progressSignals, (p) => p.metadataId);
+			const progressMap = toMap(input.progressSignals, (p) => p.metadataId);
 
 			const seedWeights = buildSeedWeights(watched, watchlist, ratings, progressMap);
 
 			const unconsumedCandidates = catalog.filter(
-				(item) => item.id && !watchedIds.has(item.id) && !watchlistIds.has(item.id) && !dislikedIds.has(item.id),
+				(item) => item.id && !watchedIds.has(item.id) && !watchlistIds.has(item.id) && !input.dislikedIds.has(item.id),
 			);
 
 			if (unconsumedCandidates.length === 0) return [];

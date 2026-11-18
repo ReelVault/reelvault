@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import type { SidecarFormatAdapter } from "@/modules/metadata-sidecars/formats/sidecar-format.adapter";
+import { REELVAULT_SNAPSHOT_SUFFIX } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import type { SidecarFormatInput } from "@/modules/metadata-sidecars/sidecar.types";
 import { loadXmlDocumentFile, MAX_XML_DOCUMENT_BYTES } from "@/modules/metadata-sidecars/xml/xml-document.reader";
 import { getFileStats, readFile } from "@/utils/file.utils";
@@ -17,7 +18,7 @@ export class JellyfinFormatAdapter implements SidecarFormatAdapter {
 
 		// The app's own snapshots also end in `.nfo` — they must never be claimed
 		// by the Jellyfin reader, or a registry-order change would break them.
-		return Promise.resolve(fileName.endsWith(".nfo") && !fileName.endsWith(".reelvault.nfo"));
+		return Promise.resolve(fileName.endsWith(".nfo") && !fileName.endsWith(REELVAULT_SNAPSHOT_SUFFIX));
 	}
 
 	async read(input: SidecarFormatInput) {

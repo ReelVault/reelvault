@@ -17,12 +17,9 @@ import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsi
 import { parseStandardQuery, type QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { type PrimaryIdReadParams, selectByIdWithFields } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { definePagedFind } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
-import {
-	defineRepository,
-	defineTableAccess,
-	parseFieldsForRead,
-} from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { MemoryCache } from "@/utils/memory.cache";
+import { defineFindByIdForRead, type ReadByIdParams } from "./find-by-id-for-read.utils";
 
 const profiles = defineTableAccess("profiles", {
 	primaryKeyColumn: "id",
@@ -63,6 +60,10 @@ const profileQueryMap: QueryMap<ProfileFilters, ProfileSorting> = {
 	},
 	defaults: { sortBy: "name", sortOrder: "asc" },
 };
+
+function loadProfileByPrimaryId<F extends string>(params: ReadByIdParams<F>): Promise<SelectFields<Profile, F> | undefined> {
+	return getProfilesRepository().findByPrimaryId(params);
+}
 
 const overrides = {
 	/**
@@ -149,9 +150,7 @@ const overrides = {
 		return await getProfilesRepository().create({ userId, body, fields });
 	},
 
-	async findByIdForRead<F extends string>(profileId: string, query?: FieldsQuery<F>): Promise<SelectFields<Profile, F> | undefined> {
-		return await getProfilesRepository().findByPrimaryId({ primaryId: profileId, fields: parseFieldsForRead(query) });
-	},
+	findByIdForRead: defineFindByIdForRead<Profile>(loadProfileByPrimaryId),
 
 	async updateAndRead<F extends string>(
 		profileId: string,

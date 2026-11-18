@@ -30,11 +30,7 @@ import {
 } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { withTiebreaker } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
 import { cachedCount, filterSignature } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
-import {
-	defineRepository,
-	defineTableAccess,
-	parseFieldsForRead,
-} from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.utils";
 import { loadNamedRelation } from "@/integrations/drizzle-orm/utils/named-relation.reader";
@@ -48,6 +44,7 @@ import {
 	type QualifyingScope,
 } from "./collections/listing.reader";
 import { loadMetadataPreviews } from "./collections/previews.reader";
+import { defineFindByIdForRead, type ReadByIdParams } from "./find-by-id-for-read.utils";
 import { metadataRepository } from "./metadata.repository";
 import { processNamedEntities, upsertNamedEntities } from "./provider-entity-sync.writer";
 
@@ -72,6 +69,10 @@ const collectionQueryMap: QueryMap<CollectionFilters, CollectionSorting> = {
 	},
 	defaults: { sortBy: "name", sortOrder: "asc" },
 };
+
+function loadCollectionById<F extends string>(params: ReadByIdParams<F>): Promise<SelectFields<CollectionWithRelations, F> | undefined> {
+	return getCollectionRepository().findById(params);
+}
 
 const overrides = {
 	async findPage<F extends string>(
@@ -115,9 +116,7 @@ const overrides = {
 		return createPageResponse({ total, pagination, data });
 	},
 
-	async findByIdForRead<F extends string>(collectionId: string, query?: FieldsQuery<F>) {
-		return await getCollectionRepository().findById({ primaryId: collectionId, fields: parseFieldsForRead(query) });
-	},
+	findByIdForRead: defineFindByIdForRead<CollectionWithRelations>(loadCollectionById),
 
 	async findByName(name: string) {
 		return await collections.selectFirst({ where: eq(collections.table.name, name) });

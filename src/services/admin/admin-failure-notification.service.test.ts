@@ -1,12 +1,36 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { notificationsService } from "@/services/notifications/notifications.service";
+import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { insertUsers, selectNotifications } from "../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
-import { waitFor } from "../../../tests/helpers/wait.helper";
 import { adminFailureNotificationService } from "./admin-failure-notification.service";
 
 const { client } = useTestDatabase();
 
+// The notification write is detached. Capture the real promises so the tests
+// wait for the actual writes instead of a fixed sleep, then restore the seam.
+const activeWrites: Array<Promise<number>> = [];
+let writeStub: ReturnType<typeof stubMethod> | undefined;
+
+afterEach(() => {
+	writeStub?.restore();
+	writeStub = undefined;
+	activeWrites.length = 0;
+});
+
+async function flushDetachedWrites(): Promise<void> {
+	await Promise.all(activeWrites.splice(0));
+}
+
 beforeEach(async () => {
+	const createForAdministrators = notificationsService.createForAdministrators.bind(notificationsService);
+	writeStub = stubMethod(notificationsService, "createForAdministrators", (notification, options) => {
+		const write = createForAdministrators(notification, options);
+		activeWrites.push(write);
+
+		return write;
+	});
+
 	await insertUsers(client(), [
 		{ id: "admin-1", name: "Admin", email: "admin@example.com", emailVerified: true, role: "admin" },
 		{ id: "admin-2", name: "Second admin", email: "second@example.com", emailVerified: true, role: "admin" },
@@ -18,8 +42,7 @@ describe("AdminFailureNotificationService", () => {
 	// Each test uses its own worker id: the dedupe window is process-wide and must not carry a failure from another test.
 	test("notifies every administrator about a failed worker and no one else", async () => {
 		adminFailureNotificationService.notifyWorkerFailed(`worker-${crypto.randomUUID()}`, "boom");
-		// The write is detached, so wait until both administrators have their row.
-		await waitFor(async () => (await selectNotifications(client())).length === 2);
+		await flushDetachedWrites();
 
 		const rows = await selectNotifications(client());
 
@@ -33,9 +56,7 @@ describe("AdminFailureNotificationService", () => {
 		const workerId = `worker-${crypto.randomUUID()}`;
 		adminFailureNotificationService.notifyWorkerFailed(workerId, "boom");
 		adminFailureNotificationService.notifyWorkerFailed(workerId, "boom");
-		await waitFor(async () => (await selectNotifications(client())).some((row) => row.userId === "admin-1"));
-		// A repeat inside the window would be written after the first; one more flush gives it a chance to land.
-		await Bun.sleep(0);
+		await flushDetachedWrites();
 
 		const rows = await selectNotifications(client());
 

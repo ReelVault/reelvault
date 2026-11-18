@@ -14,7 +14,7 @@ import {
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/api/middleware/auth.middleware";
 import { routeLimit } from "@/api/middleware/rate-limit.middleware";
-import { cached } from "@/api/middleware/response-cache.middleware";
+import { type CacheOptions, cacheControlFor, cached } from "@/api/middleware/response-cache.middleware";
 import { BinaryNotModifiedSchema, commonModel, PaginatedResponseSchema, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schema";
 import { IdParams, ProviderIdParams } from "@/api/schemas/route-params.schema";
 import { assertRouteMediaAccess } from "@/api/utils/access-context.utils";
@@ -22,7 +22,8 @@ import { binaryFileResponse } from "@/api/utils/binary-response.utils";
 import { SUBTITLE_UPLOAD_MAX_SIZE } from "@/config/server/server.constants";
 import { subtitlesService } from "@/modules/subtitles/subtitles.service";
 
-const SUBTITLE_CACHE_CONTROL = "private, max-age=300";
+const SUBTITLE_CONTENT_CACHE_OPTIONS: CacheOptions = { maxAge: 300, private: true };
+const SUBTITLE_CACHE_CONTROL = cacheControlFor(SUBTITLE_CONTENT_CACHE_OPTIONS);
 
 export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtitles"] })
 	.use(commonModel)
@@ -134,7 +135,7 @@ export const subtitlesRoutes = new Elysia({ prefix: "/subtitles", tags: ["Subtit
 			// Each miss spawns an FFmpeg extraction; cap the request rate per profile.
 			rateLimit: routeLimit("subtitle-content", 30),
 			params: IdParams,
-			...cached({ maxAge: 300, private: true }),
+			...cached(SUBTITLE_CONTENT_CACHE_OPTIONS),
 			response: { ...BinaryNotModifiedSchema, ...ROUTE_ERRORS.NOT_FOUND },
 			detail: {
 				description: "Read a downloaded subtitle without exposing its storage path.",

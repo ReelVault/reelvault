@@ -5,7 +5,10 @@ export class ConnectionRegistry {
 	private readonly clients = new Map<string, ClientConnection>();
 	private readonly clientsByUser = new Map<string, Set<string>>();
 	private readonly clientsByProfile = new Map<string, Set<string>>();
-	private readonly clientsBySession = new Map<string, Set<string>>();
+	/** authSessionId -> connectionId */
+	private readonly clientsByAuthSession = new Map<string, Set<string>>();
+	/** playbackSessionId -> connectionId */
+	private readonly clientsByPlaybackSession = new Map<string, Set<string>>();
 	/** connectionId -> Set<playbackSessionId> */
 	private readonly sessionSubscriptions = new Map<string, Set<string>>();
 
@@ -14,7 +17,7 @@ export class ConnectionRegistry {
 		this.index(this.clientsByUser, client.userId, client.connectionId);
 		if (client.profileId) this.index(this.clientsByProfile, client.profileId, client.connectionId);
 
-		if (client.sessionId) this.index(this.clientsBySession, client.sessionId, client.connectionId);
+		if (client.sessionId) this.index(this.clientsByAuthSession, client.sessionId, client.connectionId);
 	}
 
 	remove(connectionId: string): ClientConnection | undefined {
@@ -25,13 +28,13 @@ export class ConnectionRegistry {
 		this.removeIndex(this.clientsByUser, client.userId, connectionId);
 		if (client.profileId) this.removeIndex(this.clientsByProfile, client.profileId, connectionId);
 
-		if (client.sessionId) this.removeIndex(this.clientsBySession, client.sessionId, connectionId);
+		if (client.sessionId) this.removeIndex(this.clientsByAuthSession, client.sessionId, connectionId);
 
 		const subs = this.sessionSubscriptions.get(connectionId);
 		if (subs) {
 			this.sessionSubscriptions.delete(connectionId);
 			for (const sessionId of subs) {
-				this.removeIndex(this.clientsBySession, sessionId, connectionId);
+				this.removeIndex(this.clientsByPlaybackSession, sessionId, connectionId);
 			}
 		}
 
@@ -64,21 +67,21 @@ export class ConnectionRegistry {
 		}
 
 		subs.add(playbackSessionId);
-		this.index(this.clientsBySession, playbackSessionId, connectionId);
+		this.index(this.clientsByPlaybackSession, playbackSessionId, connectionId);
 
 		return true;
 	}
 
 	unsubscribePlaybackSession(connectionId: string, playbackSessionId: string): void {
 		this.sessionSubscriptions.get(connectionId)?.delete(playbackSessionId);
-		this.removeIndex(this.clientsBySession, playbackSessionId, connectionId);
+		this.removeIndex(this.clientsByPlaybackSession, playbackSessionId, connectionId);
 	}
 
 	dropPlaybackSession(playbackSessionId: string): void {
-		const connIds = this.clientsBySession.get(playbackSessionId);
+		const connIds = this.clientsByPlaybackSession.get(playbackSessionId);
 		if (!connIds) return;
 
-		this.clientsBySession.delete(playbackSessionId);
+		this.clientsByPlaybackSession.delete(playbackSessionId);
 		for (const connId of connIds) {
 			this.sessionSubscriptions.get(connId)?.delete(playbackSessionId);
 		}
@@ -96,8 +99,19 @@ export class ConnectionRegistry {
 		return this.collect(this.clientsByProfile.get(profileId));
 	}
 
+	findConnectionsByAuthSession(sessionId: string): ClientConnection[] {
+		return this.collect(this.clientsByAuthSession.get(sessionId));
+	}
+
+	findConnectionsByPlaybackSession(sessionId: string): ClientConnection[] {
+		return this.collect(this.clientsByPlaybackSession.get(sessionId));
+	}
+
+	/** Connections tied to a session id through either index, for general event fan-out. */
 	findConnectionsBySession(sessionId: string): ClientConnection[] {
-		return this.collect(this.clientsBySession.get(sessionId));
+		const ids = new Set([...(this.clientsByAuthSession.get(sessionId) ?? []), ...(this.clientsByPlaybackSession.get(sessionId) ?? [])]);
+
+		return this.collect(ids);
 	}
 
 	getStats() {
@@ -105,7 +119,7 @@ export class ConnectionRegistry {
 			totalConnections: this.clients.size,
 			uniqueUsers: this.clientsByUser.size,
 			uniqueProfiles: this.clientsByProfile.size,
-			uniquePlaybackSessions: this.clientsBySession.size,
+			uniquePlaybackSessions: this.clientsByPlaybackSession.size,
 		};
 	}
 

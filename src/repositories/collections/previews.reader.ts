@@ -149,23 +149,23 @@ function queryFastPreviews(
 ): { previews: Map<string, MetadataPreview>; needsFallback: string[] } {
 	const client = databaseFactory.getClient({ tx });
 	const countSelection = withCounts
-		? sql`(SELECT COUNT(*) FROM ${schema.metadataCollections} mc WHERE mc.collection_id = c.id) AS count`
+		? sql`(SELECT COUNT(*) FROM ${schema.metadataCollections} WHERE ${schema.metadataCollections.collectionId} = ${schema.collections.id}) AS count`
 		: sql`0 AS count`;
 	const rows = client.all<FastPreviewRow>(sql`
-		SELECT c.id AS collectionId, ${countSelection}, (
+		SELECT ${schema.collections.id} AS collectionId, ${countSelection}, (
 			SELECT json_group_array(json_object('imageId', image_id, 'updatedAt', updated_at))
 			FROM (
-				SELECT mi.image_id AS image_id, i.updated_at AS updated_at
-				FROM ${schema.metadataCollections} mc2
-				JOIN ${schema.metadataImages} mi ON mi.metadata_id = mc2.metadata_id AND mi.image_type = 'poster'
-				JOIN ${schema.images} i ON i.id = mi.image_id
-				WHERE mc2.collection_id = c.id
-				ORDER BY mc2.sort_order ASC, mi.image_id ASC
+				SELECT ${schema.metadataImages.imageId} AS image_id, ${schema.images.updatedAt} AS updated_at
+				FROM ${schema.metadataCollections}
+				JOIN ${schema.metadataImages} ON ${schema.metadataImages.metadataId} = ${schema.metadataCollections.metadataId} AND ${schema.metadataImages.imageType} = 'poster'
+				JOIN ${schema.images} ON ${schema.images.id} = ${schema.metadataImages.imageId}
+				WHERE ${schema.metadataCollections.collectionId} = ${schema.collections.id}
+				ORDER BY ${schema.metadataCollections.sortOrder} ASC, ${schema.metadataImages.imageId} ASC
 				LIMIT ${FAST_POSTER_SCAN}
 			)
 		) AS posters
-		FROM ${schema.collections} c
-		WHERE ${inArray(sql`c.id`, collectionIds)}
+		FROM ${schema.collections}
+		WHERE ${inArray(schema.collections.id, collectionIds)}
 	`);
 
 	const previews = new Map<string, MetadataPreview>();

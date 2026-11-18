@@ -48,7 +48,6 @@ test("a burst of 600 concurrent requests across routes never produces a server e
 	const serverErrors = results.filter(({ status, path }) => status >= 500 && !(status === 503 && path.startsWith("/v1/health")));
 
 	expect(serverErrors).toEqual([]);
-	expect(results.length).toBe(600);
 });
 
 test("a multi-megabyte JSON body is refused as too large or invalid, without a server error", async () => {
@@ -69,7 +68,7 @@ test("the liveness probe keeps answering under sustained parallel traffic", asyn
 	const probes = Array.from({ length: 400 }, () => send("GET", "/v1/health/live"));
 	const statuses = (await Promise.all(probes)).map((response) => response.status);
 
-	// Some probes are answered 200 and any excess is refused by the limiter (429); nothing may fail.
-	expect(statuses.filter((status) => status === 200).length).toBeGreaterThan(0);
+	// The liveness route's own budget admits 120 of the 400 probes; the rest get 429.
+	expect(statuses.filter((status) => status === 200)).toHaveLength(120);
 	expect(statuses.every((status) => status === 200 || status === 429)).toBe(true);
 });

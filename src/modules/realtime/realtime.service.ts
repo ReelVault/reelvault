@@ -93,11 +93,7 @@ export class RealtimeService {
 	 * sending playback commands until the 60 s stale sweep.
 	 */
 	disconnectAuthSession(sessionId: string, reason = "Session revoked"): number {
-		// `clientsBySession` also indexes playback subscriptions — only close
-		// connections whose AUTH session matches.
-		const connections = this.registry.findConnectionsBySession(sessionId).filter((conn) => conn.sessionId === sessionId);
-
-		return this.disconnectWhere(connections, reason);
+		return this.disconnectWhere(this.registry.findConnectionsByAuthSession(sessionId), reason);
 	}
 
 	/** Closes every socket of a user (ban, password change), optionally sparing one auth session. */
@@ -161,7 +157,7 @@ export class RealtimeService {
 	}
 
 	sendPlaybackCommand(targetSessionId: string, command: PlaybackCommand, senderProfileId?: string): boolean {
-		const connections = this.registry.findConnectionsBySession(targetSessionId);
+		const connections = this.registry.findConnectionsByPlaybackSession(targetSessionId);
 		if (connections.length === 0) return false;
 
 		const message = this.serializeMessage("playback:command", {

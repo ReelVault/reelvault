@@ -915,3 +915,12 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 - **Scrubbing reuses one media probe for nearby positions.** Seeks within the same two-second window no longer each start a new probe process.
 - **Streaming FFmpeg processes do not read standard input.** A long-lived transcode cannot react to interactive input from its parent.
 - **Shutting down no longer emits session-ended notifications to a disconnected realtime service.** Sessions are closed before the realtime connections they notify.
+
+# v1.3.6
+
+## Fixes
+
+- **Season sidecar snapshots are read back as seasons.** A `seasonNN-reelvault.nfo` file was classified as an episode on import, so the season's metadata was applied to the wrong title.
+- **Bare-string WebSocket pings now obey the same size and rate limits as JSON pings.** The short `ping` frame bypassed both checks.
+- **An unrelated database error is no longer reported as an identity conflict.** Stable-key upserts now surface the original error instead of silently running a reconciliation write.
+- **Profile preference writes no longer expose pre-commit values to other requests.** Cache invalidation now happens after the transaction commits.

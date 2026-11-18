@@ -525,16 +525,17 @@ export class PluginLoader {
 	 * fails, the plugin is still installed and its data must survive.
 	 */
 	async prepareUninstall(pluginId: string): Promise<void> {
-		// Capture job ids before unloading so in-flight handlers can be drained first.
-		// Namespaced worker ids only — raw job names could match core workers.
+		// Capture job ids before unloading so in-flight handlers are drained while
+		// the plugin is still loaded. Namespaced worker ids only — raw job names
+		// could match core workers.
 		const jobNames = this.pluginScopes.get(pluginId)?.getRegisteredJobIds() ?? [];
-		await this.unloadPlugin(pluginId);
 		try {
 			await workerService.drainWorkers(jobNames, serverConfig.plugins.lifecycle.unloadTimeoutMs);
 		} catch (error) {
 			// Bounded drain: proceed with removal even if a handler ignored its abort.
 			this.logger.warn("Plugin job drain failed before data removal", { pluginId, error: errorMessage(error) });
 		}
+		await this.unloadPlugin(pluginId);
 
 		this.directoryIndex.delete(pluginId);
 	}

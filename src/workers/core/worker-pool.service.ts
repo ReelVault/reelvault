@@ -1,5 +1,6 @@
 import type { WorkerDefinition, WorkerHandlerContext } from "@reelvault/sdk/common";
 import { MINUTE } from "@/config/server/server.constants";
+import { RESTART_CAPPED_WORKER_IDS } from "@/config/worker-ids.utils";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { workerJobRepository } from "@/repositories/worker.repository";
 import type { WorkerItem } from "@/repositories/worker-jobs/shared.types";
@@ -35,14 +36,6 @@ const DEFAULT_DRAIN_TIMEOUT_MS = 10_000;
 const DEFAULT_WORKER_TIMEOUT_MS = 5 * MINUTE;
 /** Handlers report progress per processed item; DB writes are throttled to this cadence. */
 const PROGRESS_WRITE_MIN_INTERVAL_MS = 1_000;
-/**
- * These workers must not be requeued past their attempt limit by a restart.
- * A trickplay job on a hung dataset otherwise survives every update/restart,
- * starts again, hangs the host, and repeats — one file held the server down
- * through nine restarts in the incident this guard comes from.
- */
-const RESTART_CAPPED_WORKER_IDS: ReadonlySet<string> = new Set(["trickplay-generate"]);
-
 export class WorkerExecutionPoolService {
 	readonly serviceName = "WorkerExecutionPoolService";
 	readonly logger = createLogger("WorkerExecutionPoolService");

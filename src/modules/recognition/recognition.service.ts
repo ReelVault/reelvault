@@ -8,54 +8,50 @@ import { moviesCategorizedStrategy } from "./strategies/movies-categorized.strat
 import { seriesBasicStrategy } from "./strategies/series-basic.strategy";
 import { seriesCategorizedStrategy } from "./strategies/series-categorized.strategy";
 
-class RecognitionService {
-	readonly serviceName = "RecognitionService";
-	readonly logger = createLogger("RecognitionService");
+const logger = createLogger("RecognitionService");
 
-	private readonly strategies: readonly RecognitionStrategy[];
+const strategies: readonly RecognitionStrategy[] = [
+	seriesCategorizedStrategy, // 1. Try: series / season / file
+	seriesBasicStrategy, // 2. Try: series / file (S01E01)
+	moviesCategorizedStrategy, // 3. Try: movie / file
+	moviesBasicStrategy, // 4. Last resort: bare file
+];
 
-	constructor() {
-		this.strategies = [
-			seriesCategorizedStrategy, // 1. Try: series / season / file
-			seriesBasicStrategy, // 2. Try: series / file (S01E01)
-			moviesCategorizedStrategy, // 3. Try: movie / file
-			moviesBasicStrategy, // 4. Last resort: bare file
-		];
-	}
+export const recognitionService = {
+	serviceName: "RecognitionService",
+	logger,
 
 	recognize(filePath: string): RecognitionResult | null {
-		const context = this.createPathContext(filePath);
+		const context = createPathContext(filePath);
 		if (!context) return null;
 
-		for (const strategy of this.strategies) {
+		for (const strategy of strategies) {
 			const result = strategy.recognize(context);
 			if (result) {
 				return result;
 			}
 		}
 
-		this.logger.warn("No strategy recognized for file", { filePath: context.normalizedPath });
+		logger.warn("No strategy recognized for file", { filePath: context.normalizedPath });
 
 		return null;
-	}
+	},
+};
 
-	private createPathContext(filePath: string): PathContext | null {
-		const normalizedPath = normalizePath(filePath);
-		const parts = normalizedPath.split("/").filter(Boolean);
-		if (parts.length === 0) return null;
+function createPathContext(filePath: string): PathContext | null {
+	const normalizedPath = normalizePath(filePath);
+	const parts = normalizedPath.split("/").filter(Boolean);
+	if (parts.length === 0) return null;
 
-		return {
-			rawPath: filePath,
-			normalizedPath,
-			parts,
-			fileName: parts.at(-1) ?? "",
-			parentFolder: parts.at(-2),
-			grandParentFolder: parts.at(-3),
-		};
-	}
+	return {
+		rawPath: filePath,
+		normalizedPath,
+		parts,
+		fileName: parts.at(-1) ?? "",
+		parentFolder: parts.at(-2),
+		grandParentFolder: parts.at(-3),
+	};
 }
-
-export const recognitionService = new RecognitionService();
 
 /**
  * Recognizes a file and lets the `beforeMediaRecognition` plugin hooks correct the

@@ -14,6 +14,69 @@ export interface DetectedHwaccel {
 /** Software-only accelerator descriptor — the fallback whenever no HW encoder is usable. */
 export const SOFTWARE_HWACCEL: DetectedHwaccel = { type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" };
 
+interface HwaccelDescriptor {
+	readonly h264Encoder: string;
+	readonly hevcEncoder: string;
+	/** `-hwaccel` value for the input-side decode, or null for software. */
+	readonly decodeHwaccel: string | null;
+	/** Flag that passes an explicit device to the decoder, when it has one. */
+	readonly decodeDeviceFlag: string | null;
+	/** Flag that passes an explicit device to the test encoder, when it has one. */
+	readonly encodeDeviceFlag: string | null;
+}
+
+/**
+ * One table for the accelerator families. The encoder pair drives candidate
+ * selection, the decode fields drive the input args, and `encodeDeviceFlag`
+ * drives the boot test encode — configured and probed candidates share it, so a
+ * new family is added in one place. Decoding and encoding use different device
+ * flags for some vendors, hence the two fields.
+ */
+export const HWACCEL_DESCRIPTORS: Readonly<Record<HwaccelType, HwaccelDescriptor>> = {
+	none: {
+		h264Encoder: SOFTWARE_HWACCEL.h264Encoder,
+		hevcEncoder: SOFTWARE_HWACCEL.hevcEncoder,
+		decodeHwaccel: null,
+		decodeDeviceFlag: null,
+		encodeDeviceFlag: null,
+	},
+	nvenc: {
+		h264Encoder: "h264_nvenc",
+		hevcEncoder: "hevc_nvenc",
+		decodeHwaccel: "cuda",
+		decodeDeviceFlag: "-hwaccel_device",
+		encodeDeviceFlag: "-gpu",
+	},
+	vaapi: {
+		h264Encoder: "h264_vaapi",
+		hevcEncoder: "hevc_vaapi",
+		decodeHwaccel: "vaapi",
+		decodeDeviceFlag: "-vaapi_device",
+		encodeDeviceFlag: "-vaapi_device",
+	},
+	qsv: {
+		h264Encoder: "h264_qsv",
+		hevcEncoder: "hevc_qsv",
+		decodeHwaccel: "qsv",
+		decodeDeviceFlag: "-hwaccel_device",
+		encodeDeviceFlag: "-qsv_device",
+	},
+	amf: {
+		h264Encoder: "h264_amf",
+		hevcEncoder: "hevc_amf",
+		decodeHwaccel: "d3d11va",
+		decodeDeviceFlag: null,
+		encodeDeviceFlag: null,
+	},
+	videotoolbox: {
+		h264Encoder: "h264_videotoolbox",
+		hevcEncoder: "hevc_videotoolbox",
+		decodeHwaccel: "videotoolbox",
+		decodeDeviceFlag: null,
+		encodeDeviceFlag: null,
+	},
+} as const;
+
 /** `[flag, device]` when a device is set, otherwise no arguments. */
 export function withDevice(flag: string, device: string | null): string[] {
 	return device ? [flag, device] : [];
@@ -25,22 +88,12 @@ export function withDevice(flag: string, device: string | null): string[] {
  * after the decode.
  */
 export function hardwareDecodeArgs(hw: DetectedHwaccel): string[] {
-	switch (hw.type) {
-		case "nvenc":
-			return ["-hwaccel", "cuda", ...withDevice("-hwaccel_device", hw.device)];
-		case "qsv":
-			return ["-hwaccel", "qsv", ...withDevice("-hwaccel_device", hw.device)];
-		case "vaapi":
-			return ["-hwaccel", "vaapi", ...withDevice("-vaapi_device", hw.device)];
-		case "videotoolbox":
-			return ["-hwaccel", "videotoolbox"];
-		case "amf":
-			return ["-hwaccel", "d3d11va"];
-		case "none":
-			return [];
-		default:
-			return [];
-	}
+	const descriptor = HWACCEL_DESCRIPTORS[hw.type];
+	if (!descriptor.decodeHwaccel) return [];
+
+	const args = ["-hwaccel", descriptor.decodeHwaccel];
+
+	return descriptor.decodeDeviceFlag ? [...args, ...withDevice(descriptor.decodeDeviceFlag, hw.device)] : args;
 }
 
 /** Accelerators this host could use, in preference order. Encoders and hwaccels come from the FFmpeg probe. */
@@ -49,12 +102,16 @@ export function getCandidateHwaccels(encoders: ReadonlySet<string>, hwaccels: Re
 	const configDevice = serverConfig.ffmpeg.hwaccelDevice.trim() || null;
 
 	const hasEncoder = (name: string) => encoders.size === 0 || encoders.has(name);
-	const buildResult = (type: HwaccelType, device: string | null, h264: string, hevc: string): DetectedHwaccel => ({
-		type,
-		device,
-		h264Encoder: hasEncoder(h264) ? h264 : "libx264",
-		hevcEncoder: hasEncoder(hevc) ? hevc : "libx265",
-	});
+	const buildResult = (type: HwaccelType, device: string | null): DetectedHwaccel => {
+		const { h264Encoder, hevcEncoder } = HWACCEL_DESCRIPTORS[type];
+
+		return {
+			type,
+			device,
+			h264Encoder: hasEncoder(h264Encoder) ? h264Encoder : SOFTWARE_HWACCEL.h264Encoder,
+			hevcEncoder: hasEncoder(hevcEncoder) ? hevcEncoder : SOFTWARE_HWACCEL.hevcEncoder,
+		};
+	};
 
 	const configured = configuredHwaccel(configHw, configDevice, buildResult);
 	if (configured) return configured;
@@ -66,17 +123,17 @@ export function getCandidateHwaccels(encoders: ReadonlySet<string>, hwaccels: Re
 function configuredHwaccel(
 	configHw: string,
 	configDevice: string | null,
-	buildResult: (type: HwaccelType, device: string | null, h264: string, hevc: string) => DetectedHwaccel,
+	buildResult: (type: HwaccelType, device: string | null) => DetectedHwaccel,
 ): DetectedHwaccel[] | undefined {
-	if (configHw === "nvenc") return [buildResult("nvenc", configDevice, "h264_nvenc", "hevc_nvenc")];
+	if (configHw === "nvenc") return [buildResult("nvenc", configDevice)];
 
-	if (configHw === "vaapi") return [buildResult("vaapi", getDetectedDriDevice(), "h264_vaapi", "hevc_vaapi")];
+	if (configHw === "vaapi") return [buildResult("vaapi", getDetectedDriDevice())];
 
-	if (configHw === "qsv") return [buildResult("qsv", getDetectedDriDevice(), "h264_qsv", "hevc_qsv")];
+	if (configHw === "qsv") return [buildResult("qsv", getDetectedDriDevice())];
 
-	if (configHw === "amf") return [buildResult("amf", null, "h264_amf", "hevc_amf")];
+	if (configHw === "amf") return [buildResult("amf", null)];
 
-	if (configHw === "videotoolbox") return [buildResult("videotoolbox", null, "h264_videotoolbox", "hevc_videotoolbox")];
+	if (configHw === "videotoolbox") return [buildResult("videotoolbox", null)];
 
 	if (configHw === "none") return [SOFTWARE_HWACCEL];
 
@@ -88,29 +145,40 @@ function detectedHwaccels(
 	encoders: ReadonlySet<string>,
 	hwaccels: ReadonlySet<string>,
 	configDevice: string | null,
-	buildResult: (type: HwaccelType, device: string | null, h264: string, hevc: string) => DetectedHwaccel,
+	buildResult: (type: HwaccelType, device: string | null) => DetectedHwaccel,
 ): DetectedHwaccel[] {
 	const driDevice = getDetectedDriDevice();
 	const candidates: DetectedHwaccel[] = [];
 
-	if (encoders.has("h264_nvenc") && (hwaccels.has("cuda") || hwaccels.has("nvdec") || hwaccels.has("cuvid") || hwaccels.size === 0)) {
-		candidates.push(buildResult("nvenc", configDevice, "h264_nvenc", "hevc_nvenc"));
+	if (
+		encoders.has(HWACCEL_DESCRIPTORS.nvenc.h264Encoder) &&
+		(hwaccels.has("cuda") || hwaccels.has("nvdec") || hwaccels.has("cuvid") || hwaccels.size === 0)
+	) {
+		candidates.push(buildResult("nvenc", configDevice));
 	}
 
-	if (encoders.has("h264_qsv") && (hwaccels.has("qsv") || driDevice !== null) && (driDevice !== null || process.platform !== "linux")) {
-		candidates.push(buildResult("qsv", driDevice, "h264_qsv", "hevc_qsv"));
+	if (
+		encoders.has(HWACCEL_DESCRIPTORS.qsv.h264Encoder) &&
+		(hwaccels.has("qsv") || driDevice !== null) &&
+		(driDevice !== null || process.platform !== "linux")
+	) {
+		candidates.push(buildResult("qsv", driDevice));
 	}
 
-	if (encoders.has("h264_vaapi") && (hwaccels.has("vaapi") || driDevice !== null) && (driDevice !== null || process.platform !== "linux")) {
-		candidates.push(buildResult("vaapi", driDevice, "h264_vaapi", "hevc_vaapi"));
+	if (
+		encoders.has(HWACCEL_DESCRIPTORS.vaapi.h264Encoder) &&
+		(hwaccels.has("vaapi") || driDevice !== null) &&
+		(driDevice !== null || process.platform !== "linux")
+	) {
+		candidates.push(buildResult("vaapi", driDevice));
 	}
 
-	if (encoders.has("h264_amf") && (hwaccels.has("amf") || hwaccels.has("d3d11va") || hwaccels.size === 0)) {
-		candidates.push(buildResult("amf", null, "h264_amf", "hevc_amf"));
+	if (encoders.has(HWACCEL_DESCRIPTORS.amf.h264Encoder) && (hwaccels.has("amf") || hwaccels.has("d3d11va") || hwaccels.size === 0)) {
+		candidates.push(buildResult("amf", null));
 	}
 
-	if (process.platform === "darwin" && encoders.has("h264_videotoolbox")) {
-		candidates.push(buildResult("videotoolbox", null, "h264_videotoolbox", "hevc_videotoolbox"));
+	if (process.platform === "darwin" && encoders.has(HWACCEL_DESCRIPTORS.videotoolbox.h264Encoder)) {
+		candidates.push(buildResult("videotoolbox", null));
 	}
 
 	return candidates;

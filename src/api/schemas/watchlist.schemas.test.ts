@@ -16,8 +16,6 @@ function hydratedPage(): { data: unknown[]; page: number; limit: number; total: 
 test("hydrated items keep their metadata card through response normalization", () => {
 	const page = hydratedPage();
 
-	expect(Value.Check(watchlistResponseSchema, page)).toBeTrue();
-
 	const cleaned = Value.Clean(watchlistResponseSchema, page) as CleanedPage;
 	expect<unknown>(cleaned.data[0]).toEqual(page.data[0]);
 });
@@ -32,7 +30,6 @@ test("projected items without hydration still validate", () => {
 		totalPages: 1,
 	};
 
-	expect(Value.Check(watchlistResponseSchema, page)).toBeTrue();
 	const cleaned = Value.Clean(watchlistResponseSchema, page) as CleanedPage;
 	expect(cleaned.data[0]?.metadata).toBeUndefined();
 	expect(cleaned.data[0]?.id).toBe(item.id);

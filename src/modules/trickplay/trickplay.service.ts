@@ -8,6 +8,7 @@ import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.par
 import { buildSingleFrameExtractionCommand, buildSpriteTileCommand } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { isStorageBudgetError, resolveCoreArtifactsBudgetBytes } from "@/modules/artifacts/artifacts-budget.utils";
+import { isCoreTrickplayArtifact } from "@/modules/trickplay/trickplay-artifacts.utils";
 import { mediaRepository } from "@/repositories/media-files.repository";
 import { writeCoreArtifact } from "@/services/artifacts/core-artifacts.writer";
 import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
@@ -309,9 +310,7 @@ class TrickplayService {
 	private async previousTrickplayArtifactIds(mediaFileId: string): Promise<string[]> {
 		const artifacts = await mediaArtifactsService.list(mediaFileId);
 
-		return artifacts
-			.filter((artifact) => artifact.pluginId === CORE_ARTIFACTS_OWNER && artifact.kind === "trickplay")
-			.map((artifact) => artifact.id);
+		return artifacts.filter((artifact) => isCoreTrickplayArtifact(artifact)).map((artifact) => artifact.id);
 	}
 
 	/** Deletes the core artifacts this attempt wrote, leaving the previous generation and plugins untouched. */
@@ -320,7 +319,7 @@ class TrickplayService {
 			const previous = new Set(previousIds);
 			const current = await mediaArtifactsService.list(mediaFileId);
 			const newIds = current
-				.filter((artifact) => artifact.pluginId === CORE_ARTIFACTS_OWNER && artifact.kind === "trickplay" && !previous.has(artifact.id))
+				.filter((artifact) => isCoreTrickplayArtifact(artifact) && !previous.has(artifact.id))
 				.map((artifact) => artifact.id);
 
 			if (newIds.length > 0) await mediaArtifactsService.deleteByIds(mediaFileId, newIds);

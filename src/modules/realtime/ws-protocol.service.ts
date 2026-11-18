@@ -122,28 +122,22 @@ export const wsProtocol = {
 		// handling so idle-but-healthy sockets are not reaped as stale.
 		if (wsState) realtimeService.touch(wsState.connectionId);
 
-		if (message === "ping") {
-			sendPong(ws);
-
-			return;
-		}
-
+		// Every frame, ping included, is size-checked before it is parsed or answered.
 		if (typeof message === "string" && message.length > WS_MAX_INBOUND_CHARS) return;
 
 		const msg = parseFrame(message);
 		if (!msg || typeof msg.type !== "string") return;
-
-		if (msg.type === "ping") {
-			sendPong(ws);
-
-			return;
-		}
-
 		if (!wsState) return;
 
 		const connectionId = wsState.connectionId;
 		if (!wsMessageLimiter.consume(connectionId, WS_MESSAGE_LIMIT, WS_MESSAGE_WINDOW_MS).allowed) {
 			ws.close(1008, "Message rate limit exceeded");
+
+			return;
+		}
+
+		if (msg.type === "ping") {
+			sendPong(ws);
 
 			return;
 		}
@@ -178,6 +172,10 @@ export const wsProtocol = {
 type InboundFrame = Record<string, unknown>;
 
 function parseFrame(message: unknown): InboundFrame | null {
+	// The bare string is a legacy ping encoding; normalize it so every ping takes
+	// the same size-checked, rate-limited path as the JSON frame.
+	if (message === "ping") return { type: "ping" };
+
 	if (typeof message === "string") {
 		const parsed = safeParseJson(message);
 

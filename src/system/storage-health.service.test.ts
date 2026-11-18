@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { MINUTE } from "@/config/server/server.constants";
-import { STORAGE_FAILURE_WINDOW_MS, STORAGE_FILE_BLOCK_MS, STORAGE_ROOT_DEGRADED_MS, StorageHealthService } from "./storage-health.service";
+import { StorageHealthService } from "./storage-health.service";
+
+const FILE_BLOCK_MS = 86_400_000;
+const FAILURE_WINDOW_MS = 600_000;
+const ROOT_DEGRADED_MS = 900_000;
 
 const MOUNTS = ["/", "/library", "/library/bad", "/other"];
 
@@ -50,7 +54,7 @@ describe("storage health: a single file", () => {
 		service.recordFailure(file, "frame_error");
 		service.recordFailure(file, "frame_error");
 
-		advance(STORAGE_FILE_BLOCK_MS - 1);
+		advance(FILE_BLOCK_MS - 1);
 		expect(service.isFileBlocked(file)).toBe(true);
 
 		advance(2);
@@ -62,7 +66,7 @@ describe("storage health: a single file", () => {
 		const file = "/library/bad/movie.mkv";
 
 		service.recordFailure(file, "frame_error");
-		advance(STORAGE_FAILURE_WINDOW_MS + 1);
+		advance(FAILURE_WINDOW_MS + 1);
 		service.recordFailure(file, "frame_error");
 
 		expect(service.isFileBlocked(file)).toBe(false);
@@ -117,7 +121,7 @@ describe("storage health: a root", () => {
 			service.recordFailure(path, "frame_timeout");
 		}
 
-		advance(STORAGE_ROOT_DEGRADED_MS + 1);
+		advance(ROOT_DEGRADED_MS + 1);
 
 		expect(service.isRootDegraded(file)).toBe(false);
 	});

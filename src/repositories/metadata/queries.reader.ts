@@ -34,8 +34,8 @@ import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/prima
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { cachedCount, filterSignature } from "@/integrations/drizzle-orm/query/table-access/row-count.cache";
-import { parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { findFirstProviderLinkFor } from "@/integrations/drizzle-orm/utils/provider-link.reader";
+import { defineFindByIdForRead } from "@/repositories/find-by-id-for-read.utils";
 import {
 	buildCollectionOrderBy,
 	type MetadataRepositoryFilters,
@@ -225,12 +225,7 @@ export async function findPage<F extends string>(
 	});
 }
 
-export async function findByIdForRead<F extends string>(
-	metadataId: string,
-	query?: FieldsQuery<F>,
-): Promise<SelectFields<MetadataWithRelation, F> | undefined> {
-	return await findById({ primaryId: metadataId, fields: parseFieldsForRead(query) });
-}
+export const findByIdForRead = defineFindByIdForRead<MetadataWithRelation>((params) => findById(params));
 
 export async function findProviderDetails(metadataId: string) {
 	return await findById({ primaryId: metadataId, fields: parseFields({ fields: "id,type,primaryProviderId,providers" }) });

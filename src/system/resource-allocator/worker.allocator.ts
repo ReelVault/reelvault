@@ -109,7 +109,7 @@ function allocationUnderPressure(
 	}
 
 	const throttleThreshold = serverConfig.resources.throttleLowPriorityAbovePercent;
-	if (pressure === "medium" && snapshot && snapshot.memory.percent > throttleThreshold && weight < 50) {
+	if (pressure === "medium" && snapshot && snapshot.memory.percent > throttleThreshold && weight < DEFAULT_WORKER_WEIGHT) {
 		return { workerId, requested: 0, allocated: Math.max(1, Math.ceil(autoConcurrency / 2)), throttled: true, reason: "memory_pressure" };
 	}
 

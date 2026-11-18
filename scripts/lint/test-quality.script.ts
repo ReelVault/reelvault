@@ -148,7 +148,6 @@ const LITERAL_PATTERN = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g
 const TEST_CASE_PATTERN = /\b(?:it|test)\s*(?:\.\w+)?\s*\(\s*(?:`([^`]*)`|"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g;
 const ASSERTION_PATTERN =
 	/\.(not\.)?(toBeTrue|toBeFalse|toBeString|toBeNumber|toBeBoolean|toBeBigInt|toBeSymbol|toBeFunction|toBeObject|toBeArray|toBeDate|toBeRegExp|toBePromise|toBeGreaterThanOrEqual|toBeGreaterThan|toBeLessThanOrEqual|toBeLessThan|toBe|toEqual|toStrictEqual|toMatchObject|toContain|toContainEqual|toHaveLength|toHaveProperty|toBeCloseTo|toBeNaN|toBeNull|toBeUndefined|toBeTruthy|toBeFalsy|toBeDefined|toBeInstanceOf|toBeTypeOf|toMatch\w*|toThrow\w*|toHaveBeenCalled\w*|toHaveReturned\w*|resolves\.toBe\w*|rejects\.toBe\w*|rejects\.toMatchObject)\s*\(/g;
-const PRODUCTION_IMPORT_PATTERN = /(?:import\s*\{([^}]*)\}\s*from\s*|import\s*\(\s*)"([^"]+)"/g;
 const IMPORTED_MODULE_PATTERN = /(?:from\s*|import\s*\(\s*)"([^"]+)"/g;
 const EXPORTED_NAME_PATTERN = /export\s+(?:async\s+)?(?:function|const|class|let)\s+([A-Za-z_$][\w$]*)/g;
 const EXPORTED_CONSTANT_PATTERN = /export\s+(?:const|let)\s+([A-Za-z_$][\w$]*)/g;
@@ -158,7 +157,6 @@ const CONSTANT_PATTERN = /^(?:export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?
 const IDENTIFIER_PATTERN = /\b([A-Za-z_$][\w$]*)\b/g;
 const PROPERTY_NAME_PATTERN = /\.\s*([A-Za-z_$][\w$]*)/g;
 const NEW_BEFORE_NAME = /\bnew\s+$/;
-const ALIAS_SEPARATOR = /\s+as\s+/;
 const TS_EXTENSION = /\.ts$/;
 const RESOLVES_PREFIX = /^resolves\./;
 const REJECTS_PREFIX = /^rejects\./;
@@ -283,24 +281,6 @@ function resolveProductionModule(specifier: string, directory: string): string |
 	return undefined;
 }
 
-/** The names a file imports from production modules, with the module they come from. */
-function readProductionImports(source: string, directory: string): Map<string, string> {
-	const names = new Map<string, string>();
-	const pattern = new RegExp(PRODUCTION_IMPORT_PATTERN.source, "g");
-	let match = pattern.exec(source);
-	while (match !== null) {
-		const resolved = resolveProductionModule(match[2] ?? "", directory);
-		if (resolved !== undefined) {
-			for (const raw of (match[1] ?? "").split(",")) {
-				const name = raw.trim().split(ALIAS_SEPARATOR).pop()?.trim();
-				if (name) names.set(name, resolved);
-			}
-		}
-		match = pattern.exec(source);
-	}
-	return names;
-}
-
 /** Every production module a file imports, static or dynamic. */
 function readImportedModules(source: string, directory: string): string[] {
 	const modules = new Set<string>();
@@ -334,18 +314,6 @@ function readExportedConstants(source: string): Set<string> {
 	while (match !== null) {
 		names.add(match[1] ?? "");
 		match = pattern.exec(source);
-	}
-	return names;
-}
-
-/** The helpers of the code under test, transitively. */
-function readHelperNames(subject: string, seen = new Set<string>()): Set<string> {
-	if (seen.has(subject)) return new Set();
-	seen.add(subject);
-	const source = readFileSync(subject, "utf8");
-	const names = new Set(readProductionImports(source, dirname(subject)).keys());
-	for (const [, module] of readProductionImports(source, dirname(subject))) {
-		for (const nested of readHelperNames(module, seen)) names.add(nested);
 	}
 	return names;
 }
@@ -440,7 +408,6 @@ function readStructuralProblem(assertions: Assertion[]): StructuralProblem | und
 /** Everything the expectation rules need to know about the code under test. */
 interface ExpectationContext {
 	subjectFunctions: Set<string>;
-	helperFunctions: Set<string>;
 	subjectConstants: Set<string>;
 	constants: Map<string, string>;
 }
@@ -551,13 +518,8 @@ function scanTestFile(file: string, source: string): Finding[] {
 	for (const module of subjectModules) {
 		for (const name of readExportedNames(readFileSync(module, "utf8"))) subjectFunctions.add(name);
 	}
-	const helperFunctions = new Set<string>();
-	for (const module of subjectModules) {
-		for (const name of readHelperNames(module)) helperFunctions.add(name);
-	}
 	for (const name of BOUNDARY_READERS) {
 		subjectFunctions.delete(name);
-		helperFunctions.delete(name);
 	}
 	const subjectConstants = new Set<string>();
 	for (const module of subjectModules) {
@@ -565,7 +527,6 @@ function scanTestFile(file: string, source: string): Finding[] {
 	}
 	const context: ExpectationContext = {
 		subjectFunctions,
-		helperFunctions,
 		subjectConstants,
 		constants: readConstants(source),
 	};

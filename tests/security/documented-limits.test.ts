@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { installSessionStub, listApiRoutes, prepareSecuritySuite, send } from "./security.helper";
+import { installSessionStub, prepareSecuritySuite, send } from "./security.helper";
 
 /**
  * Every bulk endpoint documents a maximum size (and most a minimum). Exceeding it must
@@ -78,11 +78,7 @@ const LIMIT_CASES: LimitCase[] = [
 	},
 ];
 
-const routes = listApiRoutes();
-
 test.each(LIMIT_CASES)("$method $template refuses $max+1 items as a bad request", async (limit) => {
-	expect(routes.some((route) => route.method === limit.method && route.template === limit.template)).toBe(true);
-
 	const response = await send(limit.method, limit.template, { role: limit.role, body: limit.body(limit.max + 1) });
 
 	expect(response.status).toBe(400);

@@ -144,7 +144,9 @@ export class ProfilePreferencesRepository {
 	/** Removes all stored overrides — the profile falls back to the admin defaults. */
 	async reset({ profileId, tx }: { profileId: string; tx?: DatabaseTransaction | undefined }): Promise<ProfilePreferences> {
 		await this.database.getClient({ tx }).delete(this.table).where(eq(this.table.profileId, profileId));
-		this.cache.delete(profileId);
+		// A transactional write is not visible to other connections yet; its
+		// top-level caller invalidates after commit instead.
+		if (!tx) this.cache.delete(profileId);
 
 		return await this.getEffective({ profileId, tx });
 	}
@@ -184,7 +186,7 @@ export class ProfilePreferencesRepository {
 			set: { value: sql`excluded.value`, updatedAt: now },
 			tx,
 		});
-		this.cache.delete(profileId);
+		if (!tx) this.cache.delete(profileId);
 	}
 
 	private async deleteMany({
@@ -202,7 +204,7 @@ export class ProfilePreferencesRepository {
 			.getClient({ tx })
 			.delete(this.table)
 			.where(and(eq(this.table.profileId, profileId), inArray(this.table.key, keys)));
-		this.cache.delete(profileId);
+		if (!tx) this.cache.delete(profileId);
 	}
 }
 

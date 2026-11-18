@@ -1,5 +1,15 @@
 import { basename, dirname, join } from "node:path";
-import { seasonFileName } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
+import {
+	KODI_SEASON_SUFFIX,
+	MOVIE_NFO,
+	REELVAULT_MOVIE_NFO,
+	REELVAULT_SEASON_SUFFIX,
+	REELVAULT_SERIES_NFO,
+	REELVAULT_SNAPSHOT_SUFFIX,
+	SERIES_NFO,
+	seasonFileName,
+	UNPADDED_SEASON_NFO,
+} from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import { fileExists } from "@/utils/file.utils";
 import { getFileNameWithoutExt } from "@/utils/path.utils";
 import { readSeasonNumber } from "./local-season.utils";
@@ -31,31 +41,31 @@ export async function locateLocalNfoChain(videoPath: string, kind: "movie" | "tv
 			movieDocument: await firstExisting([
 				join(directory, `${baseName}.nfo`),
 				join(directory, `${lowerBaseName}.nfo`),
-				join(directory, "movie.nfo"),
-				join(directory, `${baseName}.reelvault.nfo`),
-				join(directory, `${lowerBaseName}.reelvault.nfo`),
-				join(directory, "movie.reelvault.nfo"),
+				join(directory, MOVIE_NFO),
+				join(directory, `${baseName}${REELVAULT_SNAPSHOT_SUFFIX}`),
+				join(directory, `${lowerBaseName}${REELVAULT_SNAPSHOT_SUFFIX}`),
+				join(directory, REELVAULT_MOVIE_NFO),
 			]),
 		};
 	}
 
 	const seasonNumber = readSeasonNumber(basename(directory));
-	const paddedSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, ".nfo");
-	const paddedReelvaultSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, "-reelvault.nfo");
+	const paddedSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, KODI_SEASON_SUFFIX);
+	const paddedReelvaultSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, REELVAULT_SEASON_SUFFIX);
 
 	return {
 		episodeDocument: await firstExisting([
 			join(directory, `${baseName}.nfo`),
 			join(directory, `${lowerBaseName}.nfo`),
-			join(directory, `${baseName}.reelvault.nfo`),
-			join(directory, `${lowerBaseName}.reelvault.nfo`),
+			join(directory, `${baseName}${REELVAULT_SNAPSHOT_SUFFIX}`),
+			join(directory, `${lowerBaseName}${REELVAULT_SNAPSHOT_SUFFIX}`),
 		]),
 		seasonDocument: await firstExisting([
 			...(paddedSeasonName ? [join(directory, paddedSeasonName)] : []),
-			join(directory, "season.nfo"),
+			join(directory, UNPADDED_SEASON_NFO),
 			...(paddedReelvaultSeasonName ? [join(directory, paddedReelvaultSeasonName)] : []),
 		]),
-		seriesDocument: await findUpwards(directory, ["tvshow.nfo", "tvshow.reelvault.nfo"]),
+		seriesDocument: await findUpwards(directory, [SERIES_NFO, REELVAULT_SERIES_NFO]),
 	};
 }
 

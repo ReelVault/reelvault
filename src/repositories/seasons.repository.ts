@@ -1,4 +1,4 @@
-import type { FieldsQuery, Season, SeasonFilters, SeasonSorting, SelectFields } from "@reelvault/sdk/common";
+import type { Season, SeasonFilters, SeasonSorting, SelectFields } from "@reelvault/sdk/common";
 import { and, asc, eq, ne, or, sql } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
@@ -7,13 +7,10 @@ import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.pa
 import { type FindFirstReadParams, type PrimaryIdReadParams, selectByPrimaryId } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { selectFirstWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { definePagedFind } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
-import {
-	defineRepository,
-	defineTableAccess,
-	parseFieldsForRead,
-} from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { upsertByStableKeyIdentity } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
+import { defineFindByIdForRead, type ReadByIdParams } from "./find-by-id-for-read.utils";
 
 const seasons = defineTableAccess("seasons", {
 	primaryKeyColumn: "id",
@@ -38,6 +35,10 @@ const seasonQueryMap: QueryMap<SeasonFilters, SeasonSorting> = {
 	defaults: { sortBy: "seasonNumber", sortOrder: "asc" },
 };
 
+function loadSeasonByPrimaryId<F extends string>(params: ReadByIdParams<F>): Promise<SelectFields<Season, F> | undefined> {
+	return getSeasonsRepository().findByPrimaryId(params);
+}
+
 const overrides = {
 	findPage: definePagedFind({
 		access: seasons,
@@ -45,9 +46,7 @@ const overrides = {
 		findMany: (params) => seasons.findMany(params),
 	}),
 
-	async findByIdForRead<F extends string>(seasonId: string, query?: FieldsQuery<F>) {
-		return await getSeasonsRepository().findByPrimaryId({ primaryId: seasonId, fields: parseFieldsForRead(query) });
-	},
+	findByIdForRead: defineFindByIdForRead<Season>(loadSeasonByPrimaryId),
 
 	/** All seasons for a metadata row (raw rows, no relations), in season order. */
 	async findByMetadataId(metadataId: string) {

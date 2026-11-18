@@ -1,6 +1,7 @@
 import { makeSignature } from "better-auth/crypto";
+import { AUTH_SESSION_LIFETIME_SECONDS } from "@/config/definitions/system.definitions";
 import { env } from "@/config/env.config";
-import { PROFILE_UNLOCK_COOKIE, profilePinFingerprint, signProfileUnlock } from "@/utils/profile-unlock.utils";
+import { PROFILE_UNLOCK_COOKIE, PROFILE_UNLOCK_TTL_SECONDS, profilePinFingerprint, signProfileUnlock } from "@/utils/profile-unlock.utils";
 import { auth } from "./better-auth.config";
 
 export interface IssuedSession {
@@ -27,7 +28,7 @@ export async function issueSession(userId: string, profileId?: string | null, pr
 		`Path=${attrs.path ?? "/"}`,
 		attrs.httpOnly ? "HttpOnly" : "",
 		`SameSite=${attrs.sameSite ?? "lax"}`,
-		`Max-Age=${attrs.maxAge ?? 604800}`,
+		`Max-Age=${attrs.maxAge ?? AUTH_SESSION_LIFETIME_SECONDS}`,
 		attrs.secure ? "Secure" : "",
 	].filter(Boolean);
 
@@ -35,11 +36,13 @@ export async function issueSession(userId: string, profileId?: string | null, pr
 	if (profileId) {
 		const httpOnly = attrs.httpOnly ? "HttpOnly; " : "";
 		const secure = attrs.secure ? "Secure; " : "";
-		cookies.push(`current_profile_id=${profileId}; Path=/; ${httpOnly}${secure}SameSite=Lax; Max-Age=${attrs.maxAge ?? 604800}`);
+		cookies.push(
+			`current_profile_id=${profileId}; Path=/; ${httpOnly}${secure}SameSite=Lax; Max-Age=${attrs.maxAge ?? AUTH_SESSION_LIFETIME_SECONDS}`,
+		);
 		// Quick-connect is authorized from an already-authenticated device, so the
 		// paired device starts with the profile unlocked (same as a manual switch).
 		cookies.push(
-			`${PROFILE_UNLOCK_COOKIE}=${encodeURIComponent(signProfileUnlock(profileId, env.BETTER_AUTH_SECRET, profilePinFingerprint(profilePin)))}; Path=/; ${httpOnly}${secure}SameSite=Lax; Max-Age=43200`,
+			`${PROFILE_UNLOCK_COOKIE}=${encodeURIComponent(signProfileUnlock(profileId, env.BETTER_AUTH_SECRET, profilePinFingerprint(profilePin)))}; Path=/; ${httpOnly}${secure}SameSite=Lax; Max-Age=${PROFILE_UNLOCK_TTL_SECONDS}`,
 		);
 	}
 

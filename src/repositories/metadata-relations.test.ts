@@ -168,28 +168,35 @@ describe("metadata relations", () => {
 		expect(detail.lockedFields.toSorted()).toEqual(["overview", "title"]);
 	});
 
-	test("default detail projection and explicit field projection return identical relations", async () => {
+	test("explicitly projecting relation fields returns the seeded relations", async () => {
 		const { relatedId } = await seedTitles();
-		const detail = await metadataRepository.findById({ primaryId: relatedId });
 		const projected = await metadataRepository.findById({
 			primaryId: relatedId,
 			fields: parseFields({ fields: RELATION_KEYS.join(",") }),
 		});
-		if (!(detail && projected)) throw new Error("seeded title not found");
+		if (!projected) throw new Error("seeded title not found");
 
-		expect(pickRelations(projected)).toEqual(pickRelations(detail));
+		expect(projected.genres.map((genre) => genre.name).toSorted()).toEqual(["Drama", "Thriller"]);
+		expect(projected.keywords.map((keyword) => keyword.name)).toEqual(["heist"]);
+		expect(projected.collections.map((collection) => collection.name)).toEqual(["Saga"]);
+		expect(projected.companies.map((company) => company.name).toSorted()).toEqual(["Studio A", "Studio B"]);
+		expect(projected.providers.map((provider) => provider.name)).toEqual(["TMDB"]);
+		expect(projected.cast.map((credit) => credit.role)).toEqual(["Lead", "Support"]);
+		expect(projected.crew.map((credit) => credit.job)).toEqual(["Director"]);
+		expect(projected.images.map((image) => image.imageType).toSorted()).toEqual(["backdrop", "poster"]);
+		expect(projected.rating.scores).toHaveLength(2);
+		expect(projected.lockedFields.toSorted()).toEqual(["overview", "title"]);
 	});
 
-	test("list page relations match the detail relations for the same title", async () => {
+	test("list page returns the seeded relations for a title", async () => {
 		const { relatedId } = await seedTitles();
-		const detail = await metadataRepository.findById({ primaryId: relatedId });
 		const page = await metadataRepository.findPage({ limit: 10 });
 		const listed = page.data.find((item) => item.id === relatedId);
-		if (!(detail && listed)) throw new Error("seeded title not found in list or detail");
+		if (!listed) throw new Error("seeded title not found in list");
 
-		expect(listed.genres).toEqual(detail.genres);
-		expect(listed.images).toEqual(detail.images);
-		expect(listed.rating.scores).toEqual(detail.rating.scores);
+		expect(listed.genres.map((genre) => genre.name).toSorted()).toEqual(["Drama", "Thriller"]);
+		expect(listed.images.map((image) => image.imageType).toSorted()).toEqual(["backdrop", "poster"]);
+		expect(listed.rating.scores).toHaveLength(2);
 	});
 
 	test("a title with no relations returns empty relation payloads", async () => {

@@ -1,6 +1,7 @@
 import type { TrickplayRegenerationReport, TrickplayStats } from "@reelvault/sdk/common";
 import { CORE_ARTIFACTS_OWNER } from "@/integrations/drizzle-orm/constants/media-artifacts.constants";
 import { resolveCoreArtifactsBudgetBytes } from "@/modules/artifacts/artifacts-budget.utils";
+import { TRICKPLAY_ARTIFACT_KIND } from "@/modules/trickplay/trickplay-artifacts.utils";
 import { summarizeRegenerationOutcomes } from "@/modules/trickplay/trickplay-regeneration.report";
 import { type TrickplayRegenerationScope, trickplayRepository } from "@/repositories/trickplay.repository";
 import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
@@ -86,11 +87,11 @@ export const trickplayAdminService = {
 		let artifacts: number;
 		let filesWithArtifacts: string[];
 		if (options.dryRun) {
-			const counted = await mediaArtifactsService.countByMediaFileIdsAndKind(ids, "trickplay", CORE_ARTIFACTS_OWNER);
+			const counted = await mediaArtifactsService.countByMediaFileIdsAndKind(ids, TRICKPLAY_ARTIFACT_KIND, CORE_ARTIFACTS_OWNER);
 			artifacts = counted.artifacts;
 			filesWithArtifacts = counted.mediaFileIds;
 		} else {
-			const deleted = await mediaArtifactsService.deleteByMediaFileIdsAndKind(ids, "trickplay", CORE_ARTIFACTS_OWNER);
+			const deleted = await mediaArtifactsService.deleteByMediaFileIdsAndKind(ids, TRICKPLAY_ARTIFACT_KIND, CORE_ARTIFACTS_OWNER);
 			artifacts = deleted.artifacts;
 			filesWithArtifacts = deleted.mediaFileIds;
 		}

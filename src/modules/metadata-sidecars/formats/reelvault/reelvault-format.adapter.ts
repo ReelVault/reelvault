@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import type { SidecarFormatAdapter } from "@/modules/metadata-sidecars/formats/sidecar-format.adapter";
+import { getSidecarMediaKind, REELVAULT_SNAPSHOT_SUFFIX } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import type {
 	CanonicalSidecarDocument,
 	SidecarFormatInput,
@@ -20,7 +21,7 @@ export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 	readonly capabilities = ["read", "write"] as const;
 
 	canRead({ documentPath }: SidecarFormatInput): Promise<boolean> {
-		return Promise.resolve(basename(documentPath).toLowerCase().endsWith(".reelvault.nfo"));
+		return Promise.resolve(basename(documentPath).toLowerCase().endsWith(REELVAULT_SNAPSHOT_SUFFIX));
 	}
 
 	async read({ documentPath }: SidecarFormatInput): Promise<CanonicalSidecarDocument | null> {
@@ -30,7 +31,7 @@ export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 		if (!snapshot) return null;
 
 		return {
-			mediaKind: getMediaKind(documentPath),
+			mediaKind: getSidecarMediaKind(documentPath),
 			identifiers: snapshot.identifiers,
 			title: snapshot.title,
 			originalTitle: snapshot.originalTitle,
@@ -65,13 +66,4 @@ function parseSnapshot(value: string | undefined): SidecarSnapshotDocument | und
 	const parsed = safeParseJson(value);
 
 	return isSidecarSnapshotDocument(parsed) ? parsed : undefined;
-}
-
-function getMediaKind(documentPath: string): "movie" | "series" | "episode" {
-	const name = basename(documentPath).toLowerCase();
-	if (name === "movie.reelvault.nfo") return "movie";
-
-	if (name === "tvshow.reelvault.nfo") return "series";
-
-	return "episode";
 }

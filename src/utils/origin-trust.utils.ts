@@ -236,45 +236,41 @@ export function isOriginAllowed(reqOrigin: string | null | undefined, explicitAl
 	return false;
 }
 
-const STATIC_TRUSTED_ORIGIN_PATTERNS: readonly string[] = [
+const BOTH_SCHEMES = ["http", "https"] as const;
+
+/** Native shells trusted by {@link isNativeShellOrigin} — they never share the
+ * server's scheme/host, so they need explicit patterns in the auth origin list. */
+const NATIVE_SHELL_ORIGIN_PATTERNS = [
 	"tauri://localhost",
 	"http://tauri.localhost",
 	"capacitor://localhost",
 	"https://*.reelvault.mobile",
-	"http://localhost:*",
-	"https://localhost:*",
-	"http://127.0.0.1:*",
-	"https://127.0.0.1:*",
-	"http://10.*:*",
-	"https://10.*:*",
-	"http://172.16.*:*",
-	"http://172.17.*:*",
-	"http://172.18.*:*",
-	"http://172.19.*:*",
-	"http://172.20.*:*",
-	"http://172.21.*:*",
-	"http://172.22.*:*",
-	"http://172.23.*:*",
-	"http://172.24.*:*",
-	"http://172.25.*:*",
-	"http://172.26.*:*",
-	"http://172.27.*:*",
-	"http://172.28.*:*",
-	"http://172.29.*:*",
-	"http://172.30.*:*",
-	"http://172.31.*:*",
-	"http://192.168.*:*",
-	"https://192.168.*:*",
-	"http://*.lan:*",
-	"https://*.lan:*",
-	"http://*.local:*",
-	"https://*.local:*",
-	"http://*.home:*",
-	"https://*.home:*",
-	"http://*.home.arpa:*",
-	"https://*.home.arpa:*",
-	"http://*.internal:*",
-	"https://*.internal:*",
+] as const;
+
+/** Loopback hosts a browser can name in an origin. IPv6 spellings are not valid
+ * wildcard hosts; {@link isLoopbackHost} still recognizes them at request time. */
+const LOOPBACK_ORIGIN_HOSTS = [...LOOPBACK_HOSTNAMES].filter((host) => host === "localhost" || isIP(host) === 4);
+
+/** RFC1918 ranges trusted by {@link isPrivateIpv4}. 172.16/12 is expanded into
+ * its 16 /16 blocks because Better Auth's wildcard matcher accepts only one
+ * `*` per host label. */
+const PRIVATE_IPV4_172_HOSTS = Array.from({ length: 16 }, (_, index) => `172.${index + 16}.*`);
+const LOCAL_DOMAIN_ORIGIN_HOSTS = LOCAL_DOMAIN_SUFFIXES.map((suffix) => `*.${suffix.slice(1)}`);
+
+function originPatterns(hosts: readonly string[], schemes: readonly string[]): string[] {
+	return schemes.flatMap((scheme) => hosts.map((host) => `${scheme}://${host}:*`));
+}
+
+/** Origins Better Auth's wildcard matcher accepts statically. Derived from the
+ * same definitions the runtime trust checks use, so adding a local suffix or a
+ * native shell does not require editing a second list. */
+const STATIC_TRUSTED_ORIGIN_PATTERNS: readonly string[] = [
+	...NATIVE_SHELL_ORIGIN_PATTERNS,
+	...originPatterns(LOOPBACK_ORIGIN_HOSTS, BOTH_SCHEMES),
+	...originPatterns(["10.*"], BOTH_SCHEMES),
+	...originPatterns(PRIVATE_IPV4_172_HOSTS, ["http"]),
+	...originPatterns(["192.168.*"], BOTH_SCHEMES),
+	...originPatterns(LOCAL_DOMAIN_ORIGIN_HOSTS, BOTH_SCHEMES),
 ];
 
 let staticTrustedOriginPatterns: string[] | undefined;

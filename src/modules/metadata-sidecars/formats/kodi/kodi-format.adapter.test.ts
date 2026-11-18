@@ -22,7 +22,6 @@ function snapshot(overrides: Partial<SidecarSnapshotDocument> = {}): SidecarSnap
 		tagline: "Zobacz, jak daleko to zajdzie.",
 		status: "Released",
 		identifiers: { imdb: "tt26657236", tmdb: "1083381" },
-		providerIds: {},
 		genres: ["Horror", "Sci-Fi"],
 		keywords: [],
 		productionCompanies: ["A24"],

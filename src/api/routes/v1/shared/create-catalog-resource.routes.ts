@@ -12,6 +12,7 @@ import {
 	type PaginationSchema,
 	ROUTE_ERRORS,
 } from "@/api/schemas/common.schema";
+import { assertPresent } from "@/utils/domain.errors";
 
 /**
  * Shared route shape for the single-id catalog resources (genres, keywords,
@@ -57,10 +58,16 @@ export interface CatalogResourceRoutesOptions<TFilters extends TSchema, TSorting
 	descriptions: { list: string; detail: string };
 }
 
+function paramKeyFor(params: TObject<Record<string, TString>>): string {
+	const [key] = Object.keys(params.properties);
+	assertPresent(key, "Catalog resource route requires one id parameter");
+	return key;
+}
+
 export function createCatalogResourceRoutes<TFilters extends TSchema, TSorting extends TSchema>(
 	options: CatalogResourceRoutesOptions<TFilters, TSorting>,
 ) {
-	const paramKey = `${options.name}Id`;
+	const paramKey = paramKeyFor(options.params);
 	const detailModel = `${options.name}.schema`;
 	const paginatedModel = `${options.prefix.slice(1)}.paginated.schema`;
 
@@ -78,13 +85,21 @@ export function createCatalogResourceRoutes<TFilters extends TSchema, TSorting e
 			...cached({ maxAge: options.cacheMaxAge.list, private: true }),
 			detail: { description: options.descriptions.list },
 		})
-		.get(`/:${paramKey}`, async ({ params, query }) => await options.service.getById(params[paramKey] ?? "", query), {
-			params: options.params,
-			query: "fields.schema",
-			response: { ...ROUTE_ERRORS.NOT_FOUND, 200: detailModel },
-			...cached({ maxAge: options.cacheMaxAge.detail, private: true }),
-			detail: { description: options.descriptions.detail },
-		});
+		.get(
+			`/:${paramKey}`,
+			async ({ params, query }) => {
+				const id = params[paramKey];
+				assertPresent(id, "Catalog resource route id is missing");
+				return await options.service.getById(id, query);
+			},
+			{
+				params: options.params,
+				query: "fields.schema",
+				response: { ...ROUTE_ERRORS.NOT_FOUND, 200: detailModel },
+				...cached({ maxAge: options.cacheMaxAge.detail, private: true }),
+				detail: { description: options.descriptions.detail },
+			},
+		);
 }
 
 /**
@@ -94,25 +109,41 @@ export function createCatalogResourceRoutes<TFilters extends TSchema, TSorting e
 export function createRefreshableCatalogResourceRoutes<TFilters extends TSchema, TSorting extends TSchema>(
 	options: CatalogResourceRoutesOptions<TFilters, TSorting> & { refresh: CatalogResourceRefresh },
 ) {
-	const paramKey = `${options.name}Id`;
+	const paramKey = paramKeyFor(options.params);
 	const detailModel = `${options.name}.schema`;
 	const { refresh, refreshImage, refreshMany, descriptions } = options.refresh;
 
 	return createCatalogResourceRoutes(options)
-		.post(`/:${paramKey}/refresh`, async ({ params }) => await refresh(params[paramKey] ?? ""), {
-			adminOnly: true,
-			rateLimit: routeLimit(`${options.name}-refresh`, 30),
-			params: options.params,
-			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: detailModel },
-			detail: { description: descriptions.refresh },
-		})
-		.post(`/:${paramKey}/refresh-image`, async ({ params }) => await refreshImage(params[paramKey] ?? ""), {
-			adminOnly: true,
-			rateLimit: routeLimit(`${options.name}-refresh-image`, 30),
-			params: options.params,
-			response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: detailModel },
-			detail: { description: descriptions.refreshImage },
-		})
+		.post(
+			`/:${paramKey}/refresh`,
+			async ({ params }) => {
+				const id = params[paramKey];
+				assertPresent(id, "Catalog resource route id is missing");
+				return await refresh(id);
+			},
+			{
+				adminOnly: true,
+				rateLimit: routeLimit(`${options.name}-refresh`, 30),
+				params: options.params,
+				response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: detailModel },
+				detail: { description: descriptions.refresh },
+			},
+		)
+		.post(
+			`/:${paramKey}/refresh-image`,
+			async ({ params }) => {
+				const id = params[paramKey];
+				assertPresent(id, "Catalog resource route id is missing");
+				return await refreshImage(id);
+			},
+			{
+				adminOnly: true,
+				rateLimit: routeLimit(`${options.name}-refresh-image`, 30),
+				params: options.params,
+				response: { ...ROUTE_ERRORS.ADMIN_NOT_FOUND, 200: detailModel },
+				detail: { description: descriptions.refreshImage },
+			},
+		)
 		.post("/bulk-refresh", async ({ body }) => await refreshMany(body.ids), {
 			adminOnly: true,
 			rateLimit: routeLimit(`${options.name}-bulk-refresh`, 30),

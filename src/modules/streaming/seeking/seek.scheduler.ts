@@ -85,11 +85,7 @@ export class SeekScheduler {
 		this.pending.clear();
 	}
 
-	/**
-	 * Removes the lock for a specific session. Called from StreamingService
-	 * after a session is terminated to prevent stale locks from blocking
-	 * a new session that reuses the same sessionId.
-	 */
+	/** Drops a terminated session's lock so a later session can reuse the id. */
 	cancelSessionLock(sessionId: string): void {
 		this.locks.forget(sessionId);
 	}

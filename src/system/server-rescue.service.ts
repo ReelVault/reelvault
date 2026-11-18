@@ -1,5 +1,6 @@
 import { serverConfig } from "@/config/server/server.config";
 import { timeoutMultiplierForFactor } from "@/config/system-resources.service";
+import { PROTECTED_WORKER_IDS } from "@/config/worker-ids.utils";
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { createLogger } from "@/utils/logger.utils";
 import { detachCatching } from "@/utils/promise.utils";
@@ -47,13 +48,6 @@ const FLAP_THRESHOLD_STEP = 1.5;
 const FLAP_THRESHOLD_CAP = 4;
 /** Engage timestamps older than this are forgotten, resetting a calm server to the configured thresholds. */
 const FLAP_MEMORY_MS = 60 * 60_000;
-
-/**
- * Workers that must survive rescue mode: they serve active playback sessions.
- * Everything else (scans, ingest, analysis, trickplay plugins, metadata, images,
- * loudness) is expendable — that work can resume once the server is healthy.
- */
-const PROTECTED_WORKER_IDS = new Set(["stream-init", "transcode"]);
 
 /**
  * Server Rescue — last-resort protection when the server starts freezing.

@@ -11,6 +11,7 @@ import { resolveWebDistRoot } from "@/config/server/web-dist.utils";
 import { MIN_BUN_VERSION } from "@/config/version.constants";
 import { MIGRATIONS_DIR } from "@/integrations/drizzle-orm/constants/migrations.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { quickCheckProblems } from "./database-integrity.script";
 
 type Level = "ok" | "warn" | "fail";
 interface Check {
@@ -93,8 +94,7 @@ async function checkDisk(): Promise<Check> {
 function checkDatabase(): Check {
 	try {
 		const { applied } = databaseFactory.migrate();
-		const result = databaseFactory.sqlite.query("PRAGMA quick_check").values();
-		const problems = result.map((row) => String(row[0])).filter((line) => line !== "ok");
+		const problems = quickCheckProblems();
 		if (problems.length > 0)
 			return { name: "database", level: "fail", detail: `integrity check failed: ${problems.join("; ")}. Restore a backup.` };
 

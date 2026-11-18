@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { rename } from "node:fs/promises";
 import { resolve } from "node:path";
 import { databaseMaintenanceRepository } from "@/repositories/database-maintenance.repository";
+import { RECOMPUTE_PRESENCE_STAMP_SQL } from "@/repositories/metadata/media-presence.writer";
 import { DomainError } from "@/utils/domain.errors";
 import { withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
@@ -80,9 +81,7 @@ export class SqliteOfflineCatalogRebuildService implements OfflineCatalogRebuild
 
 			// The importers write media rows directly, so seed the maintained
 			// presence stamp before the rebuilt catalog can be served.
-			database.run(
-				"UPDATE metadata SET latest_media_created_at = (SELECT MAX(created_at) FROM media_files WHERE media_files.metadata_id = metadata.id)",
-			);
+			database.run(RECOMPUTE_PRESENCE_STAMP_SQL);
 
 			const foreignKeyErrors = database.query("PRAGMA foreign_key_check").all();
 			database.close();

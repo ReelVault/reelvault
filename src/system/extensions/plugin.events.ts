@@ -5,7 +5,8 @@ import { createLogger } from "@/utils/logger.utils";
 import { detach, mapConcurrent, withTimeout } from "@/utils/promise.utils";
 import { PluginHandlerTable } from "./plugin-handler.registry";
 
-type ErasedPluginHandler = (payload: never) => void | Promise<void>;
+/** Contravariant erase: every typed event handler is assignable to this bus-facing shape. */
+export type ErasedPluginHandler = (payload: never) => void | Promise<void>;
 
 export class PluginEventBus {
 	readonly serviceName = "PluginEventBus";

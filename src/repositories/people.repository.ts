@@ -22,11 +22,7 @@ import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/prima
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
-import {
-	defineRepository,
-	defineTableAccess,
-	parseFieldsForRead,
-} from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { buildRelationProjection } from "@/integrations/drizzle-orm/utils/media-file-projection.builder";
 import { findFirstProviderLinkFor } from "@/integrations/drizzle-orm/utils/provider-link.reader";
@@ -34,6 +30,7 @@ import { createLocalStableKey, createProviderPersonId, createProviderStableKey }
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { toMap } from "@/utils/array.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
+import { defineFindByIdForRead, type ReadByIdParams } from "./find-by-id-for-read.utils";
 import { providersRepository } from "./providers.repository";
 
 const people = defineTableAccess("people", {
@@ -50,6 +47,10 @@ const personQueryMap: QueryMap<PersonFilters, PersonSorting> = {
 	defaults: { sortBy: "name", sortOrder: "asc" },
 };
 
+function loadPersonByPrimaryId<F extends string>(params: ReadByIdParams<F>): Promise<SelectFields<PersonWithRelations, F> | undefined> {
+	return getPeopleRepository().findByPrimaryId(params);
+}
+
 const overrides = {
 	async findPage<F extends string>(
 		query?: PaginationQuery & FieldsQuery<F> & PersonFilters & PersonSorting,
@@ -62,9 +63,7 @@ const overrides = {
 		});
 	},
 
-	async findByIdForRead<F extends string>(personId: string, query?: FieldsQuery<F>) {
-		return await getPeopleRepository().findByPrimaryId({ primaryId: personId, fields: parseFieldsForRead(query) });
-	},
+	findByIdForRead: defineFindByIdForRead<PersonWithRelations>(loadPersonByPrimaryId),
 
 	async createAndRead<F extends string>(
 		body: CreatePerson,

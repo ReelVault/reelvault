@@ -6,7 +6,7 @@ import { createDirectory } from "@/utils/directory.utils";
 import { withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
-import { type DetectedHwaccel, hardwareDecodeArgs, SOFTWARE_HWACCEL, withDevice } from "./hwaccel.utils";
+import { type DetectedHwaccel, HWACCEL_DESCRIPTORS, hardwareDecodeArgs, SOFTWARE_HWACCEL, withDevice } from "./hwaccel.utils";
 import { runFfmpegDiagnostic } from "./probe.utils";
 
 const logger = createLogger("FfmpegCapabilities");
@@ -127,14 +127,8 @@ export async function verifyHwaccelCandidates(
 	};
 }
 
-const HW_DEVICE_FLAGS: Partial<Record<string, string>> = {
-	vaapi: "-vaapi_device",
-	qsv: "-qsv_device",
-	nvenc: "-gpu",
-};
-
 function buildTestEncodeArgs(hw: DetectedHwaccel): string[] {
-	const deviceFlag = HW_DEVICE_FLAGS[hw.type];
+	const deviceFlag = HWACCEL_DESCRIPTORS[hw.type].encodeDeviceFlag;
 	const lavfiInput = ["-f", "lavfi", "-i", "color=c=black:s=256x144:d=0.2:r=10"];
 	const deviceArgs = deviceFlag ? withDevice(deviceFlag, hw.device) : [];
 	const vfArgs = hw.type === "vaapi" ? ["-vf", "format=nv12,hwupload"] : [];

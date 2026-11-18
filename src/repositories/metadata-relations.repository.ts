@@ -5,7 +5,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import { calculateAverageScore } from "./metadata-recommendations.reader";
+import { calculateAverageScore } from "./metadata/rating-aggregation.utils";
 import { emptyRelationData } from "./metadata-relations/payload.mapper";
 import { loadBatchedListRelations, loadExplicitRelations, loadMergedDetailRelations } from "./metadata-relations/relations.loader";
 import type { MetadataRelationData } from "./metadata-relations/relations.types";

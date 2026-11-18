@@ -11,7 +11,11 @@ export type SettingGroup =
 	| "system"
 	| "network";
 
-export type CpuProfile = "conservative" | "balanced" | "performance" | "custom";
+/** The CPU profiles, as values — one source for the setting definition, the
+ * reader's validator and the budget formulas' type. */
+export const CPU_PROFILE_OPTIONS = ["conservative", "balanced", "performance", "custom"] as const;
+
+export type CpuProfile = (typeof CPU_PROFILE_OPTIONS)[number];
 
 type SettingType = "string" | "number" | "boolean" | "enum" | "string_array";
 

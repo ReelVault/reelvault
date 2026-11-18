@@ -1,7 +1,7 @@
 import type { MetadataStorageMode, SidecarFlavor } from "@reelvault/sdk/common";
 import type { ExternalIdentifiers } from "@reelvault/sdk/plugin";
 
-type SidecarMediaKind = "movie" | "series" | "season" | "episode";
+export type SidecarMediaKind = "movie" | "series" | "season" | "episode";
 
 /** Target dialect for written sidecars. Kodi's NFO format is the one Plex and
  * Jellyfin also read, so a single non-native flavor covers them all. */
@@ -65,7 +65,6 @@ export interface SidecarSnapshotDocument {
 	readonly seasonNumber?: number | undefined;
 	readonly episodeNumber?: number | undefined;
 	readonly identifiers: ExternalIdentifiers;
-	readonly providerIds: Readonly<Record<string, string>>;
 	readonly genres: readonly string[];
 	readonly keywords: readonly string[];
 	readonly collection?: string | undefined;

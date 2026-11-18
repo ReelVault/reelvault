@@ -2,10 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { RecurringTimer } from "./recurring-timer.utils";
 
 describe("RecurringTimer", () => {
-	test("starts on start(), ignores a second start, and stops ticking after stop()", async () => {
+	test("ticks after start() and stops ticking after stop()", async () => {
+		const firstTick = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
 		let calls = 0;
 		const timer = new RecurringTimer(() => {
 			calls++;
+			if (calls === 1) firstTick.resolve();
+
+			return release.promise;
 		}, 5);
 
 		expect(timer.running).toBeFalse();
@@ -13,13 +18,14 @@ describe("RecurringTimer", () => {
 		timer.start();
 		expect(timer.running).toBeTrue();
 
-		await Bun.sleep(40);
+		// Hold the first tick open: a second chain from the ignored start would
+		// enter the callback again while this one is still gated.
+		await firstTick.promise;
 		timer.stop();
-		const callsAtStop = calls;
-
+		release.resolve();
 		await Bun.sleep(30);
-		expect(callsAtStop).toBeGreaterThan(0);
-		expect(calls).toBe(callsAtStop);
+
+		expect(calls).toBe(1);
 		expect(timer.running).toBeFalse();
 	});
 

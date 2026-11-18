@@ -1,5 +1,6 @@
 import { serverConfig } from "@/config/server/server.config";
 import type { AudioStream, PlaybackPreferenceOverrides, Subtitle } from "@/modules/streaming/streaming.types";
+import { selectDefaultOrFirstStream } from "@/modules/streaming/utils/stream-selection.utils";
 import { unique } from "@/utils/array.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import { toIso639_1 } from "./language-codes.utils";
@@ -77,17 +78,6 @@ function findCompatibleStream<T extends AudioStream>(
 	}
 
 	return undefined;
-}
-
-export function selectDefaultOrFirstStream<T extends { index: number; isDefault: boolean }>(streams: readonly T[]): T | undefined {
-	let firstByIndex: T | undefined;
-	for (const stream of streams) {
-		if (stream.isDefault) return stream;
-
-		if (!firstByIndex || stream.index < firstByIndex.index) firstByIndex = stream;
-	}
-
-	return firstByIndex;
 }
 
 export function resolvePlaybackPreferences(

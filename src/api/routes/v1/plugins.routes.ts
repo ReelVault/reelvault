@@ -36,24 +36,13 @@ interface PluginRouteContext {
 	body?: unknown;
 }
 
+const PLUGIN_ROUTE_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+
 // Plugin-owned routes can do arbitrary work; bound them per profile so a
 // single account cannot hammer any plugin endpoint. The global limiter
 // only exempts playback segments, so this is additive.
-const rootRouteOptions = {
+const pluginRouteOptions = {
 	rateLimit: { name: "plugin-route", max: 300, windowMs: MINUTE, perParam: "pluginId" },
-	params: PluginIdParams,
-	// Plugin-owned payload: the plugin's declared response schema validates it.
-	response: t.Unknown(),
-	detail: {
-		description: "Dispatches a root declared plugin route.",
-	},
-};
-
-const nestedRouteOptions = {
-	rateLimit: { name: "plugin-route", max: 300, windowMs: MINUTE, perParam: "pluginId" },
-	// No params schema here: Elysia's exactMirror cannot compile a TypeBox
-	// object that owns the "*" wildcard key, which silently kills this route.
-	// pluginId is re-validated inside the dispatch instead.
 	// Plugin-owned payload: the plugin's declared response schema validates it.
 	response: t.Unknown(),
 	detail: {
@@ -61,10 +50,10 @@ const nestedRouteOptions = {
 	},
 };
 
-async function dispatchRootRoute({ params, request, set, user, profile, body }: PluginRouteContext) {
+async function dispatchPluginRoute({ params, request, set, user, profile, body }: PluginRouteContext) {
 	return await handlePluginRouteDispatch({
 		pluginId: params.pluginId,
-		path: "/",
+		path: params["*"] === undefined ? "/" : `/${params["*"]}`,
 		request,
 		set,
 		user,
@@ -73,19 +62,7 @@ async function dispatchRootRoute({ params, request, set, user, profile, body }: 
 	});
 }
 
-async function dispatchNestedRoute({ params, request, set, user, profile, body }: PluginRouteContext) {
-	return await handlePluginRouteDispatch({
-		pluginId: params.pluginId,
-		path: `/${params["*"] ?? ""}`,
-		request,
-		set,
-		user,
-		profile,
-		body,
-	});
-}
-
-export const pluginsRoutes = new Elysia({ prefix: "/plugins", tags: ["Plugins"] })
+const pluginRoutesApp = new Elysia({ prefix: "/plugins", tags: ["Plugins"] })
 	.use(commonModel)
 	.use(authMiddleware)
 	.use(rateLimitMiddleware)
@@ -103,19 +80,20 @@ export const pluginsRoutes = new Elysia({ prefix: "/plugins", tags: ["Plugins"] 
 				description: "Lists all installed plugins and their lifecycle states.",
 			},
 		},
-	)
-	// Each method is registered on its own, not with `.all`: Elysia matches a request's method before it
-	// tries any-method routes, and the bundled web UI's GET catch-all would otherwise take every plugin GET.
-	.get("/:pluginId", dispatchRootRoute, rootRouteOptions)
-	.post("/:pluginId", dispatchRootRoute, rootRouteOptions)
-	.put("/:pluginId", dispatchRootRoute, rootRouteOptions)
-	.patch("/:pluginId", dispatchRootRoute, rootRouteOptions)
-	.delete("/:pluginId", dispatchRootRoute, rootRouteOptions)
-	.get("/:pluginId/*", dispatchNestedRoute, nestedRouteOptions)
-	.post("/:pluginId/*", dispatchNestedRoute, nestedRouteOptions)
-	.put("/:pluginId/*", dispatchNestedRoute, nestedRouteOptions)
-	.patch("/:pluginId/*", dispatchNestedRoute, nestedRouteOptions)
-	.delete("/:pluginId/*", dispatchNestedRoute, nestedRouteOptions);
+	);
+
+// Each method is registered on its own, not with `.all`: Elysia matches a request's method before it
+// tries any-method routes, and the bundled web UI's GET catch-all would otherwise take every plugin GET.
+for (const method of PLUGIN_ROUTE_METHODS) {
+	// Root routes validate pluginId through the params schema. The nested wildcard
+	// cannot carry one: Elysia's exactMirror cannot compile a TypeBox object that
+	// owns the "*" key, which silently kills the route. pluginId is re-validated
+	// in the dispatch service instead.
+	pluginRoutesApp.route(method, "/:pluginId", dispatchPluginRoute, { ...pluginRouteOptions, params: PluginIdParams });
+	pluginRoutesApp.route(method, "/:pluginId/*", dispatchPluginRoute, pluginRouteOptions);
+}
+
+export const pluginsRoutes = pluginRoutesApp;
 
 async function handlePluginRouteDispatch({
 	pluginId,

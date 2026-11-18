@@ -10,6 +10,7 @@ import { pluginMetadataService } from "@/plugins/capabilities/plugin.metadata";
 import { pluginStorageService } from "@/plugins/capabilities/plugin.storage";
 import { providerService } from "@/plugins/capabilities/provider.service";
 import { notificationsService } from "@/services/notifications/notifications.service";
+import { PLUGIN_HOOK_NAMES } from "@/system/extensions/plugin.hooks";
 import { pickDefined } from "@/utils/type.utils";
 import type { PluginScopeApi } from "./plugin.scope";
 
@@ -152,11 +153,11 @@ function buildEventsCapability(pluginId: string, scope: PluginScopeApi): PluginH
 function buildHooksCapability(pluginId: string, scope: PluginScopeApi): PluginHost["hooks"] {
 	return {
 		beforeArtifactCreate: (handler) =>
-			withCapability(scope, "eventHandler", () => scope.subscribeHook(pluginId, "beforeArtifactCreate", handler)),
+			withCapability(scope, "eventHandler", () => scope.subscribeHook(pluginId, PLUGIN_HOOK_NAMES.artifactCreate, handler)),
 		beforeMediaRecognition: (handler) =>
-			withCapability(scope, "eventHandler", () => scope.subscribeHook(pluginId, "beforeMediaRecognition", handler)),
+			withCapability(scope, "eventHandler", () => scope.subscribeHook(pluginId, PLUGIN_HOOK_NAMES.mediaRecognition, handler)),
 		beforeMetadataSave: (handler) =>
-			withCapability(scope, "eventHandler", () => scope.subscribeHook(pluginId, "beforeMetadataSave", handler)),
+			withCapability(scope, "eventHandler", () => scope.subscribeHook(pluginId, PLUGIN_HOOK_NAMES.metadataSave, handler)),
 	};
 }
 

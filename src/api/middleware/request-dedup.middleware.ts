@@ -3,7 +3,7 @@ import { Elysia } from "elysia";
 import { env } from "@/config/env.config";
 import { serverConfig } from "@/config/server/server.config";
 import { getResponseStatus, requestIdentityKey } from "@/utils/http.utils";
-import { serializedBodyCache } from "./response-cache.middleware";
+import { serializedBodyCache } from "./serialized-body.cache";
 
 // Benchmark honesty escape hatch: with dedup disabled every request does its
 // own work instead of joining an identical in-flight response.

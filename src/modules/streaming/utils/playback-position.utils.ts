@@ -1,4 +1,3 @@
-// Pure playback-position calculations — shared by progress/ and segments.
 import { clamp } from "@/utils/math.utils";
 import { isFiniteNumber, isNullish } from "@/utils/type.utils";
 

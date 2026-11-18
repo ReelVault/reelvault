@@ -15,10 +15,10 @@ import { defineRepository } from "@/integrations/drizzle-orm/query/table-access/
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import type { MediaCleanupData } from "@/integrations/drizzle-orm/utils/media-cleanup.reader";
 import {
+	createFindByIdForRead,
 	findActiveLibraryPaths,
 	findAllIds,
 	findById,
-	findByIdForRead,
 	findMany,
 	findPage,
 	findWithPaths,
@@ -76,9 +76,7 @@ const overrides = {
 		return await createAndRead(caches, body, query);
 	},
 
-	async findByIdForRead<F extends string>(libraryId: string, query?: FieldsQuery<F>) {
-		return await findByIdForRead(caches, libraryId, query);
-	},
+	findByIdForRead: createFindByIdForRead(caches),
 
 	async updateAndRead<F extends string>(libraryId: string, body: UpdateLibrary, query?: FieldsQuery<F>) {
 		return await updateAndRead(caches, libraryId, body, query);

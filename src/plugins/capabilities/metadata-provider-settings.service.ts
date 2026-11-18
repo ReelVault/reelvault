@@ -5,16 +5,12 @@ import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
 import { type MetadataProviderSetting, pluginProviderSettingsData } from "@/services/plugins/plugin-data.service";
 import { toMap } from "@/utils/array.utils";
 import { assertFound, DomainError } from "@/utils/domain.errors";
-import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 
 /** Upper bound on cached per-library override sets (oldest entry is dropped first). */
 const LIBRARY_OVERRIDES_CACHE_MAX_ENTRIES = 200;
 
 class MetadataProviderSettingsService {
-	readonly serviceName = "MetadataProviderSettingsService";
-	readonly logger = createLogger("MetadataProviderSettingsService");
-
 	private cachedOrdered?: { source: MetadataProvider[]; values: MetadataProvider[] } | undefined;
 	private readonly cachedSettings = new MemoryCache<Map<string, MetadataProviderSetting>>({
 		ttlMs: serverConfig.plugins.providers.settingsCacheTtlMs,

@@ -1,3 +1,4 @@
+import { API_ROUTER_PREFIX } from "@/api/api.constants";
 import { serverConstants } from "@/config/server/server.constants";
 
 /**
@@ -24,10 +25,9 @@ export function isPluginUiPath(pathname: string): boolean {
 
 /**
  * Prefixes owned by the API router and the API docs. The web static plugin
- * yields on these so unknown /v1 & /openapi paths keep the JSON 404 envelope.
- * Keep in sync with the apiRouter prefix and serverConfig.api.openapi.path.
+ * yields on these so unknown API & docs paths keep the JSON 404 envelope.
  */
-const webApiPathPrefixes: readonly string[] = ["/v1", "/openapi"];
+const webApiPathPrefixes: readonly string[] = [API_ROUTER_PREFIX, serverConstants.api.openapi.path];
 
 export function isWebApiPath(pathname: string): boolean {
 	return webApiPathPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

@@ -8,8 +8,6 @@ import { pluckValidIds, toMap } from "@/utils/array.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { isNotNullish } from "@/utils/type.utils";
 
-const RATING_DEFAULT_SOURCE_WEIGHT = 1;
-
 /**
  * The "more like this" scoring pass (trait load + 5 correlated subqueries) is
  * the most expensive repository read and its result depends only on the source
@@ -28,14 +26,6 @@ export function clearSimilarIdsCache(): void {
 	similarIdsCache.clear();
 }
 
-function ratingSourceWeight(votes: number | null | undefined): number {
-	if (!votes || votes <= 0) return RATING_DEFAULT_SOURCE_WEIGHT;
-
-	return 1 + Math.log10(1 + votes);
-}
-
-export type RatingAggregationStrategy = "votes" | "simple";
-
 export type MetadataContentType = "movie" | "tv_show";
 
 export interface MoreLikeThisSource {
@@ -51,47 +41,6 @@ export interface MoreLikeThisSource {
 				data?: { id?: string | null | undefined } | null | undefined;
 		  }>
 		| undefined;
-}
-
-/**
- * Averages provider ratings on a /10 scale. The default `votes` strategy weights
- * each source by its vote count (log-scaled, floor 1) so high-volume sources like
- * IMDb dominate over sources without votes while still contributing to the blend;
- * `simple` averages every source equally. Configurable via `metadata.ratingAggregation`.
- */
-export function calculateAverageScore(
-	ratings: Array<{ value?: number | null; maxValue?: number | null; votes?: number | null } | null | undefined>,
-	strategy: RatingAggregationStrategy = "votes",
-): number | undefined {
-	const validRatings = ratings.filter((rating) => isNotNullish(rating));
-	if (validRatings.length === 0) {
-		return undefined;
-	}
-
-	if (strategy === "simple") {
-		let totalScore = 0;
-		for (const rating of validRatings) {
-			const value = rating.value ?? 0;
-			const maxValue = rating.maxValue ?? 10;
-			totalScore += (value / maxValue) * 10;
-		}
-
-		return Math.round((totalScore / validRatings.length) * 100) / 100;
-	}
-
-	let weightedScore = 0;
-	let totalWeight = 0;
-	for (const rating of validRatings) {
-		const value = rating.value ?? 0;
-		const maxValue = rating.maxValue ?? 10;
-		const weight = ratingSourceWeight(rating.votes);
-		weightedScore += (value / maxValue) * 10 * weight;
-		totalWeight += weight;
-	}
-
-	if (totalWeight <= 0) return undefined;
-
-	return Math.round((weightedScore / totalWeight) * 100) / 100;
 }
 
 export interface MoreLikeThisHost {
@@ -125,15 +74,20 @@ async function loadSourceTraits(client: MoreLikeThisClient, metadataId: string):
 	if (!metadataRow) return undefined;
 
 	const traitRows = client.all<{ kind: string; id: string | null; extra: string | null; sortOrder: number | null }>(sql`
-		SELECT 'collection' AS kind, collection_id AS id, NULL AS extra, NULL AS sortOrder FROM ${schema.metadataCollections} WHERE metadata_id = ${metadataId}
+		SELECT 'collection' AS kind, ${schema.metadataCollections.collectionId} AS id, NULL AS extra, NULL AS sortOrder
+		FROM ${schema.metadataCollections} WHERE ${schema.metadataCollections.metadataId} = ${metadataId}
 		UNION ALL
-		SELECT 'genre', genre_id, NULL, NULL FROM ${schema.metadataGenres} WHERE metadata_id = ${metadataId}
+		SELECT 'genre', ${schema.metadataGenres.genreId}, NULL, NULL
+		FROM ${schema.metadataGenres} WHERE ${schema.metadataGenres.metadataId} = ${metadataId}
 		UNION ALL
-		SELECT 'keyword', keyword_id, NULL, NULL FROM ${schema.metadataKeywords} WHERE metadata_id = ${metadataId}
+		SELECT 'keyword', ${schema.metadataKeywords.keywordId}, NULL, NULL
+		FROM ${schema.metadataKeywords} WHERE ${schema.metadataKeywords.metadataId} = ${metadataId}
 		UNION ALL
-		SELECT 'cast', person_id, role, sort_order FROM ${schema.metadataCast} WHERE metadata_id = ${metadataId}
+		SELECT 'cast', ${schema.metadataCast.personId}, ${schema.metadataCast.role}, ${schema.metadataCast.sortOrder}
+		FROM ${schema.metadataCast} WHERE ${schema.metadataCast.metadataId} = ${metadataId}
 		UNION ALL
-		SELECT 'crew', person_id, job, NULL FROM ${schema.metadataCrew} WHERE metadata_id = ${metadataId}
+		SELECT 'crew', ${schema.metadataCrew.personId}, ${schema.metadataCrew.job}, NULL
+		FROM ${schema.metadataCrew} WHERE ${schema.metadataCrew.metadataId} = ${metadataId}
 	`);
 
 	const collections: Array<{ id: string }> = [];

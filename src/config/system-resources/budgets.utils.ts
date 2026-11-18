@@ -1,10 +1,8 @@
 import type { CpuProfile } from "@/config/system-settings.types";
-import { type CanonicalWorkerId, canonicalWorkerId } from "@/config/worker-ids.utils";
+import { type BudgetedWorkerId, type CanonicalWorkerId, canonicalWorkerId } from "@/config/worker-ids.utils";
 import { MIB } from "@/utils/bytes.utils";
 import { clamp } from "@/utils/math.utils";
 import { type CpuSettings, isReservedProfile } from "./settings.reader";
-
-type WorkerId = "image-processing" | "metadata-refresh" | "media-file-technical-refresh" | "media-file-analysis";
 
 export interface CpuResourceMetrics {
 	readonly detectedCores: number;
@@ -64,7 +62,7 @@ export const SLOW_CORE_FACTOR = 0.7;
 // These are MAXIMUMS used when the admin leaves concurrency at "auto" (0).
 // Input is capacity (modern-core equivalents), not raw thread count: twelve
 // slow threads must not fund twelve simultaneous ffprobe/ffmpeg subprocesses.
-const WORKER_BUDGET_RATIO: Readonly<Record<WorkerId, CapacityBudget>> = {
+const WORKER_BUDGET_RATIO: Readonly<Record<BudgetedWorkerId, CapacityBudget>> = {
 	// Image processing: CPU-intensive (Sharp/libvips). Cap at 4 to leave cores for HTTP.
 	"image-processing": { divisor: 3, min: 1, max: 4, rounding: "ceil" },
 	// Metadata refresh: mostly network I/O + DB. Can be a bit higher.
@@ -103,7 +101,7 @@ export function capacityBudget(capacity: number, budget: CapacityBudget): number
 }
 
 /** Narrowing guard: only the budgeted workers have a ratio entry. */
-function isBudgetedWorker(id: CanonicalWorkerId): id is WorkerId {
+function isBudgetedWorker(id: CanonicalWorkerId): id is BudgetedWorkerId {
 	return id in WORKER_BUDGET_RATIO;
 }
 

@@ -1,12 +1,14 @@
 import type { LibraryWithRelations } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
 import { LIBRARY_SCAN_PRIORITY, MINUTE } from "@/config/server/server.constants";
+import { LIBRARY_SCAN_WORKER_ID } from "@/config/worker-ids.utils";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { scannerService } from "@/modules/scanner/scanner.service";
 import { librariesRepository } from "@/repositories/libraries.repository";
 import { mediaRepository } from "@/repositories/media-files.repository";
 import { scanFindingsRepository } from "@/repositories/scan-findings.repository";
 import { type ScanCheckpoint, scanStateRepository } from "@/repositories/scan-state.repository";
+import { buildLibraryScanDedupeKey } from "@/services/libraries/scans/scan-dedupe.utils";
 import { mediaFileRefreshService } from "@/services/media/media-files/refresh-media-file.operation";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { throwIfAborted } from "@/utils/cancellation.utils";
@@ -106,7 +108,7 @@ export interface LibraryScanOrchestration {
 // ─── Worker Definition ────────────────────────────────────────────────────────
 
 export const libraryScanWorker = createWorkerDefinition<LibraryScanData>(
-	"library-scan",
+	LIBRARY_SCAN_WORKER_ID,
 	() => serverConfig.workers.definitions.libraryScan,
 	async (context) =>
 		await scanLibraryTask(context.data, toApplicationContext(context), defaultDependencies, {
@@ -399,7 +401,7 @@ export async function enqueueLibraryScan(
 	const task = await workerService.addItem(libraryScanWorker.id, data, {
 		...options,
 		priority: options.priority ?? LIBRARY_SCAN_PRIORITY,
-		dedupeKey: dedupeKey ?? `${data.libraryId}:${data.pathId ?? "all"}`,
+		dedupeKey: dedupeKey ?? buildLibraryScanDedupeKey(data.libraryId, data.pathId),
 		reference: { type: "library", id: data.libraryId },
 	});
 

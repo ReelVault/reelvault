@@ -9,7 +9,6 @@ function snapshot(overrides: Partial<SidecarSnapshotDocument> = {}): SidecarSnap
 		releaseDate: "2016-11-10",
 		year: 2016,
 		identifiers: { imdb: "tt2543164", tmdb: "329865" },
-		providerIds: {},
 		genres: ["Sci-Fi", "Dramat"],
 		keywords: ["first contact"],
 		productionCompanies: ["Paramount"],

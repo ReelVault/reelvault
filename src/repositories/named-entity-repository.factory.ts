@@ -6,10 +6,11 @@ import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle
 import { applyFields } from "@/integrations/drizzle-orm/query/parsing/fields.parser";
 import { parseStandardQuery, type QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
-import { defineRepository, parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
+import { defineRepository } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { SchemaTable, TableAccess, TableSelect } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { unique } from "@/utils/array.utils";
+import { defineFindByIdForRead } from "./find-by-id-for-read.utils";
 import { type NamedProviderEntity, processNamedEntities, upsertNamedEntities } from "./provider-entity-sync.writer";
 
 /** Named-entity tables this factory supports — a union lets the internal inserts/selects resolve their column shapes. */
@@ -87,8 +88,7 @@ export function defineNamedEntityRepository<
 		): Promise<PaginatedResponse<SelectFields<EntityRow, F>>> =>
 			await findPageWithQueryMap({ access: entity, queryMap: config.queryMap, query, findMany: (params) => entity.findMany<F>(params) }),
 
-		findByIdForRead: async <F extends string>(entityId: string, query?: FieldsQuery<F>) =>
-			await entity.findById({ primaryId: entityId, fields: parseFieldsForRead(query) }),
+		findByIdForRead: defineFindByIdForRead<EntityRow>((params) => entity.findById(params)),
 
 		createAndRead: async <F extends string>(
 			body: { name: string },

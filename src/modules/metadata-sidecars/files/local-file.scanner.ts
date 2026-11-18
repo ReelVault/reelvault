@@ -1,6 +1,6 @@
 import { basename, dirname, join, resolve } from "node:path";
 import { systemResourcesService } from "@/config/system-resources.service";
-import { seasonFileName } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
+import { KODI_SEASON_SUFFIX, MOVIE_NFO, SERIES_NFO, seasonFileName } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import type { SidecarArtworkReference } from "@/modules/metadata-sidecars/sidecar.types";
 import { extractSeasonEpisode } from "@/modules/recognition/utils/recognition.utils";
 import { listDirectoryEntriesCached } from "@/utils/directory.utils";
@@ -9,6 +9,7 @@ import { createLogger } from "@/utils/logger.utils";
 import { getFileNameWithoutExt, isSubpath, isVideoFile } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { isNotNullish } from "@/utils/type.utils";
+import { SEASON_POSTER_SUFFIX } from "./artwork.constants";
 import { indexByLowerCaseName, selectEpisodeThumbnail, selectIgnoredAssets, selectMovieArtwork } from "./local-artwork.selector";
 import type { LocalEpisodeFile, LocalMovieFolder, LocalSeasonGroup, LocalSeriesGroup } from "./local-media.utils";
 import { readSeasonNumber } from "./local-season.utils";
@@ -36,7 +37,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 		return {
 			movieDirectory,
 			videoPaths: files.filter((path) => isVideoFile(path)),
-			documentPath: index.get("movie.nfo"),
+			documentPath: index.get(MOVIE_NFO),
 			artwork: selectMovieArtwork(index),
 			ignoredAssets: selectIgnoredAssets(files),
 		};
@@ -76,7 +77,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 		return {
 			seriesDirectory,
-			seriesDocument: index.get("tvshow.nfo"),
+			seriesDocument: index.get(SERIES_NFO),
 			seasonGroups: seasonGroups.filter((item) => isNotNullish(item)),
 			artwork: selectMovieArtwork(index),
 		};
@@ -95,7 +96,7 @@ export class FilesystemLocalFileScanner implements LocalFileScanner {
 
 		return {
 			seasonNumber,
-			seasonDocument: index.get(seasonFileName(seasonNumber, ".nfo")),
+			seasonDocument: index.get(seasonFileName(seasonNumber, KODI_SEASON_SUFFIX)),
 			poster: findSeasonPoster(seasonNumber, index),
 			episodes: episodeFiles,
 		};
@@ -139,7 +140,7 @@ function toEpisodeFile(videoPath: string, index: ReadonlyMap<string, string>): L
 }
 
 function findSeasonPoster(seasonNumber: number, index: ReadonlyMap<string, string>): SidecarArtworkReference | undefined {
-	const name = seasonFileName(seasonNumber, "-poster.jpg");
+	const name = seasonFileName(seasonNumber, SEASON_POSTER_SUFFIX);
 	const path = index.get(name) ?? index.get("folder.jpg");
 
 	return path ? { path } : undefined;

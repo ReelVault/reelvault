@@ -27,9 +27,11 @@ interface HardwareProfile {
  * from the environment, so spawned servers and in-process suites see the same
  * budgets.
  */
+const LOW_END_PROFILE: HardwareProfile = { cores: 4, speedFactor: 0.35, totalMemoryKiB: 2 * 1024 * 1024, softwareEncoding: true };
+
 const HARDWARE_PROFILES: Readonly<Record<string, HardwareProfile>> = {
-	"low-end": { cores: 4, speedFactor: 0.35, totalMemoryKiB: 2 * 1024 * 1024, softwareEncoding: true },
-	rpi: { cores: 4, speedFactor: 0.35, totalMemoryKiB: 2 * 1024 * 1024, softwareEncoding: true },
+	"low-end": LOW_END_PROFILE,
+	rpi: LOW_END_PROFILE,
 	"old-laptop": { cores: 2, speedFactor: 0.5, totalMemoryKiB: 4 * 1024 * 1024, softwareEncoding: true },
 	modern: { cores: 8, speedFactor: 1.2, totalMemoryKiB: 16 * 1024 * 1024 },
 };

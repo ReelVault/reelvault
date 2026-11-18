@@ -6,8 +6,8 @@
  * promises a few things that no linter ships a rule for, so they are checked
  * here instead:
  *
- *  - no suppression comments (`biome-ignore`, `oxlint-disable`, `@ts-expect-error`,
- *    `@ts-expect-error`, `@ts-nocheck`) — a suppressed diagnostic is a hidden
+ *  - no suppression comments (`biome-ignore`, `oxlint-disable`, `eslint-disable`,
+ *    `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`) — a suppressed diagnostic is a hidden
  *    defect, and the fix belongs in the model, not in a comment;
  *  - no environment-gated test skips — a test that cannot run fails loudly;
  *  - no host resource reads outside `system-resources` — CPU and RAM budgets
@@ -23,15 +23,16 @@
  */
 
 import { readFileSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { isRecord } from "@/utils/type.utils";
+import { collectTypeScriptFiles } from "./source-files.script";
 
 /** The directories the guards apply to. */
 const GUARDED_ROOTS = ["src", "tests", "scripts", "packages"] as const;
 
-/** Files that are never scanned. */
+/** Files and directories that are never scanned. */
 const SKIPPED_FILES = new Set(["routeTree.gen.ts"]);
+const SKIPPED_DIRECTORIES = new Set(["node_modules", "dist", "build"]);
 
 /**
  * The guard names the markers it looks for, so it would flag its own
@@ -225,25 +226,6 @@ const OXLINT_RULE_CONTRACTS: RuleContract[] = [
 interface Finding {
 	file: string;
 	problem: string;
-}
-
-async function collectTypeScriptFiles(directory: string): Promise<string[]> {
-	const entries = await readdir(directory, { withFileTypes: true });
-	const files: string[] = [];
-
-	for (const entry of entries) {
-		if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "build") continue;
-		const path = join(directory, entry.name);
-		if (entry.isDirectory()) {
-			files.push(...(await collectTypeScriptFiles(path)));
-			continue;
-		}
-		if (!(entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))) continue;
-		if (SKIPPED_FILES.has(entry.name)) continue;
-		files.push(path);
-	}
-
-	return files;
 }
 
 /**
@@ -590,7 +572,7 @@ function checkRuleSeverities(): Finding[] {
 async function main(): Promise<void> {
 	const files: string[] = [];
 	for (const root of GUARDED_ROOTS) {
-		files.push(...(await collectTypeScriptFiles(root)));
+		files.push(...(await collectTypeScriptFiles(root, { skipFiles: SKIPPED_FILES, skipDirectories: SKIPPED_DIRECTORIES })));
 	}
 
 	const findings: Finding[] = [];

@@ -21,22 +21,16 @@ import { mapConcurrent } from "@/utils/promise.utils";
 
 type MediaArtifactRow = InferTable<"mediaArtifacts">;
 
-const PLAYBACK_ARTIFACT_KINDS_SET: ReadonlySet<string> = new Set(playbackArtifactKinds);
+const VALID_ARTIFACT_KINDS: ReadonlySet<string> = new Set(playbackArtifactKinds);
 
 /** A `beforeArtifactCreate` hook may rename the kind, never move the artifact or change its size. */
 function assertValidArtifactCandidate(original: ArtifactCreationCandidate, candidate: ArtifactCreationCandidate): void {
-	if (
-		candidate.mediaFileId !== original.mediaFileId ||
-		candidate.size !== original.size ||
-		!PLAYBACK_ARTIFACT_KINDS_SET.has(candidate.kind)
-	) {
+	if (candidate.mediaFileId !== original.mediaFileId || candidate.size !== original.size || !VALID_ARTIFACT_KINDS.has(candidate.kind)) {
 		throw new DomainError("validation", "beforeArtifactCreate returned an invalid artifact candidate", {
 			code: "plugin.artifact_candidate_invalid",
 		});
 	}
 }
-
-const VALID_ARTIFACT_KINDS = new Set(["trickplay", "chapters", "preview", "waveform"]);
 
 /**
  * Optional write gate, evaluated under the per-owner write lock with the
@@ -101,7 +95,7 @@ class MediaArtifactsService {
 		if (!VALID_ARTIFACT_KINDS.has(artifact.kind)) {
 			throw new DomainError(
 				"validation",
-				`Artifact owner '${ownerId}' write failed: invalid kind '${artifact.kind}'. Supported kinds: 'trickplay', 'chapters', 'preview', 'waveform'.`,
+				`Artifact owner '${ownerId}' write failed: invalid kind '${artifact.kind}'. Supported kinds: ${playbackArtifactKinds.join(", ")}.`,
 				{ code: "artifact.invalid_request" },
 			);
 		}
@@ -222,16 +216,8 @@ class MediaArtifactsService {
 
 		const wanted = new Set(artifactIds);
 		const rows = (await mediaArtifactsRepository.findByMediaFileId(mediaFileId)).filter((row) => wanted.has(row.id));
-		const sizes = await mapConcurrent(rows, serverConfig.plugins.artifacts.cleanupConcurrency, async (row) => {
-			const stats = await getFileStats(this.storagePath(row.storageKey));
 
-			return stats?.size ?? 0;
-		});
-
-		let total = 0;
-		for (const size of sizes) total += size;
-
-		return total;
+		return await this.sumStoredBytes(rows);
 	}
 
 	/**

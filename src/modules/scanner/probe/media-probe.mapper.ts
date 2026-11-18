@@ -1,6 +1,6 @@
 import type { CreateMediaFile } from "@reelvault/sdk/common";
 import type { FFProbeResult, FFProbeStream, FfprobeAudioStream, VideoStream } from "@/integrations/ffprobe/ffprobe.types";
-import { selectDefaultOrFirstStream } from "@/modules/streaming/decisions/stream-preferences.resolver";
+import { selectDefaultOrFirstStream } from "@/modules/streaming/utils/stream-selection.utils";
 import { escapeRegex } from "@/utils/http.utils";
 import {
 	EDITION_TAGS,
@@ -30,11 +30,6 @@ function resolveQualityTag(width: number | undefined): string | null {
 	return RESOLUTION_BUCKETS.find((bucket) => width >= bucket.minWidth)?.label ?? null;
 }
 
-/**
- * Only real subtitle streams become subtitle rows. Attached pictures (MKV cover
- * art), font attachments and data tracks are skipped — `isUsableVideoStream`
- * excludes them, so they would otherwise fall into the subtitle branch.
- */
 function isSubtitleStream(stream: FFProbeStream): boolean {
 	return stream.codec_type === "subtitle";
 }

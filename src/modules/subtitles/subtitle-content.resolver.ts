@@ -3,8 +3,8 @@ import { serverConfig } from "@/config/server/server.config";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { isSubpath } from "@/utils/path.utils";
-import { isBitmapSubtitleFormat } from "./extract/ffmpeg-args.builder";
 import { subtitleExtractorService } from "./subtitle-extractor.service";
+import { isBitmapSubtitleFormat } from "./subtitle-formats.utils";
 import type { SubtitleContentInfo } from "./subtitle-info.cache";
 
 export interface SubtitleContent {

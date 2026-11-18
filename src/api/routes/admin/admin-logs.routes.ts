@@ -6,7 +6,6 @@ import { LogFileQuery } from "@/api/schemas/route-params.schema";
 import { actorContext } from "@/api/utils/audit-context.utils";
 import { attachmentResponse } from "@/api/utils/binary-response.utils";
 import { adminLogsService } from "@/services/admin/admin-logs.service";
-import { DomainError } from "@/utils/domain.errors";
 import { AdminLogsQuerySchema } from "./admin.schema";
 import { adminShell } from "./admin-shell.routes";
 
@@ -57,14 +56,10 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 	)
 	.delete(
 		"/logs",
-		async ({ query, user, request }) => {
-			if (!query.fileId) throw new DomainError("validation", "Missing fileId", { code: "admin.logs.file_id_required" });
-
-			return await adminLogsService.deleteLogFile(query.fileId, actorContext({ user, request }));
-		},
+		async ({ query, user, request }) => await adminLogsService.deleteLogFile(query.fileId, actorContext({ user, request })),
 		{
 			query: t.Object({
-				fileId: t.String({ description: "Path or identifier of the log file to delete." }),
+				fileId: t.String({ minLength: 1, description: "Path or identifier of the log file to delete." }),
 			}),
 			response: {
 				...ROUTE_ERRORS.ADMIN_NOT_FOUND,

@@ -1,7 +1,12 @@
 import { join } from "node:path";
 import type { ImageQuality } from "@reelvault/sdk/common";
 import { reencodeImage } from "@/integrations/sharp/sharp.actions";
-import { episodeThumbFileName, TITLE_BACKDROP_NAMES, TITLE_POSTER_NAMES } from "@/modules/metadata-sidecars/files/artwork.constants";
+import {
+	EXPORTED_TITLE_BACKDROP_NAME,
+	EXPORTED_TITLE_POSTER_NAME,
+	episodeThumbFileName,
+	SEASON_POSTER_SUFFIX,
+} from "@/modules/metadata-sidecars/files/artwork.constants";
 import { imageRepository } from "@/repositories/images.repository";
 import { errorMessage } from "@/utils/domain.errors";
 import { fileStatSignature, fileVersionSignature, getFileStats, writeFileIfChanged } from "@/utils/file.utils";
@@ -75,15 +80,15 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 
 	async saveTitleArtwork({ metadataId, directory }: TitleArtworkInput): Promise<readonly string[]> {
 		return await this.exportAll(
-			this.exportMetadataImage(metadataId, "poster", directory, TITLE_POSTER_NAMES[1]),
-			this.exportMetadataImage(metadataId, "backdrop", directory, TITLE_BACKDROP_NAMES[2]),
+			this.exportMetadataImage(metadataId, "poster", directory, EXPORTED_TITLE_POSTER_NAME),
+			this.exportMetadataImage(metadataId, "backdrop", directory, EXPORTED_TITLE_BACKDROP_NAME),
 		);
 	}
 
 	async saveSeasonArtwork({ imageId, directory, seasonNumber }: SeasonArtworkInput): Promise<readonly string[]> {
 		if (!imageId) return [];
 
-		return await this.exportAll(this.exportImageFile(imageId, join(directory, seasonFileName(seasonNumber, "-poster.jpg"))));
+		return await this.exportAll(this.exportImageFile(imageId, join(directory, seasonFileName(seasonNumber, SEASON_POSTER_SUFFIX))));
 	}
 
 	async saveEpisodeArtwork({ imageId, directory, videoBaseName }: EpisodeArtworkInput): Promise<readonly string[]> {

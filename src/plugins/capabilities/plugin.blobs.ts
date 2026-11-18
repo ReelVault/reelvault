@@ -7,16 +7,12 @@ import { type PluginBlobRow, type PluginBlobTransaction, pluginBlobData } from "
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";
-import { createLogger } from "@/utils/logger.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { isExpired } from "@/utils/time.utils";
 import { assertPluginBlobWrite } from "./plugin.blobs.validator";
 import { assertStorageKey } from "./plugin.storage.validator";
 
 class PluginBlobsService {
-	readonly serviceName = "PluginBlobsService";
-	readonly logger = createLogger("PluginBlobsService");
-
 	private readonly operationQueue = new KeyedMutex();
 	/** Creates the blob storage directory once per process instead of on every put(). */
 	private readonly ensureStorageDirectory = createDirectoryOnce(

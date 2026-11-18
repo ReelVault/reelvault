@@ -1,6 +1,17 @@
 import { env } from "@/config/env.config";
 import { SystemSettingsCreator } from "@/config/system-settings.utils";
 
+/** Default account session lifetime. The boot-time better-auth config reads the
+ * same value before the settings service runs, so keep the two defaults here. */
+export const AUTH_SESSION_LIFETIME_DAYS = 7;
+
+/** The setting is in days; better-auth takes seconds. One conversion everywhere. */
+export function sessionLifetimeSeconds(days: number): number {
+	return Math.round(days * 86_400);
+}
+
+export const AUTH_SESSION_LIFETIME_SECONDS = sessionLifetimeSeconds(AUTH_SESSION_LIFETIME_DAYS);
+
 const creator = SystemSettingsCreator("system");
 
 export const SYSTEM_SETTINGS_DEFINITIONS = {
@@ -29,7 +40,10 @@ export const SYSTEM_SETTINGS_DEFINITIONS = {
 
 	// Require every account to have TOTP configured before sign-in is accepted.
 	"auth.enforceTwoFactor": creator.boolean("auth.enforceTwoFactor", false),
-	"auth.sessionLifetimeDays": creator.number("auth.sessionLifetimeDays", 1, 365, 7, { unit: "days", restartRequired: true }),
+	"auth.sessionLifetimeDays": creator.number("auth.sessionLifetimeDays", 1, 365, AUTH_SESSION_LIFETIME_DAYS, {
+		unit: "days",
+		restartRequired: true,
+	}),
 	"auth.rateLimit.loginAccountMaxAttempts": creator.number("auth.rateLimit.loginAccountMaxAttempts", 3, 100, 10),
 
 	// 0 keeps the full play history; a positive value prunes older rows in the

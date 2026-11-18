@@ -200,13 +200,15 @@ class WorkerService {
 	}
 
 	/**
-	 * Awaits in-flight executions for the given workers (already cancelled by
-	 * `unregisterWorker`) and settles their pending jobs. Used before a plugin's
-	 * stored data is deleted so a straggling handler cannot write against it.
+	 * Cancels and awaits in-flight executions for the given workers, then settles
+	 * their pending jobs. Used before a plugin's stored data is deleted so a
+	 * straggling handler cannot write against it. Cancelling here makes the call
+	 * self-contained: callers no longer have to unregister the workers first.
 	 */
 	async drainWorkers(workerIds: readonly string[], timeoutMs: number): Promise<void> {
 		if (workerIds.length === 0) return;
 
+		for (const workerId of workerIds) this.pool.cancelAllForWorker(workerId);
 		// awaits: sequential — the pool drains before the pending jobs of its workers are cancelled
 		await this.pool.drain(timeoutMs, workerIds);
 		await Promise.all(

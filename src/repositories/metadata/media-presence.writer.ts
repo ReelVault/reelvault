@@ -1,8 +1,23 @@
-import { and, eq, exists, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, exists, getTableName, inArray, isNull, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
+
+/** Correlated subquery that derives the stamp from the media-file graph. */
+function presenceStampExpression() {
+	return sql`(SELECT MAX(${schema.mediaFiles.createdAt}) FROM ${schema.mediaFiles} WHERE ${schema.mediaFiles.metadataId} = ${schema.metadata.id})`;
+}
+
+/**
+ * Full recompute statement for bare `bun:sqlite` connections, which cannot use
+ * the Drizzle expression above (the offline catalog rebuild writes through one).
+ * Identifiers are taken from `schema` so a rename fails at compile time.
+ */
+export const RECOMPUTE_PRESENCE_STAMP_SQL =
+	`UPDATE ${getTableName(schema.metadata)} SET ${schema.metadata.latestMediaCreatedAt.name} = ` +
+	`(SELECT MAX(${schema.mediaFiles.createdAt.name}) FROM ${getTableName(schema.mediaFiles)} ` +
+	`WHERE ${getTableName(schema.mediaFiles)}.${schema.mediaFiles.metadataId.name} = ${getTableName(schema.metadata)}.${schema.metadata.id.name})`;
 
 /**
  * Keeps `metadata.latest_media_created_at` in step with the media-file graph.
@@ -29,12 +44,7 @@ export async function refreshLatestMediaCreatedAt(metadataIds: readonly string[]
 
 	const client = databaseFactory.getClient({ tx });
 	await forEachChunked(ids, async (chunk) => {
-		await client
-			.update(schema.metadata)
-			.set({
-				latestMediaCreatedAt: sql`(SELECT MAX(${schema.mediaFiles.createdAt}) FROM ${schema.mediaFiles} WHERE ${schema.mediaFiles.metadataId} = ${schema.metadata.id})`,
-			})
-			.where(inArray(schema.metadata.id, chunk));
+		await client.update(schema.metadata).set({ latestMediaCreatedAt: presenceStampExpression() }).where(inArray(schema.metadata.id, chunk));
 	});
 }
 
@@ -48,9 +58,7 @@ export async function backfillLatestMediaCreatedAt(tx?: DatabaseTransaction): Pr
 
 	await client
 		.update(schema.metadata)
-		.set({
-			latestMediaCreatedAt: sql`(SELECT MAX(${schema.mediaFiles.createdAt}) FROM ${schema.mediaFiles} WHERE ${schema.mediaFiles.metadataId} = ${schema.metadata.id})`,
-		})
+		.set({ latestMediaCreatedAt: presenceStampExpression() })
 		.where(
 			and(
 				isNull(schema.metadata.latestMediaCreatedAt),

@@ -2,6 +2,8 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { admin, openAPI, twoFactor } from "better-auth/plugins";
+import { eq } from "drizzle-orm";
+import { AUTH_SESSION_LIFETIME_SECONDS, sessionLifetimeSeconds } from "@/config/definitions/system.definitions";
 import { env } from "@/config/env.config";
 import { serverConfig } from "@/config/server/server.config";
 import { authUserCreated } from "@/integrations/better-auth/better-auth.ports";
@@ -18,20 +20,21 @@ const baseUrl = publicUrl ?? `http://localhost:${env.APP_PORT}`;
 /**
  * Sync read of the session lifetime straight from the settings table. better-auth
  * snapshots its options once at construction — this module loads before the
- * settings service — so a plain table read with default fallback is the only
- * way to honor the panel value. Restart applies changes to NEW sessions.
+ * settings service — so a direct table read with the shared default as fallback
+ * is the only way to honor the panel value. Restart applies changes to NEW sessions.
  */
 function readSessionLifetimeSeconds(): number {
 	try {
-		const row: unknown = databaseFactory.sqlite
-			.query("SELECT value FROM system_settings WHERE key = 'auth.sessionLifetimeDays' LIMIT 1")
+		const row = databaseFactory.db
+			.select({ value: schema.systemSettings.value })
+			.from(schema.systemSettings)
+			.where(eq(schema.systemSettings.key, "auth.sessionLifetimeDays"))
 			.get();
-		const value = isRecord(row) && typeof row.value === "string" ? row.value : undefined;
-		const days = value === undefined ? Number.NaN : Number(value);
+		const days = row === undefined ? Number.NaN : Number(row.value);
 
-		return Number.isFinite(days) && days >= 1 ? Math.round(days * 86_400) : 604_800;
+		return Number.isFinite(days) && days >= 1 ? sessionLifetimeSeconds(days) : AUTH_SESSION_LIFETIME_SECONDS;
 	} catch {
-		return 604_800;
+		return AUTH_SESSION_LIFETIME_SECONDS;
 	}
 }
 

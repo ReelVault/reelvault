@@ -48,7 +48,6 @@ function createLocalSnapshot(
 		overview: overview ?? undefined,
 		status: status ?? undefined,
 		identifiers: {},
-		providerIds: {},
 		genres: [],
 		keywords: [],
 		productionCompanies: [],

@@ -13,6 +13,7 @@ import { trickplayRepository } from "@/repositories/trickplay.repository";
 import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
 import { trickplayAdminService } from "@/services/trickplay/trickplay-admin.service";
 import { storageHealthService } from "@/system/storage-health.service";
+import { GIB } from "@/utils/bytes.utils";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
@@ -22,7 +23,6 @@ import { trickplayService } from "./trickplay.service";
 // and the artifacts are real files under the test root. Stubbed: ffmpeg, a process boundary. The stub
 // writes the output file named in the command, so the artifact store records real sprites.
 const db = useTestDatabase();
-const GIBIBYTE = 1024 * 1024 * 1024;
 const SPRITE_BYTES = 200;
 const DURATION_SECONDS = 600;
 const activeStubs: Array<{ restore(): void }> = [];
@@ -201,7 +201,7 @@ describe("trickplayService.generateForMediaFile: sprites and budget", () => {
 		const commandsBefore = ffmpegCommands.length;
 		// The budget is 1 GiB. Another file's artifact fills all of it, so this file's own bytes cannot make room.
 		systemSettingsStore.setRuntimeValue("system.artifacts.coreMaxStorageGb", 1);
-		await storeArtifactOfSize(otherFileId, GIBIBYTE);
+		await storeArtifactOfSize(otherFileId, GIB);
 
 		const result = await trickplayService.generateForMediaFile(mediaFileId);
 
@@ -214,7 +214,7 @@ describe("trickplayService.generateForMediaFile: sprites and budget", () => {
 		const mediaFileId = await seedMediaFile("movie", DURATION_SECONDS);
 		systemSettingsStore.setRuntimeValue("system.artifacts.coreMaxStorageGb", 1);
 		// This file's own previous sprites fill the budget, so regenerating them frees the room it needs.
-		await storeArtifactOfSize(mediaFileId, GIBIBYTE + 1);
+		await storeArtifactOfSize(mediaFileId, GIB + 1);
 
 		const result = await trickplayService.generateForMediaFile(mediaFileId);
 
@@ -309,7 +309,7 @@ describe("trickplayService.generateForMediaFile: skips", () => {
 		const otherFileId = await seedMediaFile("other", DURATION_SECONDS);
 		// Just under the budget: the pre-check passes, but the first sprite pushes the total over it.
 		systemSettingsStore.setRuntimeValue("system.artifacts.coreMaxStorageGb", 1);
-		await storeArtifactOfSize(otherFileId, GIBIBYTE - SPRITE_BYTES / 2);
+		await storeArtifactOfSize(otherFileId, GIB - SPRITE_BYTES / 2);
 
 		const result = await trickplayService.generateForMediaFile(mediaFileId);
 
@@ -358,11 +358,10 @@ describe("trickplayAdminService.stats", () => {
 		const stats = await trickplayAdminService.stats();
 
 		// A file without a duration is not part of the catalog total.
-		expect(stats).toMatchObject({ total: 2, withTrickplay: 1, missingTrickplay: 1, storageBudgetBytes: 2 * GIBIBYTE });
-		const sizes = await Promise.all(
-			(await storedArtifacts(withPreviews)).map((artifact) => mediaArtifactsService.findFile(withPreviews, artifact.id)),
-		);
-		expect(stats.storageBytes).toBe(sizes.reduce((total, found) => total + (found?.file.size ?? 0), 0));
+		expect(stats).toMatchObject({ total: 2, withTrickplay: 1, missingTrickplay: 1, storageBudgetBytes: 2 * GIB });
+		expect(await storedArtifacts(withPreviews)).toHaveLength(4);
+		// One generated VTT (9085 bytes) plus three 200-byte sprites from the ffmpeg stub.
+		expect(stats.storageBytes).toBe(9685);
 	});
 });
 

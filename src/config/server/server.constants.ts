@@ -1,9 +1,6 @@
 import { join } from "node:path";
 import { env } from "@/config/env.config";
-import { KIB } from "@/utils/bytes.utils";
-
-const KIBIBYTE = 1024;
-const MEBIBYTE = KIBIBYTE * KIBIBYTE;
+import { KIB, MIB } from "@/utils/bytes.utils";
 
 export const MINUTE = 60_000;
 
@@ -177,7 +174,7 @@ export const serverConstants = {
 	},
 	ffprobe: {
 		timeoutMs: MINUTE,
-		maxOutputBytes: 8 * MEBIBYTE,
+		maxOutputBytes: 8 * MIB,
 	},
 	sharp: {
 		maxInputPixels: 40_000_000,
@@ -223,27 +220,27 @@ export const serverConstants = {
 	plugins: {
 		storage: {
 			maxKeyLength: 128,
-			maxValueBytes: 64 * KIBIBYTE,
+			maxValueBytes: 64 * KIB,
 		},
 		blobs: {
-			maxBlobBytes: 20 * MEBIBYTE,
-			maxStorageBytes: 100 * MEBIBYTE,
+			maxBlobBytes: 20 * MIB,
+			maxStorageBytes: 100 * MIB,
 			retentionMs: 30 * DAY,
 			maxContentTypeLength: 255,
 			cleanupConcurrency: 8,
 		},
 		artifacts: {
-			maxSizeBytes: 100 * MEBIBYTE,
+			maxSizeBytes: 100 * MIB,
 			// Ceiling for the sum of one plugin's stored artifacts — a runaway
 			// generator must not be able to fill the artifacts volume alone.
-			maxTotalBytesPerPlugin: 512 * MEBIBYTE,
+			maxTotalBytesPerPlugin: 512 * MIB,
 			// Content types a plugin artifact may carry; artifacts are served to
 			// clients with this Content-Type, so scripts/markup stay out.
 			allowedContentTypes: ["text/vtt", "text/plain", "application/json", "image/webp", "image/png", "image/jpeg"],
 			cleanupConcurrency: 8,
 		},
 		ffmpeg: {
-			maxOutputBytes: 10 * MEBIBYTE,
+			maxOutputBytes: 10 * MIB,
 			minFrameDimension: 64,
 			maxFrameDimension: 3840,
 			maxSpriteFrames: 100,
@@ -260,7 +257,7 @@ export const serverConstants = {
 			requestTimeoutMs: 20_000,
 		},
 		subtitles: {
-			maxSizeBytes: 20 * MEBIBYTE,
+			maxSizeBytes: 20 * MIB,
 			supportedFormats: ["ass", "srt", "ssa", "sub", "vtt"] as const,
 			providerConcurrency: 8,
 		},

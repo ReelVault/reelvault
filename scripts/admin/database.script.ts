@@ -11,18 +11,12 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { quickCheckProblems } from "./database-integrity.script";
 
 const [command, target] = process.argv.slice(2);
 
-function quickCheck(): string[] {
-	return databaseFactory.sqlite
-		.query("PRAGMA quick_check")
-		.values()
-		.map((row) => String(row[0]));
-}
-
 function assertHealthy(): void {
-	const problems = quickCheck().filter((line) => line !== "ok");
+	const problems = quickCheckProblems();
 	if (problems.length > 0) {
 		throw new Error(`Integrity check failed:\n${problems.map((line) => `  - ${line}`).join("\n")}`);
 	}

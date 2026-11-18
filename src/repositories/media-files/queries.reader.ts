@@ -1,4 +1,4 @@
-import type { FieldsConfig, FieldsQuery, MediaFileWithRelation, SelectFields } from "@reelvault/sdk/common";
+import type { FieldsConfig, MediaFileWithRelation, SelectFields } from "@reelvault/sdk/common";
 import { and, asc, eq, gt, inArray, isNull, type SQL } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -9,10 +9,10 @@ import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/prima
 import { mapChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { definePagedFind } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
-import { parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { findCleanupDataForMediaFileIds } from "@/integrations/drizzle-orm/utils/media-cleanup.reader";
 import { buildRelationProjection } from "@/integrations/drizzle-orm/utils/media-file-projection.builder";
+import { defineFindByIdForRead } from "@/repositories/find-by-id-for-read.utils";
 import { unique } from "@/utils/array.utils";
 
 import {
@@ -42,9 +42,7 @@ export const findPage = definePagedFind({
 	findMany: (params) => findMany(params),
 });
 
-export async function findByIdForRead<F extends string>(mediaFileId: string, query?: FieldsQuery<F>) {
-	return await findByPrimaryId({ primaryId: mediaFileId, fields: parseFieldsForRead(query) });
-}
+export const findByIdForRead = defineFindByIdForRead<MediaFileWithRelation>((params) => findByPrimaryId(params));
 
 export async function findIdByFilePath(filePath: string) {
 	return await findByFilePath({ filePath, fields: parseFields({ fields: "id" }) });

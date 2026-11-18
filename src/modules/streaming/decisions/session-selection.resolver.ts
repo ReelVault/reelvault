@@ -1,14 +1,10 @@
 import type { ClientCapabilities, PlaybackDecision } from "@reelvault/sdk/common";
 import { resolveToneMapConfig } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import type { AudioStream, MediaFileInfo, PlaybackSessionInput, Subtitle } from "@/modules/streaming/streaming.types";
+import { selectDefaultOrFirstStream } from "@/modules/streaming/utils/stream-selection.utils";
 import { isNullish } from "@/utils/type.utils";
 import { decidePlaybackMode } from "./playback-decision.resolver";
-import {
-	resolvePlaybackPreferences,
-	selectDefaultOrFirstStream,
-	selectPreferredAudioStream,
-	selectPreferredSubtitle,
-} from "./stream-preferences.resolver";
+import { resolvePlaybackPreferences, selectPreferredAudioStream, selectPreferredSubtitle } from "./stream-preferences.resolver";
 
 export interface SessionSelectionInput {
 	file: {

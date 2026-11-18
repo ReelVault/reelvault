@@ -5,7 +5,6 @@ import { serverConfig } from "@/config/server/server.config";
 import { optimizeImage } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import { throwIfAborted } from "@/utils/cancellation.utils";
-import { createHash } from "@/utils/crypto.utils";
 import { createDirectory } from "@/utils/directory.utils";
 import { errorMessage } from "@/utils/domain.errors";
 import { writeFileAtomic } from "@/utils/file.utils";
@@ -15,6 +14,7 @@ import { detachCatching } from "@/utils/promise.utils";
 import { imageCacheEviction } from "./cache/image-cache.eviction";
 import { parseImageRequest } from "./cache/image-request.parser";
 import { sourceVersionCache } from "./cache/source-version.cache";
+import { buildImageCacheKey } from "./image-cache-key.utils";
 
 const CONTENT_TYPE = "image/webp";
 
@@ -36,7 +36,7 @@ class ImageOptimizationService {
 		const options = parseImageRequest(request, serverConfig.images);
 		const cacheDir = join(serverConfig.paths.images, ".cache");
 		const sourceVersion = (await sourceVersionCache.read(sourcePath)).replaceAll(":", "-");
-		const cacheKey = `${imageId ?? `src_${createHash("sha1").update(sourcePath).digest("hex").slice(0, 16)}`}_${options.width}_${options.height ?? 0}_${options.quality}_${sourceVersion}.webp`;
+		const cacheKey = buildImageCacheKey(imageId, sourcePath, options, sourceVersion);
 		const cachePath = join(cacheDir, cacheKey);
 
 		const cachedFile = bunFile(cachePath);

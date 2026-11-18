@@ -1,7 +1,18 @@
 import { eq, type SQL } from "drizzle-orm";
 import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import { DomainError } from "@/utils/domain.errors";
+import { isRecord } from "@/utils/type.utils";
 import type { TableAccess, TableInsertValue, TableSelect, TableUpdateSet } from "./table-access/table-access.types";
+
+const UNIQUE_CONSTRAINT_CODES = new Set(["SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"]);
+
+/** Only the expected natural-identity conflict may trigger recovery; every other failure must surface. */
+function isUniqueConflict(error: unknown): boolean {
+	if (!isRecord(error)) return false;
+	if (typeof error.code === "string" && UNIQUE_CONSTRAINT_CODES.has(error.code)) return true;
+
+	return isRecord(error.cause) && typeof error.cause.code === "string" && UNIQUE_CONSTRAINT_CODES.has(error.cause.code);
+}
 
 /** Tables whose rows carry both a primary `id` and a `stableKey`. */
 type StableKeyTable = {
@@ -39,12 +50,13 @@ export async function findOrCreateWithIdentityRecovery<T>({
 	reconcile,
 	stableKeyOf,
 }: IdentityRecoveryParams<T>): Promise<T | undefined> {
+	let row: T | undefined;
 	try {
-		const row = await upsert();
-		if (row) return row;
+		row = await upsert();
+	} catch (error) {
+		if (!isUniqueConflict(error))
+			throw new DomainError("internal", "Stable-key upsert failed", { cause: error, code: "table_access.stable_key_upsert_failed" });
 
-		return await findByStableKey();
-	} catch {
 		const existing = await findByIdentity();
 		if (!existing) return await findByStableKey();
 
@@ -52,6 +64,10 @@ export async function findOrCreateWithIdentityRecovery<T>({
 
 		return await reconcile(existing);
 	}
+
+	if (row) return row;
+
+	return await findByStableKey();
 }
 
 /**

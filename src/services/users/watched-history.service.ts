@@ -101,7 +101,6 @@ export const watchedHistoryService = {
 			const totalMinutes = sumMinutes(currentRows);
 			const previousPeriodMinutes = sumMinutes(previousRows);
 
-			// Calculate metadata minutes
 			let longestSessionSeconds = 0;
 			let completedCount = 0;
 
@@ -197,7 +196,6 @@ export const watchedHistoryService = {
 			const peakDayOfWeek =
 				peakWeekdayEntry && peakWeekdayEntry[1] > 0 ? { dayOfWeek: peakWeekdayEntry[0], minutes: peakWeekdayEntry[1] } : null;
 
-			// Longest marathon day
 			const longestMarathonMinutes = maxBy([...dayTotals.values()], (minutes) => minutes) ?? 0;
 
 			const topMovies: TopWatchedMedia[] = topMoviesRaw.map((m) => {

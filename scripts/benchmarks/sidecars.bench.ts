@@ -36,7 +36,6 @@ function buildSnapshot(index: number): SidecarSnapshotDocument {
 		tagline: "Benchmark tagline",
 		status: "released",
 		identifiers: { imdbId: `tt${String(10_000_000 + index)}`, tmdbId: String(1_000_000 + index) },
-		providerIds: { tmdb: String(1_000_000 + index) },
 		genres: ["Action", "Adventure", "Sci-Fi"],
 		keywords: ["benchmark", "space", "odyssey"],
 		productionCompanies: ["Benchmark Pictures"],

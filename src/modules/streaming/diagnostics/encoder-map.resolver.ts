@@ -1,5 +1,6 @@
 import type { PlaybackDecision } from "@reelvault/sdk/common";
 import type { getEffectiveHwaccel } from "@/integrations/ffmpeg/ffmpeg.capabilities";
+import { usesSoftwareVideoEncode } from "@/modules/streaming/ffmpeg/software-fallback.policy";
 
 type EffectiveHwaccel = ReturnType<typeof getEffectiveHwaccel>;
 
@@ -7,13 +8,10 @@ export function resolveStreamEncoders(
 	decision: Pick<PlaybackDecision, "videoTranscode" | "audioTranscode" | "forceSoftware">,
 	effectiveHw: EffectiveHwaccel,
 ): { videoEncoder: string; audioEncoder: string } {
-	let videoEncoder: string;
-	if (!decision.videoTranscode) videoEncoder = "copy";
-	else if (decision.forceSoftware === true) videoEncoder = "libx264";
-	else if (effectiveHw.type === "none") videoEncoder = "libx264";
-	else videoEncoder = effectiveHw.h264Encoder;
-
 	const audioEncoder = decision.audioTranscode ? "aac" : "copy";
+	if (!decision.videoTranscode) return { videoEncoder: "copy", audioEncoder };
+
+	const videoEncoder = usesSoftwareVideoEncode(decision, effectiveHw.type) ? "libx264" : effectiveHw.h264Encoder;
 
 	return { videoEncoder, audioEncoder };
 }

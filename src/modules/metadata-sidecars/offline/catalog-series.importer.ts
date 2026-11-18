@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { basename, dirname } from "node:path";
 import type { OfflineRebuildIssue } from "@/modules/metadata-sidecars/offline-rebuild.types";
+import { SERIES_DOCUMENT_NAMES } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import { isVideoFile } from "@/utils/path.utils";
 import { parseEpisode } from "./catalog-episode.parser";
 import { CatalogImporter, type CollectImportDocumentsOptions, insertMetadataRow } from "./catalog-importer.utils";
@@ -27,7 +28,7 @@ export class CatalogSeriesImporter extends CatalogImporter {
 		tree: ReadonlyMap<string, CatalogDirectoryNode>,
 		skipped: OfflineRebuildIssue[],
 	): CollectImportDocumentsOptions {
-		const documents = findDocumentsByNames(tree, root, ["tvshow.nfo", "tvshow.reelvault.nfo"]);
+		const documents = findDocumentsByNames(tree, root, SERIES_DOCUMENT_NAMES);
 
 		return {
 			documents,

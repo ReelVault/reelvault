@@ -10,6 +10,9 @@ export function isSoftwareFallbackEligible(decision: PlaybackDecision, hwaccelTy
 }
 
 /** Whether the session's video is encoded on the CPU (including a software fallback). */
-export function usesSoftwareVideoEncode(decision: PlaybackDecision, hwaccelType: string): boolean {
+export function usesSoftwareVideoEncode(
+	decision: Pick<PlaybackDecision, "videoTranscode" | "forceSoftware">,
+	hwaccelType: string,
+): boolean {
 	return decision.videoTranscode && (decision.forceSoftware === true || hwaccelType === "none");
 }

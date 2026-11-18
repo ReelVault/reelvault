@@ -19,9 +19,10 @@
  * so markers never outlive the code they describe.
  */
 
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parseSync } from "oxc-parser";
+import { collectTypeScriptFiles, lineIndexOf, lineStartsOf } from "./source-files.script";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const SOURCE_ROOT = join(ROOT, "src");
@@ -74,21 +75,6 @@ interface ScanContext {
 	headerMarker: Marker | undefined;
 	report: FileReport;
 	usedMarkers: Set<number>;
-}
-
-async function collectTypeScriptFiles(directory: string): Promise<string[]> {
-	const entries = await readdir(directory, { withFileTypes: true });
-	const files = await Promise.all(
-		entries.map(async (entry) => {
-			const path = join(directory, entry.name);
-			if (entry.isDirectory()) return await collectTypeScriptFiles(path);
-			if (!(entry.isFile() && entry.name.endsWith(".ts")) || entry.name.endsWith(".test.ts")) return [];
-
-			return [path];
-		}),
-	);
-
-	return files.flat();
 }
 
 function isAstNode(value: unknown): value is AstNode {
@@ -197,30 +183,6 @@ function statementList(node: AstNode): AstNode[] | undefined {
 	if (STATEMENT_LIST_TYPES.has(node.type)) return asNodes(node.body);
 
 	return undefined;
-}
-
-function lineStartsOf(source: string): number[] {
-	const starts = [0];
-	let newline = source.indexOf("\n");
-	while (newline !== -1) {
-		starts.push(newline + 1);
-		newline = source.indexOf("\n", newline + 1);
-	}
-
-	return starts;
-}
-
-/** Zero-based line index of `offset`, by binary search over the line starts. */
-function lineIndexOf(lineStarts: readonly number[], offset: number): number {
-	let low = 0;
-	let high = lineStarts.length - 1;
-	while (low < high) {
-		const middle = Math.ceil((low + high) / 2);
-		if ((lineStarts[middle] ?? 0) <= offset) low = middle;
-		else high = middle - 1;
-	}
-
-	return low;
 }
 
 function readMarker(line: string): Omit<Marker, "line"> | undefined {
@@ -334,7 +296,7 @@ function analyzeFile(file: string, source: string): FileReport {
 	return report;
 }
 
-const files = await collectTypeScriptFiles(SOURCE_ROOT);
+const files = await collectTypeScriptFiles(SOURCE_ROOT, { extensions: [".ts"], excludeSuffixes: [".test.ts"] });
 const reports = await Promise.all(files.map(async (file) => analyzeFile(file, await readFile(file, "utf8"))));
 const pairs = reports.flatMap((report) => report.pairs);
 const stale = reports.flatMap((report) => report.stale);

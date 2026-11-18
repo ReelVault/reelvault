@@ -16,7 +16,9 @@ import { MemoryCache } from "@/utils/memory.cache";
 export const PROFILE_UNLOCK_COOKIE = "profile_unlock";
 
 const TOKEN_SEPARATOR = ".";
-const DEFAULT_TTL_SECONDS = 12 * 60 * 60;
+/** Lifetime of a profile-unlock token. The cookie that carries it must use the
+ * same value, so both the signer and the cookie writer read this constant. */
+export const PROFILE_UNLOCK_TTL_SECONDS = 12 * 60 * 60;
 
 /**
  * Fingerprints of stored PIN hashes. The hash only changes when the PIN does,
@@ -58,7 +60,7 @@ export function isProfileUnlocked(
 	return unlock?.profileId === profile.id && unlock.pinFingerprint === profilePinFingerprint(profile.pin);
 }
 
-export function signProfileUnlock(profileId: string, secret: string, pinFingerprint = "", ttlSeconds = DEFAULT_TTL_SECONDS): string {
+export function signProfileUnlock(profileId: string, secret: string, pinFingerprint = "", ttlSeconds = PROFILE_UNLOCK_TTL_SECONDS): string {
 	const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
 	const payload = `${profileId}${TOKEN_SEPARATOR}${expiresAt}${TOKEN_SEPARATOR}${pinFingerprint}`;
 

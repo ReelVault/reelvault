@@ -45,15 +45,6 @@ export function registerNotificationChannel(pluginId: string, channel: PluginNot
 	};
 }
 
-export function unregisterPluginNotificationChannels(pluginId: string): void {
-	for (const [key, entry] of channels) {
-		if (entry.pluginId !== pluginId) continue;
-
-		channels.delete(key);
-		failingChannels.delete(key);
-	}
-}
-
 function reportChannelFailure(key: string, entry: { pluginId: string; channel: PluginNotificationChannel }, error: unknown): void {
 	if (failingChannels.has(key)) return;
 

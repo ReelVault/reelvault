@@ -112,7 +112,7 @@ test("a state-changing request carrying a session cookie is refused from an untr
 	);
 
 	expect(response.status).toBe(403);
-	expect(await response.json()).toEqual({ statusCode: 403, code: "auth.origin_denied", requestId: undefined });
+	expect(await response.json()).toEqual({ statusCode: 403, code: "auth.origin_denied" });
 });
 
 test("a state-changing request carrying a session cookie is accepted from a trusted or absent origin", async () => {

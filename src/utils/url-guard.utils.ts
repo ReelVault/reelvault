@@ -119,10 +119,11 @@ export function isPublicAddress(ip: string): boolean {
  * request is made.
  */
 function isPublicIp(address: string): boolean {
+	// Resolved addresses may carry a zone id; strip it, then delegate to the
+	// single public-IP classifier so DNS validation and origin trust agree.
 	const ip = address.toLowerCase().replace(IPV6_ZONE_ID_REGEX, "");
-	if (ip.includes(":")) return isPublicIpv6(ip);
 
-	return isPublicIpv4(ip);
+	return isPublicAddress(ip);
 }
 
 interface ResolvedTarget {

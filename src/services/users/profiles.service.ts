@@ -118,7 +118,7 @@ class ProfilesService {
 
 			// The source profile is checked before anything is created; the copy itself runs after the profile exists.
 			const { copyPreferencesFromProfileId, ...profileBody } = body;
-			if (copyPreferencesFromProfileId) await this.assertOwnedProfile(copyPreferencesFromProfileId, userId);
+			if (copyPreferencesFromProfileId) await this.findOwnedProfile(copyPreferencesFromProfileId, userId);
 
 			const payload = { ...profileBody, pin: await hashProfilePin(profileBody.pin) };
 			const profile = await profilesRepository.createAndRead(userId, payload, query);
@@ -186,7 +186,7 @@ class ProfilesService {
 		return await runSafely(this, "delete", async () => {
 			assertUserId(userId);
 			// awaits: sequential — the profile must belong to the user before it is deleted
-			await this.assertOwnedProfile(profileId, userId);
+			await this.findOwnedProfile(profileId, userId);
 
 			await profilesRepository.deleteOwned({ profileId, userId });
 
@@ -239,7 +239,7 @@ class ProfilesService {
 
 	async getPreferences(profileId: string, userId?: string): Promise<ProfilePreferences> {
 		return await runSafely(this, "getPreferences", async () => {
-			await this.assertOwnedProfile(profileId, userId);
+			await this.findOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.getEffective({ profileId });
 		});
@@ -256,7 +256,7 @@ class ProfilesService {
 
 	async updatePreferences(profileId: string, body: UpdateProfilePreferences, userId?: string): Promise<ProfilePreferences> {
 		return await runSafely(this, "updatePreferences", async () => {
-			await this.assertOwnedProfile(profileId, userId);
+			await this.findOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.applyUpdate({ profileId, body });
 		});
@@ -265,7 +265,7 @@ class ProfilesService {
 	/** Copies another profile's preference overrides onto this one; both profiles must belong to the same account. */
 	async copyPreferences(profileId: string, sourceProfileId: string, userId?: string): Promise<ProfilePreferences> {
 		return await runSafely(this, "copyPreferences", async () => {
-			await Promise.all([this.assertOwnedProfile(profileId, userId), this.assertOwnedProfile(sourceProfileId, userId)]);
+			await Promise.all([this.findOwnedProfile(profileId, userId), this.findOwnedProfile(sourceProfileId, userId)]);
 
 			return await profilePreferencesRepository.copyFrom({ sourceProfileId, targetProfileId: profileId });
 		});
@@ -278,7 +278,7 @@ class ProfilesService {
 
 	async resetPreferences(profileId: string, userId?: string): Promise<ProfilePreferences> {
 		return await runSafely(this, "resetPreferences", async () => {
-			await this.assertOwnedProfile(profileId, userId);
+			await this.findOwnedProfile(profileId, userId);
 
 			return await profilePreferencesRepository.reset({ profileId });
 		});
@@ -287,7 +287,7 @@ class ProfilesService {
 	async uploadAvatar(profileId: string, file: File, userId?: string): Promise<{ avatarUrl: string }> {
 		return await runSafely(this, "uploadAvatar", async () => {
 			// awaits: sequential — ownership is checked before the avatar is uploaded
-			await this.assertOwnedProfile(profileId, userId);
+			await this.findOwnedProfile(profileId, userId);
 
 			const uploaded = await imageUploadService.upload(file, { ownerType: "profile", ownerId: profileId, variant: "avatar" });
 			const { avatarUrl } = await imageProcessingService.replaceProfileAvatarWithUpload(profileId, uploaded);
@@ -305,10 +305,6 @@ class ProfilesService {
 			throw new DomainError("forbidden", "Profile does not belong to the authenticated user", { code: "profile.not_owned" });
 
 		return profile;
-	}
-
-	private async assertOwnedProfile(profileId: string, userId?: string): Promise<void> {
-		await this.findOwnedProfile(profileId, userId);
 	}
 }
 

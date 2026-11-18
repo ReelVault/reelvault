@@ -1,7 +1,5 @@
-import type { CpuProfile } from "@/config/system-settings.types";
+import { CPU_PROFILE_OPTIONS } from "@/config/system-settings.types";
 import { SystemSettingsCreator } from "@/config/system-settings.utils";
-
-const CPU_PROFILE_OPTIONS: readonly CpuProfile[] = ["conservative", "balanced", "performance", "custom"];
 
 const creator = SystemSettingsCreator("resources");
 

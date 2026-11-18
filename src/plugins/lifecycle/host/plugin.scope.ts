@@ -23,36 +23,36 @@ import { PluginEntityTable } from "@/plugins/lifecycle/registry/plugin-entity.re
 import { registerNotificationChannel } from "@/plugins/runtime/notification-channel.registry";
 import { pluginRoutesRegistry } from "@/plugins/runtime/plugin.routes";
 import { pluginAccessBus } from "@/system/extensions/plugin.access";
-import { pluginEventBus } from "@/system/extensions/plugin.events";
+import { type ErasedPluginHandler, pluginEventBus } from "@/system/extensions/plugin.events";
 import { type PluginCandidateHook, type PluginHookName, pluginHookBus } from "@/system/extensions/plugin.hooks";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { scheduledTasksService } from "@/workers/scheduled-tasks.service";
 
-export interface PluginScopeApi {
-	useCapability(name: PluginCapabilityName): void;
-	registerNotificationChannelScope(channel: PluginNotificationChannel): void;
-	addAnalyzer(analyzer: MediaAnalyzer): void;
-	addProvider(provider: MetadataProvider): void;
-	addSubtitleProvider(provider: SubtitleProvider): void;
-	addJob(definition: PluginJobDefinition): void;
-	addScheduledTask(task: PluginScheduledTaskDefinition): void;
-	addHttpRoute(route: PluginHttpRoute): void;
-	enqueueJob(pluginId: string, name: string, data: unknown, options?: PluginEnqueueOptions): Promise<PluginJobHandle>;
-	enqueueJobs(
-		pluginId: string,
-		name: string,
-		items: PluginJobBatchItem[],
-		commonOptions?: PluginJobBatchOptions,
-	): Promise<PluginJobHandle[]>;
-	/** Contravariant handler erase: accepts every typed event handler while staying assignable to the bus. */
-	subscribe(pluginId: string, event: PluginEventName, handler: PluginEventHandlerErased): void;
-	subscribeHook<N extends PluginHookName>(pluginId: string, name: N, hook: PluginCandidateHook<N>): void;
-	subscribeAccessPolicy(pluginId: string, policy: PluginAccessPolicy): void;
-}
+/**
+ * The host-facing slice of a scope — only the methods `createPluginHost` wires.
+ * `subscribe` keeps the contravariant erased handler so every typed event handler
+ * is accepted while staying assignable to the bus.
+ */
+export type PluginScopeApi = Pick<
+	PluginScope,
+	| "useCapability"
+	| "registerNotificationChannelScope"
+	| "addAnalyzer"
+	| "addProvider"
+	| "addSubtitleProvider"
+	| "addJob"
+	| "addScheduledTask"
+	| "addHttpRoute"
+	| "enqueueJob"
+	| "enqueueJobs"
+	| "subscribe"
+	| "subscribeHook"
+	| "subscribeAccessPolicy"
+>;
 
-export type PluginEventHandlerErased = (payload: never) => void | Promise<void>;
+export type { ErasedPluginHandler as PluginEventHandlerErased } from "@/system/extensions/plugin.events";
 
 export class PluginScope {
 	readonly logger = createLogger("PluginScope");
@@ -300,7 +300,7 @@ export class PluginScope {
 		return this.uiManifestData;
 	}
 
-	subscribe(pluginId: string, event: PluginEventName, handler: PluginEventHandlerErased): void {
+	subscribe(pluginId: string, event: PluginEventName, handler: ErasedPluginHandler): void {
 		this.track(pluginEventBus.on(pluginId, event, handler));
 	}
 

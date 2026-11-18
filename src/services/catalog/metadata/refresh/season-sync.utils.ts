@@ -201,11 +201,9 @@ export async function syncSeasonsAndEpisodes(
 
 	tasks.push(...collectSeasonImageTasks(metadataId, existingSeasons, seasonsByNumber));
 
-	// Batch-fetch all episodes for ALL seasons in one query
 	const allSeasonIds = existingSeasons.map((s) => s.id);
 	const allExistingEpisodes = await episodesRepository.findBySeasonIds(allSeasonIds);
 
-	// Group episodes by seasonId
 	const episodesBySeason = new Map<string, typeof allExistingEpisodes>();
 	for (const ep of allExistingEpisodes) {
 		const list = episodesBySeason.get(ep.seasonId);
@@ -213,7 +211,6 @@ export async function syncSeasonsAndEpisodes(
 		else episodesBySeason.set(ep.seasonId, [ep]);
 	}
 
-	// Fetch missing episodes for all seasons that need them
 	const seasonsNeedingFetch = existingSeasons.filter((s) => {
 		const seasonInfo = seasonsByNumber.get(s.seasonNumber);
 

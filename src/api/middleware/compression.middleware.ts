@@ -3,7 +3,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
 import { getResponseStatus } from "@/utils/http.utils";
 import { isRecord, normalizeLower } from "@/utils/type.utils";
-import { serializedBodyCache } from "./response-cache.middleware";
+import { serializedBodyCache } from "./serialized-body.cache";
 
 function matchesType(contentType: string, pattern: string): boolean {
 	if (pattern.endsWith("/*")) return contentType.startsWith(pattern.slice(0, -2));

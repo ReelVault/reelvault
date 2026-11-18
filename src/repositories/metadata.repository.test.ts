@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { removeTreeSync } from "@/utils/directory.utils";
+import { calculateAverageScore } from "./metadata/rating-aggregation.utils";
 import { metadataRepository } from "./metadata.repository";
-import { calculateAverageScore } from "./metadata-recommendations.reader";
 
 describe("metadata rating projections", () => {
 	test("ignores missing rating rows produced by partial relation projections", () => {

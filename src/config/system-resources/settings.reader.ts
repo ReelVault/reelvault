@@ -1,8 +1,8 @@
 import { systemSettingsStore } from "@/config/system-settings.store";
-import type { CpuProfile } from "@/config/system-settings.types";
+import { CPU_PROFILE_OPTIONS, type CpuProfile } from "@/config/system-settings.types";
 import { isFiniteNumber, isNonEmptyString } from "@/utils/type.utils";
 
-const CPU_PROFILES = new Set<string>(["conservative", "balanced", "performance", "custom"]);
+const CPU_PROFILES = new Set<string>(CPU_PROFILE_OPTIONS);
 
 export interface CpuSettings {
 	readonly cpuProfile: CpuProfile;

@@ -148,9 +148,9 @@ describe("ImageCacheEviction steady-state eviction", () => {
 		});
 
 		fillEntries(entries, 5_001, 1);
-		// First sweep reconciles pre-existing files (stats expected).
+		// First sweep reconciles all 5,001 pre-existing files (one stat each).
 		for (let writes = 0; writes < 500; writes++) await eviction.evictIfDue(CACHE_DIR);
-		expect(statCalls).toBeGreaterThan(0);
+		expect(statCalls).toBe(5_001);
 		expect(entries.size).toBe(5_000);
 
 		statCalls = 0;

@@ -10,8 +10,9 @@ import { fileExists, withTempPath } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { createInFlightCache } from "@/utils/memory.cache";
 import { createSemaphore, withTimeout } from "@/utils/promise.utils";
-import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./extract/ffmpeg-args.builder";
+import { buildWebVttExtractionArgs } from "./extract/ffmpeg-args.builder";
 import type { SubtitleContent } from "./subtitle-content.resolver";
+import { isBitmapSubtitleFormat } from "./subtitle-formats.utils";
 import { subtitleVttPath } from "./subtitle-path.utils";
 
 interface FfmpegRunResult {

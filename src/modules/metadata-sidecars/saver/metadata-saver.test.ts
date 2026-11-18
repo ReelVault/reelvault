@@ -18,7 +18,6 @@ const prebuiltSnapshot: SidecarSnapshotDocument = {
 	reelvaultSchemaVersion: 1,
 	title: "Prebuilt",
 	identifiers: {},
-	providerIds: {},
 	genres: [],
 	keywords: [],
 	productionCompanies: [],

@@ -54,12 +54,13 @@ describe("SystemSettingsStore", () => {
 
 		systemSettingsStore.setRuntimeValue("system.resources.cpuProfile", "performance");
 		const afterSet = systemSettingsStore.revision;
-		expect(afterSet).toBeGreaterThan(before);
+		expect(afterSet).toBe(before + 1);
 
 		systemSettingsStore.deleteRuntimeValues(["system.resources.cpuProfile"]);
-		expect(systemSettingsStore.revision).toBeGreaterThan(afterSet);
+		const afterDelete = systemSettingsStore.revision;
+		expect(afterDelete).toBe(afterSet + 1);
 
 		systemSettingsStore.clearRuntimeValues();
-		expect(systemSettingsStore.revision).toBeGreaterThan(afterSet);
+		expect(systemSettingsStore.revision).toBe(afterDelete + 1);
 	});
 });

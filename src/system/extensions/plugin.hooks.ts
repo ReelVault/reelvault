@@ -25,6 +25,13 @@ export interface PluginHookCandidates {
 
 export type PluginHookName = keyof PluginHookCandidates;
 
+/** Hook point names shared with the plugin host capability; the SDK type is fixed externally. */
+export const PLUGIN_HOOK_NAMES = {
+	artifactCreate: "beforeArtifactCreate",
+	mediaRecognition: "beforeMediaRecognition",
+	metadataSave: "beforeMetadataSave",
+} as const satisfies Record<string, PluginHookName>;
+
 export type PluginCandidateHook<N extends PluginHookName> = (input: {
 	readonly candidate: Readonly<PluginHookCandidates[N]>;
 }) => PluginHookCandidates[N] | undefined | Promise<PluginHookCandidates[N] | undefined>;
@@ -36,9 +43,9 @@ export class PluginHookBus {
 	readonly logger = createLogger("PluginHookBus");
 
 	private readonly tables: PluginHookTables = {
-		beforeArtifactCreate: new PluginHandlerTable(),
-		beforeMediaRecognition: new PluginHandlerTable(),
-		beforeMetadataSave: new PluginHandlerTable(),
+		[PLUGIN_HOOK_NAMES.artifactCreate]: new PluginHandlerTable(),
+		[PLUGIN_HOOK_NAMES.mediaRecognition]: new PluginHandlerTable(),
+		[PLUGIN_HOOK_NAMES.metadataSave]: new PluginHandlerTable(),
 	};
 	private readonly timeoutMs: number;
 

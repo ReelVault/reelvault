@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { serializedBodyCache } from "@/api/middleware/serialized-body.cache";
 import { buildJsonResponse, jsonEtag } from "@/api/utils/etag.utils";
 import { getResponseStatus, requestIdentityKey } from "@/utils/http.utils";
 import {
@@ -10,7 +11,7 @@ import {
 } from "@/utils/response-body.cache";
 import { isRecord } from "@/utils/type.utils";
 
-interface CacheOptions {
+export interface CacheOptions {
 	maxAge: number;
 	private?: boolean | undefined;
 	immutable?: boolean | undefined;
@@ -24,14 +25,8 @@ export function cached(options: CacheOptions) {
 	return { cache: options, deduplicate: {} };
 }
 
-/**
- * Shares the JSON serialization of a response body between the response-cache
- * (ETag) and compression middlewares, so large cached JSON bodies are
- * serialized only once per request.
- */
-export const serializedBodyCache = new WeakMap<object, string>();
-
-function cacheControlFor(options: CacheOptions): string {
+/** Builds the Cache-Control header for a route's cache options. */
+export function cacheControlFor(options: CacheOptions): string {
 	return `${options.private ? "private" : "public"}, max-age=${options.maxAge}${options.immutable ? ", immutable" : ""}`;
 }
 

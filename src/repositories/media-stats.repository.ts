@@ -1,4 +1,4 @@
-import { count, eq, inArray, sql } from "drizzle-orm";
+import { count, eq, inArray, type SQLWrapper, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
@@ -31,6 +31,19 @@ export interface CatalogMediaStats {
 
 function emptyDelta(libraryId: string): MediaStatsDelta {
 	return { libraryId, fileCount: 0, totalSize: 0, movieCount: 0, episodeCount: 0, qualityCount: 0 };
+}
+
+type StatColumns = Record<"fileCount" | "totalSize" | "movieCount" | "episodeCount" | "qualityCount", SQLWrapper>;
+
+/** The `column = column + delta` update set shared by the per-library and catalog upserts. */
+function incrementSet(columns: StatColumns, delta: MediaStatsDelta) {
+	return {
+		fileCount: sql`${columns.fileCount} + ${delta.fileCount}`,
+		totalSize: sql`${columns.totalSize} + ${delta.totalSize}`,
+		movieCount: sql`${columns.movieCount} + ${delta.movieCount}`,
+		episodeCount: sql`${columns.episodeCount} + ${delta.episodeCount}`,
+		qualityCount: sql`${columns.qualityCount} + ${delta.qualityCount}`,
+	};
 }
 
 function sumOfLibraryStat(column: typeof schema.libraryMediaStats.fileCount) {
@@ -114,13 +127,7 @@ async function applyLibraryDelta(delta: MediaStatsDelta, tx?: DatabaseTransactio
 		.values(delta)
 		.onConflictDoUpdate({
 			target: schema.libraryMediaStats.libraryId,
-			set: {
-				fileCount: sql`${schema.libraryMediaStats.fileCount} + ${delta.fileCount}`,
-				totalSize: sql`${schema.libraryMediaStats.totalSize} + ${delta.totalSize}`,
-				movieCount: sql`${schema.libraryMediaStats.movieCount} + ${delta.movieCount}`,
-				episodeCount: sql`${schema.libraryMediaStats.episodeCount} + ${delta.episodeCount}`,
-				qualityCount: sql`${schema.libraryMediaStats.qualityCount} + ${delta.qualityCount}`,
-			},
+			set: incrementSet(schema.libraryMediaStats, delta),
 		});
 }
 
@@ -138,13 +145,7 @@ async function applyCatalogDelta(delta: MediaStatsDelta, tx?: DatabaseTransactio
 		})
 		.onConflictDoUpdate({
 			target: schema.catalogMediaStats.id,
-			set: {
-				fileCount: sql`${schema.catalogMediaStats.fileCount} + ${delta.fileCount}`,
-				totalSize: sql`${schema.catalogMediaStats.totalSize} + ${delta.totalSize}`,
-				movieCount: sql`${schema.catalogMediaStats.movieCount} + ${delta.movieCount}`,
-				episodeCount: sql`${schema.catalogMediaStats.episodeCount} + ${delta.episodeCount}`,
-				qualityCount: sql`${schema.catalogMediaStats.qualityCount} + ${delta.qualityCount}`,
-			},
+			set: incrementSet(schema.catalogMediaStats, delta),
 		});
 }
 

@@ -1,17 +1,18 @@
-import { basename } from "node:path";
+import { getSidecarMediaKind } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
 import type { SidecarRating, SidecarSnapshotDocument } from "@/modules/metadata-sidecars/sidecar.types";
 import type { XmlDocumentOutput } from "@/modules/metadata-sidecars/xml/xml.writer";
 
-const SEASON_FILE_REGEX = /^season\d*\.nfo$/;
+const KODI_ROOT_BY_KIND = {
+	movie: "movie",
+	series: "tvshow",
+	season: "season",
+	episode: "episodedetails",
+} as const;
 
 /** The root element follows the file name — same inference the reelvault adapter does. */
 export function buildKodiDocument(documentPath: string, document: SidecarSnapshotDocument): XmlDocumentOutput {
-	const name = basename(documentPath).toLowerCase();
-	if (name === "movie.nfo") return { rootName: "movie", values: { ...toTitleFields(document), ...premieredField(document) } };
-
-	if (name === "tvshow.nfo") return { rootName: "tvshow", values: { ...toTitleFields(document), ...premieredField(document) } };
-
-	if (SEASON_FILE_REGEX.test(name)) {
+	const kind = getSidecarMediaKind(documentPath);
+	if (kind === "season") {
 		return {
 			rootName: "season",
 			values: {
@@ -22,16 +23,20 @@ export function buildKodiDocument(documentPath: string, document: SidecarSnapsho
 		};
 	}
 
-	return {
-		rootName: "episodedetails",
-		values: {
-			...toTitleFields(document),
-			// Episodes date with `<aired>`; `<premiered>` belongs to titles.
-			...(document.releaseDate === undefined ? {} : { aired: document.releaseDate }),
-			...(document.seasonNumber === undefined ? {} : { season: document.seasonNumber }),
-			...(document.episodeNumber === undefined ? {} : { episode: document.episodeNumber }),
-		},
-	};
+	if (kind === "episode") {
+		return {
+			rootName: "episodedetails",
+			values: {
+				...toTitleFields(document),
+				// Episodes date with `<aired>`; `<premiered>` belongs to titles.
+				...(document.releaseDate === undefined ? {} : { aired: document.releaseDate }),
+				...(document.seasonNumber === undefined ? {} : { season: document.seasonNumber }),
+				...(document.episodeNumber === undefined ? {} : { episode: document.episodeNumber }),
+			},
+		};
+	}
+
+	return { rootName: KODI_ROOT_BY_KIND[kind], values: { ...toTitleFields(document), ...premieredField(document) } };
 }
 
 function premieredField(document: SidecarSnapshotDocument): Record<string, unknown> {

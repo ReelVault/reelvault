@@ -16,8 +16,8 @@ import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.pa
 import type { PrimaryIdReadParams } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { selectManyWithFields } from "@/integrations/drizzle-orm/query/table-access/field-projection.utils";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
-import { parseFieldsForRead } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
+import { defineFindByIdForRead } from "@/repositories/find-by-id-for-read.utils";
 import { loadRelations, toLibraryWithRelations } from "./relations.utils";
 import { type LibraryStatsCaches, libraries } from "./shared.types";
 
@@ -90,8 +90,9 @@ export async function hasNameConflict(name: string, type: "movies" | "tv_shows",
 	return row !== undefined;
 }
 
-export async function findByIdForRead<F extends string>(caches: LibraryStatsCaches, libraryId: string, query?: FieldsQuery<F>) {
-	return await findById(caches, { primaryId: libraryId, fields: parseFieldsForRead(query) });
+/** Binds the library stats caches to the shared read-by-id entry point. */
+export function createFindByIdForRead(caches: LibraryStatsCaches) {
+	return defineFindByIdForRead<LibraryWithRelations>((params) => findById(caches, params));
 }
 
 /** Get all libraries with pagination */

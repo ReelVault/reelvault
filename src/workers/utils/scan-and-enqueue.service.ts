@@ -1,6 +1,7 @@
 import { sleep } from "bun";
 import type { ApplicationContext } from "@/utils/task-context.types";
 import { enqueueInBatches } from "@/workers/utils/batch-enqueue.utils";
+import { toTaskSchedulingOptions } from "@/workers/utils/task-scheduling.mapper";
 import type { WorkerEnqueueOptions } from "@/workers/worker.types";
 
 export interface ScanAndEnqueueResult {
@@ -40,10 +41,7 @@ export async function scanAndEnqueueTask<TId, T>({
 	label,
 }: ScanAndEnqueueOptions<TId, T>): Promise<ScanAndEnqueueResult> {
 	const startedAt = performance.now();
-	const schedulingOptions: WorkerEnqueueOptions = {
-		operationId: context.operationId,
-		dependsOnTaskIds: context.taskId ? [context.taskId] : undefined,
-	};
+	const schedulingOptions: WorkerEnqueueOptions = toTaskSchedulingOptions(context);
 
 	let requested = 0;
 	let queued = 0;

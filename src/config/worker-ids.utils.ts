@@ -1,3 +1,6 @@
+/** The definition id of the library-scan worker, shared by the enqueue helpers and the worker itself. */
+export const LIBRARY_SCAN_WORKER_ID = "library-scan";
+
 /** Resource categories (kebab-case) shared by scheduling, allocation and settings.
  * Several worker definitions can belong to one category — e.g. the image
  * optimization variants share the image-processing concurrency budget. */
@@ -8,6 +11,9 @@ export type CanonicalWorkerId =
 	| "media-file-analysis"
 	| "scanning"
 	| "transcode";
+
+/** Categories that receive an automatic CPU concurrency budget; the rest get 1. */
+export type BudgetedWorkerId = "image-processing" | "metadata-refresh" | "media-file-technical-refresh" | "media-file-analysis";
 
 /** Every accepted spelling (definition id, camelCase settings key, virtual
  * allocation category) mapped to its category. Definition ids that have no
@@ -27,7 +33,7 @@ const WORKER_ID_ALIASES: Record<string, CanonicalWorkerId> = {
 	mediaFileAnalysis: "media-file-analysis",
 	"media-file-analysis": "media-file-analysis",
 	scanning: "scanning",
-	"library-scan": "scanning",
+	[LIBRARY_SCAN_WORKER_ID]: "scanning",
 	transcode: "transcode",
 };
 
@@ -57,6 +63,20 @@ export const UNCATEGORIZED_WORKER_IDS: ReadonlySet<string> = new Set([
 	"stream-init",
 	"trickplay-generate",
 ]);
+
+/**
+ * Workers that keep running during server rescue because they serve active
+ * playback sessions. Everything else is expendable and can resume later.
+ */
+export const PROTECTED_WORKER_IDS: ReadonlySet<string> = new Set(["stream-init", "transcode"]);
+
+/**
+ * Workers whose restart requeue is capped. A trickplay job on a hung dataset
+ * otherwise survives every update/restart, starts again, hangs the host, and
+ * repeats — one file held a server down through nine restarts in the incident
+ * this guard comes from.
+ */
+export const RESTART_CAPPED_WORKER_IDS: ReadonlySet<string> = new Set(["trickplay-generate"]);
 
 /** Resource category for any accepted spelling; undefined for uncategorized workers. */
 export function canonicalWorkerId(workerId: string): CanonicalWorkerId | undefined {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sleep } from "bun";
 import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
+import { DomainError } from "@/utils/domain.errors";
 import { SeekScheduler } from "./seek.scheduler";
 
 const decision = createMockPlaybackDecision({ mode: "transcode" });
@@ -111,15 +112,16 @@ describe("seek scheduler", () => {
 	});
 
 	test("executor errors are delivered to all waiters", async () => {
-		const failure = new Error("seek exploded");
-		const scheduler = new SeekScheduler(1, () => Promise.reject(failure));
+		const scheduler = new SeekScheduler(1, () =>
+			Promise.reject(new DomainError("internal", "seek exploded", { code: "stream.seek_failed" })),
+		);
 
 		const first = scheduler.schedule("s1", 10, decision);
 		const second = scheduler.schedule("s1", 10, decision);
 		const outcomes = await Promise.allSettled([first, second]);
 		const reasons = outcomes.map((outcome) => (outcome.status === "rejected" ? outcome.reason : undefined));
 
-		expect(reasons[0]).toBe(failure);
-		expect(reasons[1]).toBe(failure);
+		expect(reasons[0]).toMatchObject({ category: "internal", code: "stream.seek_failed" });
+		expect(reasons[1]).toMatchObject({ category: "internal", code: "stream.seek_failed" });
 	});
 });

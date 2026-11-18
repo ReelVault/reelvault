@@ -17,7 +17,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 		});
 		if (!metadata) throw new DomainError("not_found", `Metadata ${metadataId} does not exist`, { code: "metadata.not_found" });
 
-		const providerIds = Object.fromEntries(metadata.providers.map((provider) => [provider.name, provider.externalId]));
+		const identifiers = Object.fromEntries(metadata.providers.map((provider) => [provider.name, provider.externalId]));
 
 		return {
 			reelvaultSchemaVersion: 1,
@@ -28,8 +28,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 			overview: metadata.overview ?? undefined,
 			tagline: metadata.tagline ?? undefined,
 			status: metadata.status ?? undefined,
-			identifiers: providerIds,
-			providerIds,
+			identifiers,
 			genres: metadata.genres.map((genre) => genre.name),
 			keywords: metadata.keywords.map((keyword) => keyword.name),
 			collection: metadata.collections[0]?.name,

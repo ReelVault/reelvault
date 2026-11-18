@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { buildWebVttExtractionArgs, isBitmapSubtitleFormat } from "./ffmpeg-args.builder";
+import { isBitmapSubtitleFormat } from "@/modules/subtitles/subtitle-formats.utils";
+import { buildWebVttExtractionArgs } from "./ffmpeg-args.builder";
 
 describe("buildWebVttExtractionArgs", () => {
 	test("builds the exact FFmpeg argv for a WebVTT stream extraction", () => {

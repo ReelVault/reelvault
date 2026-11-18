@@ -5,6 +5,7 @@ import { buildDecisionStreamMapArgs, buildHlsMuxerArgs, buildMetadataStripArgs }
 import { ffmpegProcessTracker } from "@/integrations/ffmpeg/ffmpeg.process-tracker";
 import { resolveStreamingThreads } from "@/integrations/ffmpeg/ffmpeg.threads";
 import { buildHwaccelInputArgs, buildTranscodeAudioArgs, buildTranscodeVideoArgs } from "@/integrations/ffmpeg/ffmpeg.transcode-args";
+import { usesSoftwareVideoEncode } from "@/modules/streaming/ffmpeg/software-fallback.policy";
 import type { StreamStartInput } from "@/modules/streaming/streaming.types";
 import { BaseStreamingStrategy } from "./base-streaming.strategy";
 
@@ -34,7 +35,11 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 			// corrects this (rescue never kills streaming processes).
 			const activeTranscodes = ffmpegProcessTracker.countByPurpose("streaming");
 			const threads = resolveStreamingThreads(configuredThreads, activeTranscodes);
-			const hw = decision.videoTranscode && !decision.forceSoftware ? getEffectiveHwaccel() : undefined;
+			const effectiveHw = decision.videoTranscode ? getEffectiveHwaccel() : undefined;
+			const softwareVideo = decision.videoTranscode && usesSoftwareVideoEncode(decision, effectiveHw?.type ?? "none");
+			// A CPU encode (including a one-shot fallback) reaches the arg builders with no
+			// accelerator; they resolve the software encoder from the decision themselves.
+			const hw = softwareVideo ? undefined : effectiveHw;
 			if (decision.videoTranscode) {
 				// The configured setting ("auto", "none") says nothing about what
 				// encodes the stream — the effective accelerator and its encoder do.

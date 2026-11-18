@@ -32,6 +32,26 @@ function unreadCountKey(userId: string, profileId?: string): string {
 	return profileId ? `${userId}:${profileId}` : userId;
 }
 
+/** The one created-notification shape the plugin bus, delivery channels and realtime derive from. */
+interface NotificationEvent {
+	id: string;
+	userId: string;
+	profileId?: string | undefined;
+	type: string;
+	title: string;
+	message: string | null;
+	link: string | null;
+	data: Record<string, unknown>;
+	sourcePluginId?: string | null | undefined;
+}
+
+/** Realtime clients get the notification without the plugin attribution or the full data blob. */
+function toRealtimePayload(event: NotificationEvent): RealtimePayload<"notification:created"> {
+	const { id, userId, profileId, type, title, message, link } = event;
+
+	return { id, userId, profileId, type, title, message, link };
+}
+
 /** The distinct profiles behind a set of viewer and watchlist rows. */
 function collectRecipients(items: Array<{ userId: string; profileId: string | null }>): Map<string, { userId: string; profileId: string }> {
 	const recipients = new Map<string, { userId: string; profileId: string }>();
@@ -74,7 +94,7 @@ class NotificationsService {
 			});
 
 			this.invalidateFor(notification.userId, notification.profileId ?? undefined);
-			const outgoing = {
+			const event: NotificationEvent = {
 				id,
 				userId: notification.userId,
 				profileId: notification.profileId,
@@ -83,18 +103,11 @@ class NotificationsService {
 				message: notification.message ?? null,
 				data: notification.data ?? {},
 				link: notification.link ?? null,
+				sourcePluginId,
 			};
 
-			this.emitNotificationCreated({ ...outgoing, sourcePluginId });
-			const realtimePayload = {
-				id,
-				userId: notification.userId,
-				profileId: notification.profileId,
-				type: notification.type,
-				title: notification.title,
-				message: notification.message ?? null,
-				link: notification.link ?? null,
-			};
+			this.emitNotificationCreated(event);
+			const realtimePayload = toRealtimePayload(event);
 
 			if (notification.profileId) {
 				// A muted type still exists for the profile's list and plugins; it just does not interrupt with a live event.
@@ -342,17 +355,7 @@ class NotificationsService {
 	 * channels. Realtime delivery stays with each caller — the batch
 	 * new-episode path predates it.
 	 */
-	private emitNotificationCreated(notification: {
-		id: string;
-		userId: string;
-		profileId?: string | undefined;
-		type: string;
-		title: string;
-		message: string | null;
-		link: string | null;
-		data: Record<string, unknown>;
-		sourcePluginId?: string | null | undefined;
-	}): void {
+	private emitNotificationCreated(notification: NotificationEvent): void {
 		pluginEventBus.publish("notification.created", {
 			notificationId: notification.id,
 			userId: notification.userId,
@@ -368,18 +371,8 @@ class NotificationsService {
 		// External channels are best-effort: delivery runs detached so a slow
 		// webhook never delays the API response (registry contains per-channel
 		// error isolation).
-		detach(
-			dispatchNotificationToChannels({
-				id: notification.id,
-				userId: notification.userId,
-				profileId: notification.profileId,
-				type: notification.type,
-				title: notification.title,
-				message: notification.message,
-				link: notification.link,
-				data: notification.data,
-			}),
-		);
+		const { id, userId, profileId, type, title, message, link, data } = notification;
+		detach(dispatchNotificationToChannels({ id, userId, profileId, type, title, message, link, data }));
 	}
 
 	private async assertProfileBelongsToUser(userId: string, profileId?: string): Promise<void> {

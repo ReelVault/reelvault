@@ -10,7 +10,6 @@ const snapshot = {
 	reelvaultSchemaVersion: 1,
 	title: "A < B",
 	identifiers: { imdb: "tt1905041" },
-	providerIds: {},
 	genres: [],
 	keywords: [],
 	productionCompanies: [],
@@ -33,6 +32,18 @@ test("ReelVault adapter writes its own NFO without changing a foreign movie.nfo"
 			title: "A < B",
 			identifiers: { imdb: "tt1905041" },
 		});
+	} finally {
+		await removeTree(directory);
+	}
+});
+
+test("reads a season snapshot back as a season, not an episode", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "reelvault-season-"));
+	const documentPath = join(directory, "season01-reelvault.nfo");
+	try {
+		const adapter = new ReelVaultFormatAdapter();
+		await adapter.write({ documentPath, document: { ...snapshot, seasonNumber: 1 } });
+		expect(await adapter.read({ documentPath })).toMatchObject({ mediaKind: "season" });
 	} finally {
 		await removeTree(directory);
 	}

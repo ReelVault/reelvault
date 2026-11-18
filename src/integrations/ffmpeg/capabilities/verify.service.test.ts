@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";
-import { type DetectedHwaccel, SOFTWARE_HWACCEL } from "./hwaccel.utils";
+import type { DetectedHwaccel } from "./hwaccel.utils";
 import { verifyHwaccelCandidates } from "./verify.service";
 
 // The test encode is the one place where the host's ffmpeg build decides the
@@ -18,6 +18,7 @@ mockModuleWithRealExports("@/integrations/ffmpeg/capabilities/probe.utils", {
 	},
 });
 
+const SOFTWARE: DetectedHwaccel = { type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" };
 const NVENC: DetectedHwaccel = { type: "nvenc", device: null, h264Encoder: "h264_nvenc", hevcEncoder: "hevc_nvenc" };
 const VAAPI: DetectedHwaccel = { type: "vaapi", device: null, h264Encoder: "h264_vaapi", hevcEncoder: "hevc_vaapi" };
 
@@ -39,15 +40,15 @@ describe("verifyHwaccelCandidates", () => {
 	it("returns the software encoder when there is no candidate", async () => {
 		const result = await verifyHwaccelCandidates([]);
 
-		expect(result.detected).toEqual(SOFTWARE_HWACCEL);
+		expect(result.detected).toEqual(SOFTWARE);
 		expect(result.verification).toBeNull();
 		expect(probeCalls).toHaveLength(0);
 	});
 
 	it("accepts the software candidate without running a test encode", async () => {
-		const result = await verifyHwaccelCandidates([SOFTWARE_HWACCEL]);
+		const result = await verifyHwaccelCandidates([SOFTWARE]);
 
-		expect(result.detected).toEqual(SOFTWARE_HWACCEL);
+		expect(result.detected).toEqual(SOFTWARE);
 		expect(result.verification).toBeNull();
 		expect(probeCalls).toHaveLength(0);
 	});
@@ -65,7 +66,7 @@ describe("verifyHwaccelCandidates", () => {
 
 		const result = await verifyHwaccelCandidates([NVENC]);
 
-		expect(result.detected).toEqual(SOFTWARE_HWACCEL);
+		expect(result.detected).toEqual(SOFTWARE);
 		expect(result.verification?.ok).toBe(false);
 		expect(result.verification?.code).toBe("ffmpeg.hwaccel.verify_failed");
 		expect(result.verification?.detail).toBe("no such device");
@@ -75,7 +76,7 @@ describe("verifyHwaccelCandidates", () => {
 		probeExitCode = 1;
 		const result = await verifyHwaccelCandidates([NVENC, VAAPI]);
 
-		expect(result.detected).toEqual(SOFTWARE_HWACCEL);
+		expect(result.detected).toEqual(SOFTWARE);
 		expect(result.verification?.encoder).toBe("h264_nvenc");
 	});
 

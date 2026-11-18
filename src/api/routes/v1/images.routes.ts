@@ -2,13 +2,14 @@ import type { ImageQuery } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { authMiddleware } from "@/api/middleware/auth.middleware";
 import { rateLimitMiddleware, routeLimit } from "@/api/middleware/rate-limit.middleware";
-import { cached } from "@/api/middleware/response-cache.middleware";
+import { type CacheOptions, cacheControlFor, cached } from "@/api/middleware/response-cache.middleware";
 import { BinaryNotModifiedSchema, commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schema";
 import { ImageIdParams } from "@/api/schemas/route-params.schema";
 import { binaryFileResponse } from "@/api/utils/binary-response.utils";
 import { imagesService } from "@/modules/images/images.service";
 
-const IMAGE_CACHE_CONTROL = "public, max-age=86400, immutable";
+const IMAGE_CACHE_OPTIONS: CacheOptions = { maxAge: 86400, immutable: true };
+const IMAGE_CACHE_CONTROL = cacheControlFor(IMAGE_CACHE_OPTIONS);
 
 export const imagesRoutes = new Elysia({
 	prefix: "/images",
@@ -35,7 +36,7 @@ export const imagesRoutes = new Elysia({
 		},
 		{
 			rateLimit: routeLimit("image-optimization", 250, 10_000),
-			...cached({ maxAge: 86400, immutable: true }),
+			...cached(IMAGE_CACHE_OPTIONS),
 			params: ImageIdParams,
 			query: t.Object({
 				width: t.Optional(t.Numeric({ minimum: 1, maximum: 4096 })),

@@ -32,7 +32,7 @@ test("scores a transliterated provider title as a confident match", () => {
 	const result = scoreCandidate(query, { title: "Lodz", releaseDate: "2023-01-01", popularity: 50 }, 2023);
 
 	expect(result.titleScore).toBe(1);
-	expect(result.score).toBeGreaterThan(0.9);
+	expect(result.score).toBeCloseTo(0.903905982465371, 10);
 });
 
 describe("boundedLevenshtein", () => {
@@ -87,7 +87,7 @@ test("picks best match when filename is English and provider title is translated
 
 	const ranked = rankCandidates(candidates, "The Shawshank Redemption", 1994);
 	expect(ranked[0]?.item.title).toBe("Skazani na Shawshank");
-	expect(ranked[0]?.score).toBeGreaterThan(0.9);
+	expect(ranked[0]?.score).toBeCloseTo(0.9785156429392036, 10);
 
 	const bestMatch = pickBestMatch(candidates, "The Shawshank Redemption", 1994, 0.45);
 	expect(bestMatch?.item.title).toBe("Skazani na Shawshank");
@@ -113,7 +113,7 @@ test("matches English filename for Die Hard with Polish title Szklana pułapka",
 
 	const bestMatch = pickBestMatch(candidates, "Die Hard", 1988, 0.45);
 	expect(bestMatch?.item.title).toBe("Szklana pułapka");
-	expect(bestMatch?.score).toBeGreaterThan(0.9);
+	expect(bestMatch?.score).toBeCloseTo(0.9697651320333132, 10);
 });
 
 test("tolerates 1-year discrepancy in release dates", () => {
@@ -128,7 +128,7 @@ test("tolerates 1-year discrepancy in release dates", () => {
 	];
 
 	const ranked = rankCandidates(candidates, "Inception", 2011);
-	expect(ranked[0]?.score).toBeGreaterThan(0.7);
+	expect(ranked[0]?.score).toBeCloseTo(0.9213933323224581, 10);
 	expect(ranked[0]?.yearScore).toBe(0.8);
 });
 

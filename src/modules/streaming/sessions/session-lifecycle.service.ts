@@ -182,17 +182,13 @@ export class SessionLifecycleService {
 	private async createPlaybackSessionInternal(
 		fileId: string,
 		capabilitiesQuery: PlaybackSessionInput,
-		profileId?: string,
+		profileId: string,
 		userId?: string,
 	): Promise<PlaybackSession> {
 		return await runSafely(this, "createPlaybackSession", async () => {
 			const { runtime } = this.dependencies;
 			this.dependencies.assertEnvironment();
 			assertSafeId(fileId);
-			if (!profileId)
-				throw new DomainError("unauthorized", "An active profile is required to create a streaming session", {
-					code: "auth.profile_required",
-				});
 
 			const selected = await this.selectPlayback(fileId, profileId, capabilitiesQuery);
 			const { decision } = selected;

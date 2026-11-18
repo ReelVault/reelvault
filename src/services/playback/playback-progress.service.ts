@@ -312,18 +312,17 @@ class PlaybackProgressService {
 				});
 			}
 
-			// "Mark watched" writes MAX_SAFE_INTEGER; a file with no known duration
-			// cannot satisfy the ratio check, so the explicit intent stores position
-			// 0 instead of a bogus value (the single-update rule).
+			// "Mark watched" writes MAX_SAFE_INTEGER. The single-update rule also
+			// handles a file with no known duration: it stores position 0 instead
+			// of a bogus value and still marks the row complete.
 			const duration = row.duration ?? 0;
-			const explicitComplete = duration <= 0;
-			const position = explicitComplete ? 0 : normalizePlaybackPosition(Number.MAX_SAFE_INTEGER, duration);
+			const { position, completed } = resolveProgressState({ position: Number.MAX_SAFE_INTEGER }, duration);
 			updates.push({
 				fileId,
 				metadataId: row.metadataId,
 				duration,
 				position,
-				completed: explicitComplete || isCompleted(position, duration),
+				completed,
 				audioStreamIndex: row.audioStreamIndex,
 				subtitleId: row.subtitleId,
 				recordsPlay: row.completed !== true,

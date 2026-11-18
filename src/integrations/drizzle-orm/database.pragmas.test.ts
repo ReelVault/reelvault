@@ -56,8 +56,9 @@ describe("database connection pragmas", () => {
 
 		await factory.analyzeChunked();
 
+		// One row per analyzed index in the migrated schema (FTS shadow tables included).
 		const stats = factory.sqlite.query("SELECT count(*) AS count FROM sqlite_stat1").get() as Record<string, unknown> | null;
-		expect(stats?.count).toBeGreaterThan(0);
+		expect(stats?.count).toBe(15);
 		expect(pragmaValue(factory, "analysis_limit")).toBe(0);
 	});
 });

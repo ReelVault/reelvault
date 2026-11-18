@@ -1,13 +1,9 @@
 import { SystemSettingsCreator } from "@/config/system-settings.utils";
 
-export type FfmpegHwaccelOption = "auto" | "none" | "nvenc" | "vaapi" | "qsv" | "amf" | "videotoolbox";
-type FfmpegPresetOption = "auto" | "ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow" | "slower" | "veryslow";
-type FfmpegToneMappingOption = "auto" | "none";
-type FfmpegToneMapAlgorithmOption = "bt2390" | "hable" | "mobius" | "reinhard";
+const FFMPEG_HWACCEL_OPTIONS = ["auto", "none", "nvenc", "vaapi", "qsv", "amf", "videotoolbox"] as const;
+export type FfmpegHwaccelOption = (typeof FFMPEG_HWACCEL_OPTIONS)[number];
 
-const FFMPEG_HWACCEL_OPTIONS: readonly FfmpegHwaccelOption[] = ["auto", "none", "nvenc", "vaapi", "qsv", "amf", "videotoolbox"];
-
-const FFMPEG_PRESET_OPTIONS: readonly FfmpegPresetOption[] = [
+const FFMPEG_PRESET_OPTIONS = [
 	"auto",
 	"ultrafast",
 	"superfast",
@@ -18,10 +14,10 @@ const FFMPEG_PRESET_OPTIONS: readonly FfmpegPresetOption[] = [
 	"slow",
 	"slower",
 	"veryslow",
-];
+] as const;
 
-const FFMPEG_TONE_MAPPING_OPTIONS: readonly FfmpegToneMappingOption[] = ["auto", "none"];
-const FFMPEG_TONE_MAP_ALGORITHM_OPTIONS: readonly FfmpegToneMapAlgorithmOption[] = ["bt2390", "hable", "mobius", "reinhard"];
+const FFMPEG_TONE_MAPPING_OPTIONS = ["auto", "none"] as const;
+const FFMPEG_TONE_MAP_ALGORITHM_OPTIONS = ["bt2390", "hable", "mobius", "reinhard"] as const;
 
 const creator = SystemSettingsCreator("streaming");
 

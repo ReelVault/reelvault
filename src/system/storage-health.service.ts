@@ -319,8 +319,3 @@ export class StorageHealthService {
 }
 
 export const storageHealthService = new StorageHealthService();
-
-/** Re-exported for tests that need the window without duplicating the constant. */
-export const STORAGE_FAILURE_WINDOW_MS = FAILURE_WINDOW_MS;
-export const STORAGE_FILE_BLOCK_MS = FILE_BLOCK_MS;
-export const STORAGE_ROOT_DEGRADED_MS = ROOT_DEGRADED_MS;

@@ -2,9 +2,9 @@ import type { PlaybackDiagnostics, TranscodeProgressResponse } from "@reelvault/
 import { serverConfig } from "@/config/server/server.config";
 import { calculateBufferProgress } from "@/modules/streaming/buffer/hls-buffer.utils";
 import { defaultFindForStreamingDuration, defaultRequireSession } from "@/modules/streaming/contracts.utils";
-import { selectDefaultOrFirstStream } from "@/modules/streaming/decisions/stream-preferences.resolver";
 import { streamingManager as streamingRuntimeService } from "@/modules/streaming/runtime/streaming.manager";
 import type { HlsBufferAnalysis, RequireSession } from "@/modules/streaming/streaming.types";
+import { selectDefaultOrFirstStream } from "@/modules/streaming/utils/stream-selection.utils";
 import { mediaRepository } from "@/repositories/media-files.repository";
 import { assertFound } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";

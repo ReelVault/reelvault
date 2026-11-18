@@ -48,7 +48,7 @@ class SystemSettingsService {
 	readonly logger = createLogger("SystemSettingsService");
 
 	private isInitialized = false;
-	// Dedupes concurrent ensureInitialized() calls: without it two parallel requests
+	// Dedupes concurrent init() calls: without it two parallel requests
 	// would run repository.list() + populateCache() twice before the first init() finished.
 	private initPromise: Promise<void> | null = null;
 
@@ -69,7 +69,7 @@ class SystemSettingsService {
 		} catch (error) {
 			this.logger.warn("Could not load system settings from database, using defaults", { error });
 		} finally {
-			// Lets the next ensureInitialized() retry if init() failed.
+			// Lets the next init() retry if the previous attempt failed.
 			this.initPromise = null;
 		}
 	}
@@ -92,7 +92,7 @@ class SystemSettingsService {
 	}
 
 	async getAll(): Promise<Record<SettingGroup, SystemSettingItemView[]>> {
-		await this.ensureInitialized();
+		await this.init();
 		const rowsByKey = toMap(await systemSettingsRepository.list(), (row) => row.key);
 
 		const grouped: Record<SettingGroup, SystemSettingItemView[]> = {
@@ -140,7 +140,7 @@ class SystemSettingsService {
 
 	/** Every setting's current value, versioned so an import can refuse any other format. */
 	async exportSettings(): Promise<SystemSettingsExport> {
-		await this.ensureInitialized();
+		await this.init();
 
 		const settings: Record<string, unknown> = {};
 		for (const key of SETTING_KEYS) settings[key] = systemSettingsStore.get(key);
@@ -175,7 +175,7 @@ class SystemSettingsService {
 		updates: Record<string, unknown>,
 		context?: AdminAuditContext,
 	): Promise<Record<SettingGroup, SystemSettingItemView[]>> {
-		await this.ensureInitialized();
+		await this.init();
 
 		const dbEntries: Array<{ key: string; value: string }> = [];
 		const prunedKeys: SystemSettingKey[] = [];
@@ -242,7 +242,7 @@ class SystemSettingsService {
 	}
 
 	async resetSettings(keys?: string[], context?: AdminAuditContext): Promise<Record<SettingGroup, SystemSettingItemView[]>> {
-		await this.ensureInitialized();
+		await this.init();
 
 		const keysToReset = keys && keys.length > 0 ? keys.filter((item) => isSystemSettingKey(item)) : [...SETTING_KEYS];
 
@@ -277,7 +277,7 @@ class SystemSettingsService {
 
 	/** Audit, log, broadcast and runtime side effects of a settings write. Only runs after persistence. */
 	private async finishChange(
-		keys: readonly string[],
+		keys: readonly SystemSettingKey[],
 		audit: Omit<Parameters<typeof recordAuditSafe>[0], "context">,
 		message: string,
 		context?: AdminAuditContext,
@@ -290,7 +290,7 @@ class SystemSettingsService {
 	}
 
 	/** Tells the other administrator sessions which settings changed, so their open pages reload them. */
-	private broadcastChange(keys: readonly string[], actorUserId: string | undefined): void {
+	private broadcastChange(keys: readonly SystemSettingKey[], actorUserId: string | undefined): void {
 		realtimeService.broadcastToAdmins("settings:changed", {
 			keys: [...keys],
 			actorUserId,
@@ -303,7 +303,7 @@ class SystemSettingsService {
 	 * reload, log level). Always runs after persistence, so a failed write never
 	 * triggers them; the same key rules apply to updates and resets.
 	 */
-	private async applySettingsSideEffects(keys: readonly string[]): Promise<void> {
+	private async applySettingsSideEffects(keys: readonly SystemSettingKey[]): Promise<void> {
 		const effects = requiredSideEffects(keys);
 
 		// Profiles inherit these defaults; any cached response that embeds effective preferences is stale now.
@@ -340,12 +340,6 @@ class SystemSettingsService {
 			this.logger.warn("Could not reload FFmpeg / FFprobe capabilities after settings update", { error });
 		}
 	}
-
-	private async ensureInitialized(): Promise<void> {
-		if (!this.isInitialized) {
-			await this.init();
-		}
-	}
 }
 
 /** The side effects a set of changed setting keys requires. */
@@ -361,7 +355,7 @@ interface SettingsSideEffects {
 }
 
 /** Which runtime side effects the changed setting keys require. */
-function requiredSideEffects(keys: readonly string[]): SettingsSideEffects {
+function requiredSideEffects(keys: readonly SystemSettingKey[]): SettingsSideEffects {
 	const effects: SettingsSideEffects = {
 		needsWatcherSync: false,
 		needsFfmpegReload: false,
@@ -433,6 +427,7 @@ export const systemSettingsService = new SystemSettingsService();
  * inconsistent DB state does not block unrelated edits.
  */
 function assertCrossFieldSettings(updates: Record<string, unknown>, afterValues: Map<SystemSettingKey, unknown>): void {
+	const updatedKeys = new Set(Object.keys(updates).filter((key) => isSystemSettingKey(key)));
 	const getEffectiveNumber = (key: SystemSettingKey): number => {
 		const updated = afterValues.get(key);
 		if (typeof updated === "number") return updated;
@@ -442,7 +437,7 @@ function assertCrossFieldSettings(updates: Record<string, unknown>, afterValues:
 		return typeof current === "number" ? current : 0;
 	};
 
-	if ("system.resources.memoryThresholdPercent" in updates || "system.resources.memoryCriticalPercent" in updates) {
+	if (updatedKeys.has("system.resources.memoryThresholdPercent") || updatedKeys.has("system.resources.memoryCriticalPercent")) {
 		const threshold = getEffectiveNumber("system.resources.memoryThresholdPercent");
 		const critical = getEffectiveNumber("system.resources.memoryCriticalPercent");
 		if (threshold >= critical) {
@@ -453,7 +448,7 @@ function assertCrossFieldSettings(updates: Record<string, unknown>, afterValues:
 		}
 	}
 
-	if ("stream.maxSessions" in updates || "stream.maxSessionsPerUser" in updates) {
+	if (updatedKeys.has("stream.maxSessions") || updatedKeys.has("stream.maxSessionsPerUser")) {
 		const maxSessions = getEffectiveNumber("stream.maxSessions");
 		const maxSessionsPerUser = getEffectiveNumber("stream.maxSessionsPerUser");
 		if (maxSessionsPerUser > maxSessions) {

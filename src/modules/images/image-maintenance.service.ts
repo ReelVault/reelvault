@@ -7,6 +7,7 @@ import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import { imageCacheEviction } from "@/modules/images/cache/image-cache.eviction";
 import { sourceVersionCache } from "@/modules/images/cache/source-version.cache";
+import { getRegisteredImageIdFromCacheKey } from "@/modules/images/image-cache-key.utils";
 import { imageRepository } from "@/repositories/images.repository";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { directoryExists, scanFilesWithStats } from "@/utils/directory.utils";
@@ -127,12 +128,11 @@ class ImageMaintenanceService {
 		}
 
 		if (normalizedPath.includes("/.cache/")) {
-			const fileName = basename(filePath);
-			const imageIdPrefix = fileName.split("_")[0];
+			const imageIdPrefix = getRegisteredImageIdFromCacheKey(basename(filePath));
 
 			// Fresh cache entries may belong to an image registered a moment later —
 			// age-gate them like everything else instead of trusting the DB snapshot.
-			return Boolean(imageIdPrefix && !imageIdPrefix.startsWith("src") && !imageIds.has(imageIdPrefix)) && ageMs >= minAgeMs;
+			return Boolean(imageIdPrefix && !imageIds.has(imageIdPrefix)) && ageMs >= minAgeMs;
 		}
 
 		return !localPaths.has(normalizedPath) && ageMs >= minAgeMs;

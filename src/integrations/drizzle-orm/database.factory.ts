@@ -49,6 +49,9 @@ const DATABASE_CHECK_TIMEOUT_MS = 60_000;
 /** `VACUUM INTO` rewrites the whole database; give a large library a generous but finite window. */
 const DATABASE_BACKUP_TIMEOUT_MS = 10 * 60_000;
 
+/** The journal table Drizzle creates to record applied migrations. */
+export const MIGRATIONS_TABLE_NAME = "__drizzle_migrations";
+
 /** Statements that merge the FTS5 segment b-trees. Kept together so the chunked runner stays in sync. */
 const FTS_OPTIMIZE_STATEMENTS: readonly string[] = [
 	"INSERT INTO metadata_fts(metadata_fts) VALUES('optimize')",
@@ -283,9 +286,10 @@ export class DatabaseFactory {
 		this.sqlite.run("ANALYZE");
 	}
 
-	private countAppliedMigrations(): number {
+	/** Number of migrations recorded as applied; 0 when the journal does not exist yet. */
+	countAppliedMigrations(): number {
 		try {
-			const row: unknown = this.sqlite.query("SELECT count(*) AS count FROM __drizzle_migrations").get();
+			const row: unknown = this.sqlite.query(`SELECT count(*) AS count FROM ${MIGRATIONS_TABLE_NAME}`).get();
 			if (!isRecord(row) || typeof row.count !== "number") return 0;
 
 			return row.count;

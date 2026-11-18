@@ -68,21 +68,11 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import {
-	cpSync,
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	statSync,
-	symlinkSync,
-	writeFileSync,
-} from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve as resolvePath, sep } from "node:path";
 import { type Node, parseSync, visitorKeys } from "oxc-parser";
+import { collectTypeScriptFilesSync, lineIndexOf, lineStartsOf } from "./lint/source-files.script";
 
 /** The folder the production code lives in. Its modules are the subjects. */
 const SOURCE_ROOT = "src";
@@ -809,19 +799,6 @@ function parseShard(raw: string | undefined): Shard | undefined {
 	return { index, count };
 }
 
-/** Every `.ts` file below a folder, as repository-relative paths. Declaration files are not modules. */
-function collectTypeScript(directory: string): string[] {
-	const files: string[] = [];
-	for (const entry of readdirSync(directory)) {
-		if (entry === "node_modules") continue;
-		const path = join(directory, entry);
-		if (statSync(path).isDirectory()) files.push(...collectTypeScript(path));
-		else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts")) files.push(path);
-	}
-
-	return files;
-}
-
 /** The repository file a relative or `@/` specifier points at, or undefined for a package import. */
 function resolveLocalImport(specifier: string, fromFile: string): string | undefined {
 	let base: string;
@@ -910,27 +887,6 @@ function coveringTests(subject: string, reaches: TestReach[], limit: number | un
 	return selected.map((reach) => reach.path);
 }
 
-/** A finder for every match of `pattern` in the code. The replacement is computed from the matched text. */
-function lineStarts(source: string): number[] {
-	const starts = [0];
-	for (let index = source.indexOf("\n"); index !== -1; index = source.indexOf("\n", index + 1)) starts.push(index + 1);
-
-	return starts;
-}
-
-/** The 1-based line of an index, by binary search over the line starts. */
-function lineAt(starts: number[], index: number): number {
-	let low = 0;
-	let high = starts.length - 1;
-	while (low < high) {
-		const middle = Math.ceil((low + high) / 2);
-		if ((starts[middle] ?? 0) <= index) low = middle;
-		else high = middle - 1;
-	}
-
-	return low + 1;
-}
-
 /** True when the mutation kind is enabled and the mutated span overlaps the active diff. */
 function siteAllowed(ctx: SiteContext, kind: string, startLine: number, endLine: number): boolean {
 	if (ctx.filter.kinds !== undefined && !ctx.filter.kinds.has(kind)) return false;
@@ -944,8 +900,8 @@ function siteAllowed(ctx: SiteContext, kind: string, startLine: number, endLine:
 
 function addSite(ctx: SiteContext, kind: string, index: number, before: string, after: string): void {
 	if (before === after) return;
-	const line = lineAt(ctx.lineStarts, index);
-	const endLine = lineAt(ctx.lineStarts, index + before.length);
+	const line = lineIndexOf(ctx.lineStarts, index) + 1;
+	const endLine = lineIndexOf(ctx.lineStarts, index + before.length) + 1;
 	if (!siteAllowed(ctx, kind, line, endLine)) return;
 	const key = `${index}\0${before}\0${after}`;
 	if (ctx.seen.has(key)) return;
@@ -1394,7 +1350,7 @@ function readMutants(source: string, subject: string, filter: MutationFilter): S
 	if (filter.ranges !== undefined && !filter.ranges.has(subject)) return [];
 	const parsed = parseSync(subject, source, { lang: "ts" });
 	if (parsed.errors.length > 0) return undefined;
-	const ctx: SiteContext = { source, sites: [], seen: new Set(), lineStarts: lineStarts(source), filter };
+	const ctx: SiteContext = { source, sites: [], seen: new Set(), lineStarts: lineStartsOf(source), filter };
 	walkAst(parsed.program, undefined, "", (node, parent, key) => visitNode(node, parent, key, ctx));
 	const sites = ctx.sites.toSorted((left, right) => left.index - right.index);
 	const occurrences = new Map<string, number>();
@@ -2386,7 +2342,9 @@ if (options.status) {
 }
 const diffRanges = readDiffRanges(options);
 const filter: MutationFilter = { subject: "", kinds: options.mutators, exclude: options.excludeMutators, ranges: diffRanges };
-const files = TEST_ROOTS.flatMap((root) => collectTypeScript(root));
+const files = TEST_ROOTS.flatMap((root) =>
+	collectTypeScriptFilesSync(root, { extensions: [".ts"], excludeSuffixes: [".d.ts"], skipDirectories: new Set(["node_modules"]) }),
+);
 const graph = new Map(files.map((file): [string, string[]] => [file, readLocalImports(file)]));
 const reaches: TestReach[] = files.filter((file) => isTestPath(file)).map((path) => ({ path, reached: reachedModules(path, graph) }));
 const reachedAll = new Set(reaches.flatMap((reach) => [...reach.reached.keys()]));

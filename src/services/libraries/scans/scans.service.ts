@@ -1,4 +1,5 @@
 import type { LibraryScanProgress, LibraryScanProgressResponse } from "@reelvault/sdk/common";
+import { LIBRARY_SCAN_WORKER_ID } from "@/config/worker-ids.utils";
 import { librariesRepository } from "@/repositories/libraries.repository";
 import { workerOperationRepository } from "@/repositories/worker-operation.repository";
 import { recordUpdateAudit } from "@/services/admin/admin-audit.service";
@@ -9,6 +10,7 @@ import { assertFound } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { enqueueLibraryScan } from "@/workers/definitions/libraries/library-scan.worker";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped.utils";
+import { buildLibraryScanDedupeKey, LIBRARY_SCAN_CATCH_UP_SUFFIX } from "./scan-dedupe.utils";
 
 interface ScanRequest {
 	libraryId: string;
@@ -18,7 +20,7 @@ interface ScanRequest {
 
 async function triggerLibraryScan(data: ScanRequest, dedupeKey: string) {
 	return await enqueueDeduped({
-		targets: [{ workerId: "library-scan", dedupeKey }],
+		targets: [{ workerId: LIBRARY_SCAN_WORKER_ID, dedupeKey }],
 		type: "library-scanning",
 		reference: { type: "library", id: data.libraryId },
 		label: "library scan",
@@ -37,8 +39,8 @@ async function triggerLibraryScan(data: ScanRequest, dedupeKey: string) {
 async function queueCatchUpScan(data: ScanRequest, dedupeKey: string, operationId: string): Promise<void> {
 	try {
 		const { workerService } = await import("@/workers/worker.service");
-		const catchUpKey = `${dedupeKey}:catch-up`;
-		if (await workerService.findActiveItem("library-scan", catchUpKey)) return;
+		const catchUpKey = `${dedupeKey}${LIBRARY_SCAN_CATCH_UP_SUFFIX}`;
+		if (await workerService.findActiveItem(LIBRARY_SCAN_WORKER_ID, catchUpKey)) return;
 
 		await enqueueLibraryScan(data, { operationId }, catchUpKey);
 		librariesLog.logger.info("Scan already running — queued a catch-up scan for the latest disk state", {
@@ -59,7 +61,7 @@ export async function scanLibrary(libraryId: string, context?: AdminAuditContext
 			libraryId: library.id,
 			paths: library.paths.map((p) => p.path),
 		};
-		const result = await triggerLibraryScan(data, `${library.id}:all`);
+		const result = await triggerLibraryScan(data, buildLibraryScanDedupeKey(library.id));
 
 		recordUpdateAudit(librariesLog.logger, {
 			resourceType: "library_scan",
@@ -94,9 +96,12 @@ export async function cancelLibraryScans(libraryId: string, context?: AdminAudit
 			import("@/workers/worker.service"),
 		]);
 
-		const scanKeys = [`${library.id}:all`, ...library.paths.map((path) => `${library.id}:${path.id}`)];
-		const dedupeKeys = scanKeys.flatMap((key) => [key, `${key}:catch-up`]);
-		const active = await workerService.findActiveItems("library-scan", dedupeKeys);
+		const scanKeys = [
+			buildLibraryScanDedupeKey(library.id),
+			...library.paths.map((path) => buildLibraryScanDedupeKey(library.id, path.id)),
+		];
+		const dedupeKeys = scanKeys.flatMap((key) => [key, `${key}${LIBRARY_SCAN_CATCH_UP_SUFFIX}`]);
+		const active = await workerService.findActiveItems(LIBRARY_SCAN_WORKER_ID, dedupeKeys);
 		const operationIds = [...new Set(active.map((item) => item.operationId).filter((id): id is string => typeof id === "string"))];
 
 		let cancelled = 0;
@@ -122,7 +127,10 @@ export async function scanLibraryPath(libraryId: string, pathId: string, context
 		const path = library.paths.find((item) => item.id === pathId && item.isActive);
 		assertFound(path, "Library path", pathId);
 
-		const result = await triggerLibraryScan({ libraryId: library.id, paths: [path.path], pathId: path.id }, `${library.id}:${path.id}`);
+		const result = await triggerLibraryScan(
+			{ libraryId: library.id, paths: [path.path], pathId: path.id },
+			buildLibraryScanDedupeKey(library.id, path.id),
+		);
 
 		recordUpdateAudit(librariesLog.logger, {
 			resourceType: "library_scan",

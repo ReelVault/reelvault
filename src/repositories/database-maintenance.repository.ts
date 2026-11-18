@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { serverConstants } from "@/config/server/server.constants";
 import { MIGRATIONS_DIR } from "@/integrations/drizzle-orm/constants/migrations.constants";
-import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
+import { databaseFactory, MIGRATIONS_TABLE_NAME } from "@/integrations/drizzle-orm/database.factory";
 
 export const databaseMaintenanceRepository = {
 	shutdownIfConfiguredDatabasePath(path: string) {
@@ -25,9 +25,7 @@ export const databaseMaintenanceRepository = {
 			.filter((entry) => entry.isDirectory() && existsSync(join(MIGRATIONS_DIR, entry.name, "migration.sql")))
 			.map((entry) => entry.name)
 			.toSorted();
-		const row = databaseFactory.sqlite.query<{ count: number }, []>("SELECT count(*) AS count FROM __drizzle_migrations").get();
-
-		return { tags, applied: row?.count ?? 0 };
+		return { tags, applied: databaseFactory.countAppliedMigrations() };
 	},
 
 	/**
@@ -40,8 +38,8 @@ export const databaseMaintenanceRepository = {
 			try {
 				const checks = db.query<{ quick_check: string }, []>("PRAGMA quick_check").all();
 				const journal = db
-					.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'")
-					.get();
+					.query<{ name: string }, [string]>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+					.get(MIGRATIONS_TABLE_NAME);
 
 				return checks.length === 1 && checks[0]?.quick_check === "ok" && journal !== null;
 			} finally {

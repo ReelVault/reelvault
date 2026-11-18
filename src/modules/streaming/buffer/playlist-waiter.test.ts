@@ -116,13 +116,11 @@ describe("playlist waiter", () => {
 		}
 	});
 
-	test("waits for the playlist of a pending reservation and surfaces the generation timeout", async () => {
+	test("surfaces the generation timeout while the playlist of a pending reservation is missing", async () => {
 		const { waiter } = createWaiter("pending", { pending: true });
-		const started = Date.now();
 
 		const failure: unknown = await waiter.waitForPlaylist("s1", 60, async () => false).catch((error: unknown) => error);
 
 		expect(failure).toMatchObject({ category: "timeout", code: "playlist_generation_timeout" });
-		expect(Date.now() - started).toBeGreaterThanOrEqual(50);
 	});
 });

@@ -24,8 +24,6 @@ describe("AdminLiveSessionsService.terminateSessions", () => {
 		);
 
 		const result = await adminLiveSessionsService.terminateSessions({ sessionIds: ["s-1", "s-2", "s-1", "s-3"], reason: "maintenance" });
-		// The audit row is written detached; one macrotask lets it land in this test's database.
-		await Bun.sleep(0);
 
 		expect(result).toEqual({
 			terminated: 2,

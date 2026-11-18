@@ -161,11 +161,11 @@ export function getTotalMemoryKiB(now: number = Date.now()): number | undefined 
 		try {
 			total = parseMeminfoTotalKiB(readFileSync("/proc/meminfo", "utf8"));
 		} catch {
-			// /proc/meminfo unavailable — fall back to os.totalmem().
+			// Unreadable — fall back below.
 		}
 
-		// /proc/meminfo unavailable — fall back to the host reading that
-		// system-resources owns.
+		// /proc/meminfo is absent on some hosts (containers, non-Linux). The
+		// host reading that system-resources owns is the fallback.
 		total ??= detectHostTotalMemoryKiB();
 		cachedTotalKiB = capTotalMemoryKiB(total, readCgroupMemoryLimitKiB(now));
 	}
