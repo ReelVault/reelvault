@@ -1,13 +1,10 @@
-import { AuthUserSchema, TwoFactorBackupCodesStatusSchema } from "@reelvault/sdk/common";
+import { TwoFactorBackupCodesStatusSchema, TwoFactorDisableResponseSchema, TwoFactorSignInResponseSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
 import { TWO_FACTOR_MANAGEMENT_WINDOW_MS, TWO_FACTOR_VERIFY_WINDOW_MS } from "@/api/api.constants";
 import { assertAuthRequestOrigin } from "@/api/middleware/auth-origin.guard";
 import { rateLimitMiddleware, routeLimit } from "@/api/middleware/rate-limit.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schema";
 import { twoFactorService } from "@/services/auth/two-factor.service";
-
-/** Successful sign-in verification: the new session token (also set as a cookie) and the signed-in user. */
-const TwoFactorSignInSchema = t.Object({ token: t.Nullable(t.String()), user: AuthUserSchema });
 
 export const twoFactorRoutes = new Elysia({
 	prefix: "/auth/two-factor",
@@ -34,7 +31,7 @@ export const twoFactorRoutes = new Elysia({
 	})
 	.post("/disable", async ({ request, body }) => await twoFactorService.disable(request.headers, body.password), {
 		body: t.Object({ password: t.String({ minLength: 1 }) }),
-		response: { ...ROUTE_ERRORS.VALIDATED, 200: t.Object({ status: t.Literal(true) }) },
+		response: { ...ROUTE_ERRORS.VALIDATED, 200: TwoFactorDisableResponseSchema },
 		rateLimit: routeLimit("two-factor:disable", 10, TWO_FACTOR_MANAGEMENT_WINDOW_MS),
 		detail: {
 			description: "Turn off two-factor authentication. Requires the account password. Responds `{ status: true }` on success.",
@@ -42,7 +39,7 @@ export const twoFactorRoutes = new Elysia({
 	})
 	.post("/verify-totp", async ({ request, body }) => await twoFactorService.verifyTotp(request.headers, body.code), {
 		body: t.Object({ code: t.String({ minLength: 6 }) }),
-		response: { ...ROUTE_ERRORS.VALIDATED, 200: TwoFactorSignInSchema },
+		response: { ...ROUTE_ERRORS.VALIDATED, 200: TwoFactorSignInResponseSchema },
 		// TOTP is a 6-digit secret — throttle brute force hard.
 		rateLimit: routeLimit("two-factor:verify-totp", 5, TWO_FACTOR_VERIFY_WINDOW_MS),
 		detail: {
@@ -52,7 +49,7 @@ export const twoFactorRoutes = new Elysia({
 	})
 	.post("/verify-backup-code", async ({ request, body }) => await twoFactorService.verifyBackupCode(request.headers, body.code), {
 		body: t.Object({ code: t.String({ minLength: 1 }) }),
-		response: { ...ROUTE_ERRORS.VALIDATED, 200: TwoFactorSignInSchema },
+		response: { ...ROUTE_ERRORS.VALIDATED, 200: TwoFactorSignInResponseSchema },
 		rateLimit: routeLimit("two-factor:verify-backup-code", 5, TWO_FACTOR_VERIFY_WINDOW_MS),
 		detail: {
 			description:
