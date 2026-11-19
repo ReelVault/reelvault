@@ -924,3 +924,54 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 - **Bare-string WebSocket pings now obey the same size and rate limits as JSON pings.** The short `ping` frame bypassed both checks.
 - **An unrelated database error is no longer reported as an identity conflict.** Stable-key upserts now surface the original error instead of silently running a reconciliation write.
 - **Profile preference writes no longer expose pre-commit values to other requests.** Cache invalidation now happens after the transaction commits.
+- **Load-test rate-limit overrides take effect again.** `REELVAULT_RATE_LIMIT_GLOBAL_MAX`, `REELVAULT_RATE_LIMIT_ROUTE_MULTIPLIER` and `REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS` were ignored; when set, they now override the matching server setting.
+- **Secrets nested deep inside a log entry are redacted.** Parts of a log entry nested more than eight levels deep are replaced with `[MaxDepth]` instead of being written as-is.
+- **Removing a container memory limit is noticed while the server runs.** The memory budget follows the new limit on the next refresh instead of keeping the old cap.
+- **Rate-limit route overrides with an extra `=` are ignored at runtime, as the settings page already rejects them.**
+- **A pinned hardware accelerator that fails its startup test falls back to software encoding.** It was still used for transcodes.
+- **A failed keyframe probe is retried.** Seeking no longer treats the file as having no keyframes for 30 minutes after one failed probe.
+- **Paginated lists without a sort order no longer repeat or skip rows between pages.**
+- **Expired cached API responses are released from memory.** They stayed resident until the cache ran out of room.
+- **A retried playback request no longer starts a second session.** A retry that arrives while the first request is still starting, with the idempotency cache full, now shares the first request, and a retry that changes only the HDR transfer settings is reported as a conflict.
+- **An uploaded image with an unreadable optimized result is refused before it is stored.**
+- **Image cache cleanup also evicts files written while a cleanup pass was running.**
+- **A deleted media file's duration is no longer served from cache.**
+- **The insights day list no longer skips a day across a daylight-saving change.**
+- **Global search returns at most the requested number of titles.** Typo-tolerant matches could push the result past the limit.
+- **A profile update is no longer undone by a concurrent read.** A stale copy of the profile could stay cached for its full lifetime.
+- **New regular episodes that share a number with a special are reported as new.** Their new-episode notification was suppressed.
+- **New-episode notifications reach open apps live, like other notifications.**
+- **Revoking a session or resetting a password takes effect immediately.** Revoked sessions kept working until the session cache expired, and their live connections stayed open.
+- **Marking a title watched by hand behaves like finishing it.** It now also removes the title from the watchlist when the profile has that setting on.
+- **The yearly wrap-up counts every movie and episode watched,** not only the five most watched titles.
+- **Resetting settings with an unknown key returns an error,** as saving them already did.
+- **Profile-scoped insight caches no longer grow without bound.**
+- **The database restore audit entry names the administrator who ran it.**
+- **A failed update check is retried after 15 minutes** instead of waiting six hours.
+- **A rollback that fails immediately is reported as failed,** not as started.
+- **Update history settles every interrupted run after a restart,** even when one of them fails to save.
+- **A library path on a hung mount is reported as missing after the stat timeout** instead of stalling the library health check.
+- **The audit entry for a title merge records the merged title's final state.**
+- **A failed lookup of a library's metadata language is not cached as "no override".** Deleting a library also clears its cached language override.
+- **Collection names are trimmed on creation, as they are on rename.**
+- **Refreshing an episode keeps its title when the provider returns an empty one.**
+- **Next-episode suggestions and Continue Watching follow absolute episode numbering for shows that use it.**
+- **A worker job whose handler ignores its timeout is recorded as a failed run and reported to administrators.**
+- **Disk usage at the critical threshold raises a critical alert, and a warning no longer suppresses a following critical alert.**
+- **Scheduled workers without their own timeout report the server's default timeout** (5 minutes instead of 1).
+- **Plugins keep the HTTP routes they registered earlier when they register more.**
+- **A reloaded or disabled metadata provider no longer serves its earlier lookup results.**
+- **Uninstalling a plugin with an unreadable lockfile reports the error and keeps the plugin's data.**
+- **Plugin packages are checked more strictly on install.** A missing interface schema file is flagged during validation, a tar archive with conflicting paths fails with the same error as a zip archive, and a plugin that registers the same provider twice is refused without partial registration.
+- **Plugin ffmpeg analysis can only write inside the managed directories.** Every output argument is checked, not just the last one, and options that write a file named by their value are refused.
+- **Local metadata import recognizes more season folder names.** `Sezon 1`, `S1` and `Specials` folders are read like `Season 1`, matching library scanning.
+- **Episodes under a generic folder such as `tv` or `downloads` take the show title from the file name** instead of the folder name.
+- **A show folder placed directly in a library keeps its series metadata file inside the show folder,** not in the library root.
+- **The offline catalog rebuild no longer stores `0-01-01` as the release date of titles without a year.**
+- **Two scans of the same file with different duplicate-check settings no longer share one result.**
+- **Subtitle searches no longer send a wrong release year** when a title's release date does not start with a four-digit year.
+- **Refreshing FFmpeg capabilities in the admin panel also clears cached probe results,** so a replaced binary is picked up without a restart.
+- **Admin log file names containing `..` are refused** instead of being rewritten to a path inside the logs folder.
+- **Concurrent identical requests all receive the first request's status code,** for example `202` instead of `200` with a wrapped body.
+- **The HLS playlist and stream-preference endpoints apply the stream-access policy,** as the other playback endpoints already did.
+- **Log cleanup stops when the admin cancels the request.**

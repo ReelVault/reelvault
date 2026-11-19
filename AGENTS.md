@@ -305,6 +305,12 @@ Before you add or move a file, check this section. If no folder fits, ask the us
 - Keep the polling fallback in `waitForFile`. `fs.watch` alone misses events on some filesystems.
 - Serve media as lazy `BunFile`. Thread `request.signal` through call chains. Call `throwIfAborted` before acquiring a semaphore.
 - Caches are bounded (TTL or LRU, with named constants), and writes invalidate them. Timers are `.unref()` and cleared on shutdown.
+- A write invalidates a cache entry after its transaction commits, never before: an entry dropped before the commit is re-filled with the old row by a concurrent read.
+- Never `stat` or `exists` a library or user path without a bound: use `getFileStats`, `statWithTimeout`, `fileExists` or `isRegularFile` (`src/utils/file.utils.ts`). A hung mount must not hang a request.
+- A deadline that also honors a caller's cancellation is `timeoutSignal(ms, signal)` (`src/utils/cancellation.utils.ts`), not a hand-built `AbortSignal.any`.
+- Every ffmpeg/ffprobe process goes through `runTracked` (`src/integrations/ffmpeg/ffmpeg.spawn.utils.ts`): tracking, timeout, abort and cleanup live there.
+- Ending a user's sessions goes through `services/auth/session-revocation.service.ts`, which deletes the rows, drops the session cache and closes live sockets together.
+- A job enqueued under a worker operation goes through `enqueueWithOperation` (`src/workers/core/worker-operation.service.ts`), which owns the create, dedupe-attach and orphan-cleanup rules.
 - Never hardcode CPU or RAM budgets and never read `os.cpus()`. Derive budgets from `system-resources.service`.
 - SQLite is synchronous. Keep queries indexed and minimal, paginate with `findPageWithQueryMap`, and chunk id lists with `mapChunked` or `forEachChunked`.
 
