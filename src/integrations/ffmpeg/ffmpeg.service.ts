@@ -1,13 +1,14 @@
-import { type Subprocess, which } from "bun";
+import type { Subprocess } from "bun";
 import { serverConfig } from "@/config/server/server.config";
-import { FFmpegBuilder } from "@/integrations/ffmpeg/ffmpeg.builder";
-import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
 import { MIB } from "@/utils/bytes.utils";
+import { throwIfAborted } from "@/utils/cancellation.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
+import { FFmpegBuilder } from "./ffmpeg.builder";
+import { assertFFMpegAvailable } from "./ffmpeg.environment";
 import { killFfmpegProcessGracefully } from "./ffmpeg.process";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
-import { spawnTracked } from "./ffmpeg.spawn.utils";
+import { runTracked } from "./ffmpeg.spawn.utils";
 
 export interface FfmpegRunOptions {
 	signal?: AbortSignal | undefined;
@@ -49,7 +50,13 @@ function readMaxRssBytes(process: Subprocess): number | undefined {
 
 export const ffMpegService = {
 	isAvailable(): boolean {
-		return Boolean(which(serverConfig.ffmpeg.path));
+		try {
+			assertFFMpegAvailable();
+
+			return true;
+		} catch {
+			return false;
+		}
 	},
 
 	killAll(): void {
@@ -70,14 +77,14 @@ export const ffMpegService = {
 		const { timeoutMs, maxOutputBytes } = options;
 		const maxStderrBytes = options.maxStderrBytes ?? DEFAULT_MAX_STDERR_BYTES;
 
-		if (signal?.aborted) throw signal.reason ?? new Error("FFmpeg execution was cancelled");
+		throwIfAborted(signal);
 
-		let abort: (() => void) | undefined;
-		const tracked = spawnTracked({
+		const tracked = runTracked({
 			cmd: [serverConfig.ffmpeg.path, ...args],
 			purpose: options.purpose ?? "background",
 			stdout: stdoutMode,
 			timeoutMs,
+			signal,
 			onTimeout: (process, boundReap) => {
 				detach(
 					(async () => {
@@ -90,31 +97,13 @@ export const ffMpegService = {
 				);
 				boundReap();
 			},
-			onSpawn: (process, boundReap) => {
-				abort = () => {
-					try {
-						process.kill("SIGKILL");
-					} catch {
-						// Ignore kill error
-					}
-					boundReap();
-				};
-				signal?.addEventListener("abort", abort, { once: true });
-			},
-			onCleanup: () => {
-				if (abort) signal?.removeEventListener("abort", abort);
-			},
 			unreapedMessage: "FFmpeg did not exit after SIGKILL",
 		});
 
 		const process = tracked.process;
 		const stdoutStream = process.stdout;
 		const stderrStream = process.stderr;
-		if (
-			!stderrStream ||
-			typeof stderrStream === "number" ||
-			(stdoutMode === "pipe" && (!stdoutStream || typeof stdoutStream === "number"))
-		) {
+		if (stdoutMode === "pipe" && (!stdoutStream || typeof stdoutStream === "number")) {
 			process.kill("SIGKILL");
 			tracked.cleanup();
 			throw new DomainError("internal", "FFmpeg execution could not start", { code: "ffmpeg.start_failed" });
@@ -133,7 +122,7 @@ export const ffMpegService = {
 				Promise.all([process.exited, stdoutPromise, collectStderrTail(stderrStream, maxStderrBytes)]),
 				tracked.unreaped,
 			]);
-			if (signal?.aborted) throw signal.reason ?? new Error("FFmpeg execution was cancelled");
+			throwIfAborted(signal);
 
 			if (tracked.timedOut() && timeoutMs !== undefined) {
 				throw new DomainError("timeout", `FFmpeg execution timed out after ${timeoutMs}ms`, { code: "ffmpeg.timeout" });
@@ -153,6 +142,21 @@ export const ffMpegService = {
 	},
 };
 
+/** Reads a stream to its end, handing each chunk to `onChunk` as it arrives. */
+async function readChunks(stream: ReadableStream<Uint8Array>, onChunk: (chunk: Uint8Array) => void): Promise<void> {
+	const reader = stream.getReader();
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+
+			onChunk(value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+}
+
 /**
  * Consumes the whole stderr stream but retains only the last `maxBytes` bytes.
  * ffmpeg emits per-frame progress/stats for the entire decode, so buffering the
@@ -160,29 +164,20 @@ export const ffMpegService = {
  * tens of MB); the useful output — errors and JSON reports — is always at the end.
  */
 async function collectStderrTail(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<string> {
-	const reader = stream.getReader();
 	const chunks: Uint8Array[] = [];
 	let retainedBytes = 0;
 	const decoder = new TextDecoder();
 
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
+	await readChunks(stream, (value) => {
+		chunks.push(value);
+		retainedBytes += value.byteLength;
+		while (retainedBytes > maxBytes && chunks.length > 1) {
+			const dropped = chunks.shift();
+			if (dropped === undefined) break;
 
-			chunks.push(value);
-			retainedBytes += value.byteLength;
-			while (retainedBytes > maxBytes && chunks.length > 1) {
-				const dropped = chunks[0];
-				if (dropped === undefined) break;
-
-				chunks.shift();
-				retainedBytes -= dropped.byteLength;
-			}
+			retainedBytes -= dropped.byteLength;
 		}
-	} finally {
-		reader.releaseLock();
-	}
+	});
 
 	const parts: string[] = [];
 	for (const chunk of chunks) parts.push(decoder.decode(chunk, { stream: true }));
@@ -204,27 +199,19 @@ async function collectStdout(
 ): Promise<Uint8Array> {
 	if (maxOutputBytes === undefined) return new Uint8Array(await new Response(stream).arrayBuffer());
 
-	const reader = stream.getReader();
 	const chunks: Uint8Array[] = [];
 	let totalBytes = 0;
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-
-			totalBytes += value.byteLength;
-			if (totalBytes > maxOutputBytes) {
-				kill();
-				throw new DomainError("internal", `FFmpeg stdout exceeded the maximum output size of ${maxOutputBytes} bytes`, {
-					code: "ffmpeg.output_limit_exceeded",
-				});
-			}
-
-			chunks.push(value);
+	await readChunks(stream, (value) => {
+		totalBytes += value.byteLength;
+		if (totalBytes > maxOutputBytes) {
+			kill();
+			throw new DomainError("internal", `FFmpeg stdout exceeded the maximum output size of ${maxOutputBytes} bytes`, {
+				code: "ffmpeg.output_limit_exceeded",
+			});
 		}
-	} finally {
-		reader.releaseLock();
-	}
+
+		chunks.push(value);
+	});
 
 	const output = new Uint8Array(totalBytes);
 	let offset = 0;

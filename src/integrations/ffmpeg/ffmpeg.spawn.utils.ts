@@ -2,55 +2,72 @@ import { type Subprocess, spawn } from "bun";
 import { watchForUnreapedProcess } from "./ffmpeg.process";
 import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
 
-export interface SpawnTrackedOptions {
+export interface RunTrackedOptions {
 	cmd: string[];
 	purpose: FfmpegProcessPurpose;
 	stdout?: "pipe" | "ignore" | undefined;
-	stderr?: "pipe" | "ignore" | undefined;
 	/** Bun's per-stream buffer cap for collected output. */
 	maxBuffer?: number | undefined;
+	/** Hard wall-clock limit; `onTimeout` decides how the process is stopped. */
 	timeoutMs?: number | undefined;
-	/** How to stop the process when the timeout fires; `boundReap` bounds the SIGKILL wait. */
-	onTimeout: (process: Subprocess, boundReap: () => void) => void;
-	/** Extra listener wiring after the process and tracker exist. */
-	onSpawn?: ((process: Subprocess, boundReap: () => void) => void) | undefined;
-	/** Listener removal on cleanup (abort handlers, collectors). */
-	onCleanup?: (() => void) | undefined;
+	/** Defaults to SIGKILL. */
+	onTimeout?: ((process: Subprocess, boundReap: () => void) => void) | undefined;
+	/** Aborting kills the process with SIGKILL. */
+	signal?: AbortSignal | undefined;
+	/** Owner tag and stderr provider for the admin process list and failure diagnostics. */
+	label?: string | undefined;
+	stderrTail?: (() => string) | undefined;
+	/** Exit callback for long-lived processes that are not awaited. */
+	onExit?:
+		| ((subprocess: Subprocess, exitCode: number | null, signalCode: NodeJS.Signals | number | null, error?: Bun.ErrorLike) => void)
+		| undefined;
 	/** Message for the unreaped-process timeout. */
 	unreapedMessage: string;
 }
 
-export interface TrackedFfmpegProcess {
-	process: Subprocess;
+export interface TrackedProcess {
+	/** stderr is always piped: every caller reads or monitors it. */
+	process: Subprocess<"ignore" | "pipe", "ignore" | "pipe", "pipe">;
+	/** Rejects when the process never reaps after a kill; race collectors against it. */
 	unreaped: Promise<never>;
 	timedOut: () => boolean;
 	cleanup: () => void;
 }
 
+function killOnTimeout(process: Subprocess, boundReap: () => void): void {
+	process.kill("SIGKILL");
+	boundReap();
+}
+
 /**
- * Spawns an ffmpeg/ffprobe process, registers it with the admin tracker, bounds
- * the SIGKILL wait and arms the optional hard timeout. Collectors stay with the
- * caller; this owns the process lifecycle shared by the short-lived probe
- * runner and the streaming runner.
+ * The one ffmpeg/ffprobe spawn path. Registers the process with the admin
+ * tracker, arms the optional hard timeout and abort, bounds the SIGKILL wait
+ * and releases the listeners on cleanup. Output collection stays with the caller.
  */
-export function spawnTracked({
+export function runTracked({
 	cmd,
 	purpose,
 	stdout = "pipe",
-	stderr = "pipe",
 	maxBuffer,
 	timeoutMs,
-	onTimeout,
-	onSpawn,
-	onCleanup,
+	onTimeout = killOnTimeout,
+	signal,
+	label,
+	stderrTail,
+	onExit,
 	unreapedMessage,
-}: SpawnTrackedOptions): TrackedFfmpegProcess {
-	const process = spawn({ cmd, stdout, stderr, ...(maxBuffer === undefined ? {} : { maxBuffer }) });
-	ffmpegProcessTracker.track(process, purpose);
-
-	const state = { timedOut: false };
+}: RunTrackedOptions): TrackedProcess {
+	const process = spawn({
+		cmd,
+		stdout,
+		stderr: "pipe",
+		...(maxBuffer === undefined ? {} : { maxBuffer }),
+		...(onExit === undefined ? {} : { onExit }),
+	});
+	ffmpegProcessTracker.track(process, purpose, stderrTail, label);
 	const { unreaped, boundReap } = watchForUnreapedProcess(process, unreapedMessage);
 
+	const state = { timedOut: false };
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	if (timeoutMs !== undefined) {
 		timer = setTimeout(() => {
@@ -60,7 +77,15 @@ export function spawnTracked({
 		timer.unref();
 	}
 
-	onSpawn?.(process, boundReap);
+	const abort = () => {
+		try {
+			process.kill("SIGKILL");
+		} catch {
+			// Already exited.
+		}
+		boundReap();
+	};
+	signal?.addEventListener("abort", abort, { once: true });
 
 	let cleaned = false;
 	return {
@@ -72,7 +97,7 @@ export function spawnTracked({
 			cleaned = true;
 
 			if (timer) clearTimeout(timer);
-			onCleanup?.();
+			signal?.removeEventListener("abort", abort);
 		},
 	};
 }

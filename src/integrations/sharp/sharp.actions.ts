@@ -36,7 +36,9 @@ interface Dimensions {
 export async function getImageMetadata(filePath: string) {
 	const sharp = await loadSharp();
 
-	return sharp(filePath, { limitInputPixels: serverConfig.sharp.maxInputPixels, failOn: "error" }).metadata();
+	return await sharpSemaphore.run(() =>
+		sharp(filePath, { limitInputPixels: serverConfig.sharp.maxInputPixels, failOn: "error" }).metadata(),
+	);
 }
 
 async function getCoverDimensions(input: Sharp, targetWidth: number, targetHeight: number): Promise<Dimensions> {
@@ -70,17 +72,12 @@ async function getCoverDimensions(input: Sharp, targetWidth: number, targetHeigh
 async function withSharp<T>(input: Buffer | string, signal: AbortSignal | undefined, run: (image: Sharp) => Promise<T>): Promise<T> {
 	throwIfAborted(signal);
 
-	// awaits: sequential — a failed load must not leave the semaphore slot taken
 	const sharp = await loadSharp();
-	await sharpSemaphore.acquire(signal);
 
-	try {
-		throwIfAborted(signal);
-
-		return await run(sharp(input, { limitInputPixels: serverConfig.sharp.maxInputPixels, failOn: "error" }));
-	} finally {
-		sharpSemaphore.release();
-	}
+	return await sharpSemaphore.run(
+		() => run(sharp(input, { limitInputPixels: serverConfig.sharp.maxInputPixels, failOn: "error" })),
+		signal,
+	);
 }
 
 export interface OptimizedImageResult {

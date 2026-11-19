@@ -86,6 +86,18 @@ describe("findKeyframeBefore", () => {
 		expect(create).toHaveBeenCalledTimes(1);
 	});
 
+	it("retries a failed probe instead of remembering it as having no keyframe", async () => {
+		const failingProbe = new FFProbeBuilder(() =>
+			Promise.resolve({ exitCode: 1, stdout: "", stderr: "Invalid data found", timedOut: false }),
+		);
+		spyOn(ffProbeService, "create")
+			.mockImplementationOnce(() => failingProbe)
+			.mockImplementation(() => probeOf([packet("98.0", "K__")]));
+
+		expect(await findKeyframeBefore("/media/retry.mkv", 100)).toBeNull();
+		expect(await findKeyframeBefore("/media/retry.mkv", 100)).toBe(98);
+	});
+
 	it("spawns no probe for a target at the start of the file", async () => {
 		const create = spyOn(ffProbeService, "create");
 

@@ -2,7 +2,7 @@ import type { PlaybackDecision, TranscodeConfig } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { clamp } from "@/utils/math.utils";
-import { hardwareDecodeArgs } from "./capabilities/hwaccel.utils";
+import { type DetectedHwaccel, hardwareDecodeArgs } from "./capabilities/hwaccel.utils";
 import type { ToneMapConfig } from "./capabilities/tone-mapping.resolver";
 import { getEffectiveHwaccel } from "./ffmpeg.capabilities";
 
@@ -45,6 +45,9 @@ export function buildToneMapFilterChain(decision: PlaybackDecision, toneMap: Ton
 	return `setparams=color_primaries=bt2020:color_trc=${transfer}:colorspace=bt2020nc,zscale=t=linear:npl=100,tonemap=${algorithm}:desat=0,zscale=p=bt709:t=bt709:m=bt709:r=tv,format=yuv420p`;
 }
 
+/** Decoded-frame format that keeps frames on the accelerator; families without one decode in RAM. */
+const ZERO_COPY_OUTPUT_FORMAT: Partial<Record<DetectedHwaccel["type"], string>> = { nvenc: "cuda", vaapi: "vaapi", qsv: "qsv" };
+
 /**
  * Builds hardware-accelerated input flags for decoding.
  *
@@ -67,43 +70,22 @@ export function buildHwaccelInputArgs(
 	if (!decision.videoTranscode || decision.forceSoftware) return [];
 
 	const effectiveHw = hw ?? getEffectiveHwaccel();
+
+	if (effectiveHw.type === "videotoolbox") return [...hardwareDecodeArgs(effectiveHw), "-allow_sw", "1"];
+
+	const zeroCopyFormat = ZERO_COPY_OUTPUT_FORMAT[effectiveHw.type];
+	if (zeroCopyFormat === undefined) return [];
+
 	// Only drop the zero-copy output format when an actual software tone-map filter
 	// will run — otherwise frames needlessly round-trip through system RAM.
 	const keepFramesInRam = Boolean(decision.tonemap && toneMap.method !== "none");
+	if (keepFramesInRam) return hardwareDecodeArgs(effectiveHw);
 
-	if (effectiveHw.type === "nvenc") {
-		// Decode-only args are byte-identical to the frame-extraction builder
-		// (`hardwareDecodeArgs`): software filters need frames in RAM, so no
-		// `-hwaccel_output_format`.
-		if (keepFramesInRam) return hardwareDecodeArgs(effectiveHw);
+	// `-hwaccel_output_format` keeps decoded frames on the accelerator (zero-copy);
+	// without it every frame round-trips through system RAM before the encoder.
+	const decode = hardwareDecodeArgs(effectiveHw);
 
-		// `-hwaccel_output_format cuda` keeps decoded frames in VRAM (zero-copy) —
-		// without it every frame round-trips through system RAM before nvenc.
-		return ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda", ...(effectiveHw.device ? ["-hwaccel_device", effectiveHw.device] : [])];
-	}
-
-	if (effectiveHw.type === "vaapi") {
-		// `-vaapi_device` is the correct flag for VAAPI device selection;
-		// `-hwaccel_device` is for CUDA/QSV. Using the wrong flag silently
-		// falls back to the default device (or errors on multi-GPU systems).
-		if (keepFramesInRam) return hardwareDecodeArgs(effectiveHw);
-
-		return ["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", ...(effectiveHw.device ? ["-vaapi_device", effectiveHw.device] : [])];
-	}
-
-	if (effectiveHw.type === "qsv") {
-		if (keepFramesInRam) return hardwareDecodeArgs(effectiveHw);
-
-		return ["-hwaccel", "qsv", "-hwaccel_output_format", "qsv", ...(effectiveHw.device ? ["-hwaccel_device", effectiveHw.device] : [])];
-	}
-
-	if (effectiveHw.type === "videotoolbox") {
-		// `-allow_sw 1` permits a software-decode fallback when the VTB session
-		// limit is hit (e.g. multiple simultaneous streams on macOS).
-		return ["-hwaccel", "videotoolbox", "-allow_sw", "1"];
-	}
-
-	return [];
+	return [...decode.slice(0, 2), "-hwaccel_output_format", zeroCopyFormat, ...decode.slice(2)];
 }
 
 /**

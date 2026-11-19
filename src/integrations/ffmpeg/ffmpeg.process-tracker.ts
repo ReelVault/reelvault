@@ -74,9 +74,7 @@ class FFmpegProcessTracker {
 	}
 
 	countByPurpose(purpose: FfmpegProcessPurpose): number {
-		if (purpose === "streaming") return this.countEntries("streaming") + this.pendingStreaming;
-
-		return this.countEntries(purpose);
+		return this.counts()[purpose];
 	}
 
 	track(process: TrackedProcess, purpose: FfmpegProcessPurpose = "background", stderrTail?: () => string, label?: string): void {
@@ -120,6 +118,7 @@ class FFmpegProcessTracker {
 		}));
 	}
 
+	/** The one counting path: streaming includes the slots reserved but not yet tracked. */
 	counts(): ProcessCounts {
 		const counts = { streaming: this.pendingStreaming, background: 0, probe: 0, diagnostic: 0, total: 0 };
 		for (const meta of this.processes.values()) counts[meta.purpose]++;
@@ -163,15 +162,7 @@ class FFmpegProcessTracker {
 		if (this.processes.size === 0) return;
 
 		logger.warn(`Terminating ${this.processes.size} active FFmpeg/ffprobe process(es)`);
-		for (const [tracked, meta] of this.processes) {
-			this.markIntentionalKill(meta.label);
-			try {
-				tracked.kill("SIGKILL");
-			} catch {
-				// Process might already be terminated
-			}
-		}
-
+		this.kill([...this.processes.entries()]);
 		this.processes.clear();
 		this.stderrTails.clear();
 	}
@@ -182,35 +173,22 @@ class FFmpegProcessTracker {
 		if (victims.length === 0) return 0;
 
 		logger.warn(`Rescue: terminating ${victims.length} background FFmpeg process(es)`);
-		for (const [tracked, meta] of victims) {
+		this.kill(victims);
+		for (const [tracked] of victims) this.processes.delete(tracked);
+
+		return victims.length;
+	}
+
+	/** The one kill path: marks each label as an intentional teardown, then SIGKILLs the process. */
+	private kill(entries: Array<[TrackedProcess, ProcessMeta]>): void {
+		for (const [tracked, meta] of entries) {
 			this.markIntentionalKill(meta.label);
 			try {
 				tracked.kill("SIGKILL");
 			} catch {
 				// Process might already be terminated
 			}
-
-			this.processes.delete(tracked);
 		}
-
-		return victims.length;
-	}
-
-	get activeCount(): number {
-		return this.processes.size;
-	}
-
-	get backgroundCount(): number {
-		return this.countEntries("background");
-	}
-
-	private countEntries(purpose: FfmpegProcessPurpose): number {
-		let total = 0;
-		for (const meta of this.processes.values()) {
-			if (meta.purpose === purpose) total++;
-		}
-
-		return total;
 	}
 }
 

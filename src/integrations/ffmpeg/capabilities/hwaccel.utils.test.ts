@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { mockModuleWithRealExports, restoreModuleMocks } from "../../../../tests/helpers/module-mock.helper";
-import { type DetectedHwaccel, getCandidateHwaccels, hardwareDecodeArgs, resolveEffectiveHwaccel, withDevice } from "./hwaccel.utils";
+import { type DetectedHwaccel, getCandidateHwaccels, hardwareDecodeArgs, withDevice } from "./hwaccel.utils";
 
 // A DRM render node is a property of the machine, not of the ffmpeg build. The
 // vaapi and qsv candidates need one on Linux, so the probe is replaced —
@@ -117,20 +117,6 @@ describe("getCandidateHwaccels", () => {
 
 		expect(candidate?.h264Encoder).toBe("h264_nvenc");
 		expect(candidate?.hevcEncoder).toBe("hevc_nvenc");
-	});
-});
-
-describe("resolveEffectiveHwaccel", () => {
-	it("returns the software encoder when the build advertises no accelerator", () => {
-		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "auto");
-
-		expect(resolveEffectiveHwaccel(SOFTWARE_ENCODERS, new Set())).toEqual(SOFTWARE);
-	});
-
-	it("returns the configured accelerator when the configuration pins one", () => {
-		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "qsv");
-
-		expect(resolveEffectiveHwaccel(SOFTWARE_ENCODERS, new Set()).type).toBe("qsv");
 	});
 });
 

@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { mockModuleWithRealExports, restoreModuleMocks } from "../../../tests/helpers/module-mock.helper";
 import { parseEncoderNames } from "./capabilities/probe.utils";
-import { getFfmpegCapabilities, initializeFfmpegCapabilities } from "./ffmpeg.capabilities";
+import { getEffectiveHwaccel, getFfmpegCapabilities, initializeFfmpegCapabilities } from "./ffmpeg.capabilities";
 
 // Shaped after ffmpeg 7.1 output: nvenc/vaapi/amf carry the `D` flag
 // (direct rendering) while qsv does not — the old letter-based regex silently
@@ -80,6 +81,19 @@ describe("FFmpeg Capabilities & HW Transcoding Abstraction", () => {
 		expect(caps.filters).toEqual(new Set(["anullsink", "scale", "tonemap", "zscale"]));
 		expect(caps.encoders).toEqual(new Set(ENCODER_NAMES));
 		expect(caps.hwaccels).toEqual(new Set(["cuda", "vaapi"]));
+	});
+
+	it("reports software when the configured accelerator fails its test encode", async () => {
+		// The probe mock fails every test encode, so the pinned NVENC never verifies.
+		systemSettingsStore.setRuntimeValue("ffmpeg.hwaccel", "nvenc");
+		try {
+			await initializeFfmpegCapabilities();
+
+			expect(getEffectiveHwaccel()).toEqual({ type: "none", device: null, h264Encoder: "libx264", hevcEncoder: "libx265" });
+		} finally {
+			systemSettingsStore.clearRuntimeValues();
+			await initializeFfmpegCapabilities();
+		}
 	});
 
 	it("serves the initialized capabilities from the cache", async () => {

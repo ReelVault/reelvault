@@ -38,17 +38,17 @@ describe("FFmpegProcessTracker", () => {
 
 		ffmpegProcessTracker.track(background, "background");
 		ffmpegProcessTracker.track(streaming, "streaming");
-		expect(ffmpegProcessTracker.backgroundCount).toBe(1);
-		expect(ffmpegProcessTracker.activeCount).toBe(2);
+		expect(ffmpegProcessTracker.counts().background).toBe(1);
+		expect(ffmpegProcessTracker.counts().total).toBe(2);
 
 		const killed = ffmpegProcessTracker.killAllBackground();
 
 		expect(killed).toBe(1);
 		expect(background.killCalls).toEqual(["SIGKILL"]);
 		expect(streaming.killCalls).toEqual([]);
-		expect(ffmpegProcessTracker.backgroundCount).toBe(0);
+		expect(ffmpegProcessTracker.counts().background).toBe(0);
 		// Streaming process still tracked
-		expect(ffmpegProcessTracker.activeCount).toBe(1);
+		expect(ffmpegProcessTracker.counts().total).toBe(1);
 	});
 
 	test("processes are untracked once they exit", async () => {
@@ -61,7 +61,7 @@ describe("FFmpegProcessTracker", () => {
 		const proc = fakeProcess(exitPromise);
 
 		ffmpegProcessTracker.track(proc, "background");
-		expect(ffmpegProcessTracker.backgroundCount).toBe(1);
+		expect(ffmpegProcessTracker.counts().background).toBe(1);
 
 		resolveExit(0);
 		// A macrotask flush lets the exited.finally handler run.
@@ -69,7 +69,7 @@ describe("FFmpegProcessTracker", () => {
 			setImmediate(resolve);
 		});
 
-		expect(ffmpegProcessTracker.backgroundCount).toBe(0);
+		expect(ffmpegProcessTracker.counts().background).toBe(0);
 	});
 
 	test("counts and snapshots split by purpose including probe and diagnostic", () => {
@@ -98,7 +98,6 @@ describe("FFmpegProcessTracker", () => {
 		expect(ffmpegProcessTracker.counts()).toMatchObject({ streaming: 1, probe: 1, diagnostic: 1, total: 3 });
 
 		ffmpegProcessTracker.killAll();
-		expect(ffmpegProcessTracker.activeCount).toBe(0);
 		expect(ffmpegProcessTracker.counts().total).toBe(0);
 	});
 });

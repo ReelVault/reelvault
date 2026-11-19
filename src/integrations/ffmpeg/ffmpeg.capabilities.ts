@@ -1,7 +1,7 @@
 import { serverConfig } from "@/config/server/server.config";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { type DetectedHwaccel, getCandidateHwaccels, resolveEffectiveHwaccel, SOFTWARE_HWACCEL } from "./capabilities/hwaccel.utils";
+import { type DetectedHwaccel, getCandidateHwaccels, SOFTWARE_HWACCEL } from "./capabilities/hwaccel.utils";
 import {
 	parseEncoderNames,
 	parseFfmpegVersion,
@@ -89,11 +89,11 @@ export function getFfmpegCapabilities(): FfmpegCapabilities {
 	return capabilities;
 }
 
+/**
+ * The boot-verified accelerator. Both the explicit and the auto configuration
+ * are decided by the test encode, so an unusable pinned accelerator reports software.
+ */
 export function getEffectiveHwaccel(): DetectedHwaccel {
-	if (serverConfig.ffmpeg.hwaccel !== "auto") {
-		return resolveEffectiveHwaccel(capabilities.encoders, capabilities.hwaccels);
-	}
-
 	return capabilities.detectedHwaccel;
 }
 

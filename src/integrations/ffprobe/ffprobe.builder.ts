@@ -1,7 +1,7 @@
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { type SpawnCollectOptions, type SpawnCollectResult, spawnAndCollect } from "@/integrations/ffmpeg/ffmpeg.process-runner";
-import { DomainError } from "@/utils/domain.errors";
+import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { fileVersionSignature } from "@/utils/file.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { createSemaphore, raceWithAbort } from "@/utils/promise.utils";
@@ -118,8 +118,7 @@ export class FFProbeBuilder {
 	}
 
 	private async probe(filePath: string, args: string[]): Promise<unknown> {
-		await probeSemaphore.acquire();
-		try {
+		return await probeSemaphore.run(async () => {
 			const {
 				exitCode,
 				stdout: output,
@@ -148,19 +147,13 @@ export class FFProbeBuilder {
 			} catch (error) {
 				if (error instanceof DomainError && (error.category === "timeout" || error.category === "internal")) throw error;
 
-				let msg: string;
-				if (error instanceof Error) msg = error.message;
-				else if (typeof error === "string") msg = error;
-				else msg = "Unknown error";
-
-				throw new DomainError("internal", `FFprobe execution failed: ${msg}`, {
+				const message = errorMessage(error);
+				throw new DomainError("internal", `FFprobe execution failed: ${message}`, {
 					cause: error,
 					code: "ffprobe_execution_failed",
-					details: error instanceof Error ? error : new Error(msg),
+					details: error instanceof Error ? error : new Error(message),
 				});
 			}
-		} finally {
-			probeSemaphore.release();
-		}
+		});
 	}
 }

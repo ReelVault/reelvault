@@ -183,10 +183,3 @@ function detectedHwaccels(
 
 	return candidates;
 }
-
-/** The accelerator the configured or detected preference picks, before any test encode. */
-export function resolveEffectiveHwaccel(encoders: ReadonlySet<string>, hwaccels: ReadonlySet<string>): DetectedHwaccel {
-	const candidates = getCandidateHwaccels(encoders, hwaccels);
-
-	return candidates[0] ?? SOFTWARE_HWACCEL;
-}

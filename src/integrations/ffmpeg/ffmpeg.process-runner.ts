@@ -1,6 +1,6 @@
 import { DomainError } from "@/utils/domain.errors";
 import type { FfmpegProcessPurpose } from "./ffmpeg.process-tracker";
-import { spawnTracked } from "./ffmpeg.spawn.utils";
+import { runTracked } from "./ffmpeg.spawn.utils";
 
 export interface SpawnCollectResult {
 	exitCode: number;
@@ -22,17 +22,13 @@ export interface SpawnCollectOptions {
  * runs with output caps or graceful kills use the dedicated FFmpeg runner.
  */
 export async function spawnAndCollect({ cmd, timeoutMs, purpose, maxBuffer }: SpawnCollectOptions): Promise<SpawnCollectResult> {
-	const tracked = spawnTracked({
+	const tracked = runTracked({
 		cmd,
 		purpose,
 		maxBuffer,
 		timeoutMs,
 		// A process stuck in an uninterruptible state never reaps after SIGKILL;
-		// bound the wait instead of holding the caller's semaphore slot forever.
-		onTimeout: (process, boundReap) => {
-			process.kill("SIGKILL");
-			boundReap();
-		},
+		// the bounded reap wait is what releases the caller's semaphore slot.
 		unreapedMessage: "Process did not exit after SIGKILL",
 	});
 

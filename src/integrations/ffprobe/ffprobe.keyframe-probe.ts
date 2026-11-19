@@ -43,27 +43,27 @@ export async function findKeyframeBefore(filePath: string, target: number, signa
 	const signature = await fileVersionSignature(filePath);
 	const bucketEnd = Math.ceil(target / KEYFRAME_BUCKET_SECONDS) * KEYFRAME_BUCKET_SECONDS;
 	const cacheKey = `${filePath}:${signature}:${bucketEnd}`;
-	const packets = await keyframeCache.getOrSet(cacheKey, async () => {
-		try {
-			// Cover the full look-back of the earliest target in this bucket.
-			const from = Math.max(0, bucketEnd - KEYFRAME_BUCKET_SECONDS - PROBE_WINDOW_SECONDS);
-			// A packet listing, not a format probe: ffprobe answers
-			// `-show_entries packet=…` with the packets alone.
-			return await ffProbeService
+	let packets: FFProbePacket[];
+	try {
+		// Cover the full look-back of the earliest target in this bucket.
+		const from = Math.max(0, bucketEnd - KEYFRAME_BUCKET_SECONDS - PROBE_WINDOW_SECONDS);
+		// A packet listing, not a format probe: ffprobe answers
+		// `-show_entries packet=…` with the packets alone.
+		packets = await keyframeCache.getOrSet(cacheKey, () =>
+			ffProbeService
 				.create()
 				.addArg("-read_intervals", `${from}%${bucketEnd}`)
 				.selectStreams("v")
 				.addArg("-show_entries", "packet=pts_time,flags")
-				.executePackets(filePath, signal);
-		} catch (error) {
-			// An aborted probe is not a result: `getOrSet` only caches successes, so
-			// rethrowing keeps the bucket probeable instead of pinning "no keyframe"
-			// for the whole TTL (which would silently disable keyframe seeks).
-			if (signal?.aborted) throw error;
+				.executePackets(filePath, signal),
+		);
+	} catch (error) {
+		// `getOrSet` caches only successes: an aborted or failed probe leaves the bucket
+		// unprobed, so the next seek retries instead of pinning "no keyframe" for the TTL.
+		if (signal?.aborted) throw error;
 
-			return [];
-		}
-	});
+		return null;
+	}
 
 	// The bucket's probe window starts earlier than this target's own 15 s
 	// look-back; enforce the per-target bound before picking a keyframe.

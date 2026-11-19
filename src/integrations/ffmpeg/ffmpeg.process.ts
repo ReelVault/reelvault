@@ -1,24 +1,17 @@
 import type { Subprocess } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { DomainError } from "@/utils/domain.errors";
-import { detach } from "@/utils/promise.utils";
+import { detach, withTimeout } from "@/utils/promise.utils";
 
 /** How long to wait for a SIGKILLed process to reap before giving up on the handle. */
 const KILL_EXIT_GRACE_MS = 10_000;
 
 /** Waits for exit with a bound — an uninterruptible process must not wedge release/shutdown. */
 export async function waitForExitWithTimeout(process: Subprocess, timeoutMs = KILL_EXIT_GRACE_MS): Promise<boolean> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const exited = await Promise.race([
-		process.exited.then(() => true),
-		new Promise<boolean>((resolve) => {
-			timer = setTimeout(() => resolve(false), timeoutMs);
-			timer.unref();
-		}),
-	]);
-	clearTimeout(timer);
-
-	return exited;
+	return await withTimeout(process.exited, timeoutMs).then(
+		() => true,
+		() => false,
+	);
 }
 
 /** Attempts a graceful FFmpeg shutdown, escalating to SIGKILL after a timeout. */

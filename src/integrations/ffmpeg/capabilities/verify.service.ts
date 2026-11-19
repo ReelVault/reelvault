@@ -67,19 +67,10 @@ export async function verifyHwaccelCandidates(
 		return { detected: immediateNone, verification: null };
 	}
 
-	const results = await mapConcurrent(candidates, systemResourcesService.getHeavySubprocessConcurrency(), async (candidate) => {
-		const result = await runTestEncode(candidate);
-
-		return {
-			candidate,
-			verification: {
-				encoder: candidate.h264Encoder,
-				ok: result.ok,
-				code: result.code,
-				detail: result.detail,
-			} satisfies HwaccelVerification,
-		};
-	});
+	const results = await mapConcurrent(candidates, systemResourcesService.getHeavySubprocessConcurrency(), async (candidate) => ({
+		candidate,
+		verification: await runTestEncode(candidate),
+	}));
 
 	const explicitHwaccel = serverConfig.ffmpeg.hwaccel !== "auto";
 	let firstFailure: HwaccelVerification | null = null;
@@ -136,11 +127,17 @@ function buildTestEncodeArgs(hw: DetectedHwaccel): string[] {
 	return [...FFMPEG_QUIET_ARGS, ...deviceArgs, ...lavfiInput, ...vfArgs, "-frames:v", "2", "-c:v", hw.h264Encoder, "-f", "null", "-"];
 }
 
-async function runTestEncode(hw: DetectedHwaccel): Promise<DecodeTestResult> {
+async function runTestEncode(hw: DetectedHwaccel): Promise<HwaccelVerification> {
 	const { exitCode, stderr } = await runFfmpegDiagnostic(buildTestEncodeArgs(hw), HW_VERIFY_TIMEOUT_MS);
+
+	return { encoder: hw.h264Encoder, ...diagnosticResult(exitCode, stderr, "ffmpeg.hwaccel.verify_failed") };
+}
+
+/** Maps one diagnostic run to a test result: exit 0 passes, anything else fails with its stderr as detail. */
+function diagnosticResult(exitCode: number, stderr: string, code: string): DecodeTestResult {
 	if (exitCode === 0) return { ok: true, code: null, detail: null };
 
-	return { ok: false, code: "ffmpeg.hwaccel.verify_failed", detail: stderr.trim() || `FFmpeg exited with code ${exitCode}` };
+	return { ok: false, code, detail: stderr.trim() || `FFmpeg exited with code ${exitCode}` };
 }
 
 /**
@@ -180,20 +177,13 @@ export async function runHwaccelDecodeTest(hw: DetectedHwaccel): Promise<DecodeT
 			],
 			decodeTestTimeoutMs(),
 		);
-		if (generate.exitCode !== 0) {
-			return {
-				ok: false,
-				code: "ffmpeg.decode_test.generate_failed",
-				detail: generate.stderr.trim() || `exit code ${generate.exitCode}`,
-			};
-		}
+		const generated = diagnosticResult(generate.exitCode, generate.stderr, "ffmpeg.decode_test.generate_failed");
+		if (!generated.ok) return generated;
 
 		const decode = await runFfmpegDiagnostic(
 			[...FFMPEG_QUIET_ARGS, ...hardwareDecodeArgs(hw), "-i", probePath, "-frames:v", "2", "-f", "null", "-"],
 			decodeTestTimeoutMs(),
 		);
-		if (decode.exitCode === 0) return { ok: true, code: null, detail: null };
-
-		return { ok: false, code: "ffmpeg.decode_test.decode_failed", detail: decode.stderr.trim() || `exit code ${decode.exitCode}` };
+		return diagnosticResult(decode.exitCode, decode.stderr, "ffmpeg.decode_test.decode_failed");
 	});
 }

@@ -1,10 +1,11 @@
-import { type Subprocess, spawn } from "bun";
+import type { Subprocess } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { createLogger } from "@/utils/logger.utils";
 import { detach } from "@/utils/promise.utils";
 import { FFMPEG_GLOBAL_ARGS } from "./ffmpeg.args";
 import { FfmpegOperationLog, type FfmpegOperationLogOptions } from "./ffmpeg.operation-log";
-import { type FfmpegProcessPurpose, ffmpegProcessTracker } from "./ffmpeg.process-tracker";
+import type { FfmpegProcessPurpose } from "./ffmpeg.process-tracker";
+import { runTracked } from "./ffmpeg.spawn.utils";
 
 const logger = createLogger("FFmpegBuilder");
 const LINE_SEPARATOR_PATTERN = /\r\n|\r|\n/;
@@ -131,13 +132,15 @@ export class FFmpegBuilder {
 		}
 
 		try {
-			const process = spawn({
+			const { process } = runTracked({
 				cmd: command,
+				purpose: this._purpose,
 				// Nothing ever reads this child's stdout (output goes to outputPath), so
 				// an unconsumed pipe here would silently deadlock the session once ffmpeg
 				// filled the 64 KB pipe buffer.
 				stdout: "ignore",
-				stderr: "pipe",
+				label: this._label,
+				stderrTail: () => this.stderrTail.join("\n"),
 				onExit: (subprocess, exitCode, signalCode, error) => {
 					this.exitInfo = { exitCode, signalCode, error };
 					try {
@@ -146,8 +149,8 @@ export class FFmpegBuilder {
 						this.finishOperationLog();
 					}
 				},
+				unreapedMessage: "FFmpeg did not exit",
 			});
-			ffmpegProcessTracker.track(process, this._purpose, () => this.stderrTail.join("\n"), this._label);
 			this.operationLog?.writeProcessId(process.pid);
 
 			// `stderr: "pipe"` guarantees the stream exists; monitoring finalizes the log.

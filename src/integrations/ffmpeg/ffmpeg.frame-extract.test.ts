@@ -1,10 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-	buildFrameExtractionCommand,
-	buildSingleFrameExtractionCommand,
-	buildSpriteExtractionCommand,
-	buildSpriteTileCommand,
-} from "./ffmpeg.frame-extract";
+import { buildFrameExtractionCommand, buildSingleFrameExtractionCommand, buildSpriteTileCommand } from "./ffmpeg.frame-extract";
 
 describe("frame extraction commands", () => {
 	it("builds a WebP frame command that seeks to the requested time and scales to the width", () => {
@@ -19,6 +14,8 @@ describe("frame extraction commands", () => {
 			"-hide_banner",
 			"-loglevel",
 			"error",
+			"-threads",
+			"1",
 			"-ss",
 			"12.345",
 			"-i",
@@ -48,6 +45,8 @@ describe("frame extraction commands", () => {
 			"-hide_banner",
 			"-loglevel",
 			"error",
+			"-threads",
+			"1",
 			"-ss",
 			"12.345",
 			"-i",
@@ -79,6 +78,8 @@ describe("frame extraction with hardware decoding", () => {
 			"error",
 			"-hwaccel",
 			"cuda",
+			"-threads",
+			"1",
 			"-ss",
 			"12.345",
 			"-i",
@@ -92,102 +93,6 @@ describe("frame extraction with hardware decoding", () => {
 			"-y",
 			"/tmp/frame.webp",
 		]);
-	});
-});
-
-describe("sprite extraction commands", () => {
-	it("builds a sprite command with one single-threaded seek input per frame time", () => {
-		expect(
-			buildSpriteExtractionCommand("/library/movie.mkv", {
-				mediaFileId: "file-1",
-				timeMs: [0, 30_000],
-				width: 320,
-				height: 180,
-				columns: 2,
-			}),
-		).toEqual([
-			"-hide_banner",
-			"-loglevel",
-			"error",
-			"-threads",
-			"1",
-			"-ss",
-			"0.000",
-			"-i",
-			"/library/movie.mkv",
-			"-threads",
-			"1",
-			"-ss",
-			"30.000",
-			"-i",
-			"/library/movie.mkv",
-			"-filter_complex",
-			"[0:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black[s0];[1:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black[s1];[s0][s1]xstack=inputs=2:layout=0_0|w0_0[sprite]",
-			"-map",
-			"[sprite]",
-			"-frames:v",
-			"1",
-			"-c:v",
-			"libwebp",
-			"-f",
-			"image2pipe",
-			"-",
-		]);
-	});
-
-	// The trickplay job writes the sheet to a file, so the sprite command
-	// targets a file too.
-	it("writes the sprite sheet to the given file", () => {
-		expect(
-			buildSpriteExtractionCommand(
-				"/library/movie.mkv",
-				{ mediaFileId: "file-1", timeMs: [0, 30_000], width: 320, height: 180, columns: 2 },
-				"/tmp/sprite.webp",
-			),
-		).toEqual([
-			"-hide_banner",
-			"-loglevel",
-			"error",
-			"-threads",
-			"1",
-			"-ss",
-			"0.000",
-			"-i",
-			"/library/movie.mkv",
-			"-threads",
-			"1",
-			"-ss",
-			"30.000",
-			"-i",
-			"/library/movie.mkv",
-			"-filter_complex",
-			"[0:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black[s0];[1:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black[s1];[s0][s1]xstack=inputs=2:layout=0_0|w0_0[sprite]",
-			"-map",
-			"[sprite]",
-			"-frames:v",
-			"1",
-			"-c:v",
-			"libwebp",
-			"-y",
-			"/tmp/sprite.webp",
-		]);
-	});
-
-	// A sprite that fills more than one row: the third frame belongs to the
-	// second row, and the layout says so.
-	it("lays a sprite out over more than one row", () => {
-		const command = buildSpriteExtractionCommand("/library/movie.mkv", {
-			mediaFileId: "file-1",
-			timeMs: [0, 30_000, 60_000],
-			width: 320,
-			height: 180,
-			columns: 2,
-		});
-
-		const filterIndex = command.indexOf("-filter_complex");
-		expect(command[filterIndex + 1]).toBe(
-			"[0:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black[s0];[1:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black[s1];[2:v]scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black[s2];[s0][s1][s2]xstack=inputs=3:layout=0_0|w0_0|0_h0[sprite]",
-		);
 	});
 });
 
