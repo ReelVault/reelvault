@@ -3,6 +3,7 @@ import { chmod, rename } from "node:fs/promises";
 import { file as bunFile, write as bunWrite } from "bun";
 import { FS_STAT_TIMEOUT_MS } from "@/config/server/server.constants";
 import { MIB } from "@/utils/bytes.utils";
+import { timeoutSignal } from "./cancellation.utils";
 import { DomainError, fsErrorCode, isMissingFile } from "./domain.errors";
 import { createLogger } from "./logger.utils";
 import { isVideoFile } from "./path.utils";
@@ -157,6 +158,11 @@ export async function getFileStats(path: string) {
 	}
 }
 
+/** Whether `path` is a regular file, within the same deadline as {@link getFileStats}. */
+export async function isRegularFile(path: string): Promise<boolean> {
+	return (await getFileStats(path))?.isFile() ?? false;
+}
+
 /**
  * The stat of a path with a hard deadline: a hung stat (dead NFS/CIFS) must
  * not wedge the caller.
@@ -210,8 +216,7 @@ export async function writeFileAtomic(
 	content: string | Buffer | ArrayBuffer | Uint8Array,
 	options?: { chmod?: number | undefined },
 ): Promise<void> {
-	const temporaryPath = createTempPath(path);
-	try {
+	await withTempPath(path, ".tmp", async (temporaryPath) => {
 		// awaits: sequential — the temporary file is written before it is renamed over the target
 		await bunWrite(temporaryPath, content);
 		await rename(temporaryPath, path);
@@ -220,9 +225,7 @@ export async function writeFileAtomic(
 				// Non-POSIX filesystems may not support chmod — the write still succeeded.
 			});
 		}
-	} finally {
-		await deleteFile(temporaryPath);
-	}
+	});
 }
 
 /** Above this size the unchanged-content check is skipped: reading a hostile huge target is worse than a rewrite. */
@@ -269,39 +272,39 @@ export async function deleteFile(path: string): Promise<boolean> {
 export async function downloadFile(url: string, destination: string, options: DownloadOptions = {}): Promise<boolean> {
 	const maxBytes = options.maxBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES;
 	const timeoutMs = options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
-	const temporaryPath = createTempPath(destination);
-	const timeoutSignal = AbortSignal.timeout(timeoutMs);
-	const effectiveSignal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+	const effectiveSignal = timeoutSignal(timeoutMs, options.signal);
 
 	try {
-		effectiveSignal.throwIfAborted();
-		// SSRF guard (audit 2026-09-15): https-only, resolved addresses must be
-		// globally routable, redirects re-validated hop by hop.
-		const response = await (options.fetcher ?? guardedFetch)(url, { signal: effectiveSignal });
-		if (!response.ok) throw new DomainError("internal", `HTTP ${response.status}`, { code: "download.http_error" });
+		return await withTempPath(destination, ".tmp", async (temporaryPath) => {
+			effectiveSignal.throwIfAborted();
+			// SSRF guard (audit 2026-09-15): https-only, resolved addresses must be
+			// globally routable, redirects re-validated hop by hop.
+			const response = await (options.fetcher ?? guardedFetch)(url, { signal: effectiveSignal });
+			if (!response.ok) throw new DomainError("internal", `HTTP ${response.status}`, { code: "download.http_error" });
 
-		if (options.allowedContentTypes?.length) {
-			const contentType = normalizeContentType(response.headers.get("content-type"));
-			const isAllowed = options.allowedContentTypes.some((prefix) => contentType.startsWith(prefix));
-			if (!isAllowed)
-				throw new DomainError("internal", `Unexpected content type: ${contentType || "unknown"}`, {
-					code: "download.invalid_content_type",
-				});
-		}
+			if (options.allowedContentTypes?.length) {
+				const contentType = normalizeContentType(response.headers.get("content-type"));
+				const isAllowed = options.allowedContentTypes.some((prefix) => contentType.startsWith(prefix));
+				if (!isAllowed)
+					throw new DomainError("internal", `Unexpected content type: ${contentType || "unknown"}`, {
+						code: "download.invalid_content_type",
+					});
+			}
 
-		const declaredSize = Number(response.headers.get("content-length"));
-		if (isFiniteNumber(declaredSize) && declaredSize > maxBytes) {
-			throw exceedsSizeLimit(maxBytes);
-		}
+			const declaredSize = Number(response.headers.get("content-length"));
+			if (isFiniteNumber(declaredSize) && declaredSize > maxBytes) {
+				throw exceedsSizeLimit(maxBytes);
+			}
 
-		if (!response.body) throw new DomainError("internal", "Response has no body", { code: "download.no_body" });
+			if (!response.body) throw new DomainError("internal", "Response has no body", { code: "download.no_body" });
 
-		await streamToFile(response.body, temporaryPath, maxBytes, effectiveSignal);
-		if (options.validate) await options.validate(temporaryPath);
+			await streamToFile(response.body, temporaryPath, maxBytes, effectiveSignal);
+			if (options.validate) await options.validate(temporaryPath);
 
-		await rename(temporaryPath, destination);
+			await rename(temporaryPath, destination);
 
-		return true;
+			return true;
+		});
 	} catch (error) {
 		options.onError?.(error);
 		// Caller cancellation (worker abort / rescue) is expected, not a failure.
@@ -310,11 +313,6 @@ export async function downloadFile(url: string, destination: string, options: Do
 		} else {
 			logger.error("Download error", error, { filePath: destination });
 		}
-		await bunFile(temporaryPath)
-			.delete()
-			.catch(() => {
-				// Temporary file already removed — nothing to clean.
-			});
 
 		return false;
 	}

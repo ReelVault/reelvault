@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import { serverConfig } from "@/config/server/server.config";
 import { trimAndFilter } from "@/utils/array.utils";
+import { unwrapIpv4Mapped } from "./url-guard.utils";
 
 /**
  * Request header carrying the client IP resolved by `clientIpMiddleware`.
@@ -9,8 +10,6 @@ import { trimAndFilter } from "@/utils/array.utils";
  * limiter) can read it without re-deriving trust.
  */
 export const CLIENT_IP_HEADER = "x-reelvault-client-ip";
-
-const IPV4_MAPPED_PREFIX = "::ffff:";
 
 export interface ResolveClientIpInput {
 	/** TCP peer address of the connection (Bun `server.requestIP`). */
@@ -36,10 +35,8 @@ export function normalizeIp(value: string | null | undefined): string | null {
 	let ip = value.trim();
 	if (ip.startsWith("[") && ip.endsWith("]")) ip = ip.slice(1, -1);
 
-	if (ip.toLowerCase().startsWith(IPV4_MAPPED_PREFIX)) {
-		const mapped = ip.slice(IPV4_MAPPED_PREFIX.length);
-		if (isIP(mapped) === 4) ip = mapped;
-	}
+	const mapped = unwrapIpv4Mapped(ip);
+	if (mapped !== undefined && isIP(mapped) === 4) ip = mapped;
 
 	return isIP(ip) ? ip : null;
 }

@@ -309,6 +309,16 @@ test("expired entries release their weight when they are read", async () => {
 	expect(cache.has("c")).toBe(true);
 });
 
+test("each value expires at the instant it carries, not at a shared TTL", () => {
+	const cache = new MemoryCache<number>({ ttlMs: -1, maxSize: -1, expiresAt: (value) => value });
+
+	cache.set("past", 1);
+	cache.set("future", Number.MAX_SAFE_INTEGER);
+
+	expect(cache.get("past")).toBeNull();
+	expect(cache.get("future")).toBe(Number.MAX_SAFE_INTEGER);
+});
+
 test("a load that exceeds its deadline is evicted so the next caller can retry", async () => {
 	let calls = 0;
 	const cache = new MemoryCache<number>({ ttlMs: -1, maxSize: -1, loadTimeoutMs: 20 });

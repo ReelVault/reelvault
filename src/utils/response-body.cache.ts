@@ -26,6 +26,8 @@ const RESPONSE_BODY_CACHE_MIN_TOTAL_BYTES = 32 * MIB;
 const RESPONSE_BODY_CACHE_MAX_TOTAL_BYTES = 256 * MIB;
 /** Entry-count safety net for many small bodies; the byte budget is the real limit. */
 const RESPONSE_BODY_CACHE_MAX_ENTRIES = 8192;
+/** How often expired bodies are swept out; a sweep runs from a write, so no timer is needed. */
+const RESPONSE_BODY_CACHE_SWEEP_MS = 60_000;
 
 /** NUL never appears in URLs or HTTP headers, so it is safe as a key segment separator. */
 const KEY_SEGMENT_SEPARATOR = "\u0000";
@@ -73,8 +75,9 @@ function removeFromProfileIndex(key: string): void {
  * invalidateProfileResponseBodies().
  */
 const responseBodyCache = new MemoryCache<CachedResponseBody>({
-	// TTL is enforced per entry (expiresAt) so each route keeps its own max-age.
-	ttlMs: -1,
+	// Each route keeps its own max-age: the expiry is stored per entry, and the sweep drops expired bodies that are never read again.
+	expiresAt: (entry) => entry.expiresAt,
+	sweepIntervalMs: RESPONSE_BODY_CACHE_SWEEP_MS,
 	maxSize: RESPONSE_BODY_CACHE_MAX_ENTRIES,
 	maxWeight: systemResourcesService.getRamScaled(
 		RESPONSE_BODY_CACHE_BYTES_PER_GB,
@@ -113,17 +116,8 @@ export function responseBodyCacheTtlMs(maxAgeSeconds: number): number {
 }
 
 /** Live (unexpired) body for a route-level or withEtagResponse() cache key. */
-export function getCachedResponseBody(key: string, now = Date.now()): CachedResponseBody | undefined {
-	const entry = responseBodyCache.get(key);
-	if (!entry) return undefined;
-
-	if (entry.expiresAt <= now) {
-		responseBodyCache.delete(key);
-
-		return undefined;
-	}
-
-	return entry;
+export function getCachedResponseBody(key: string): CachedResponseBody | undefined {
+	return responseBodyCache.get(key) ?? undefined;
 }
 
 export function setCachedResponseBody(key: string, entry: CachedResponseBody): void {

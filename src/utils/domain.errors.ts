@@ -95,7 +95,7 @@ export function definedParams(params: DomainErrorParams | undefined): Record<str
 }
 
 /** Canonical not-found error carrying the translatable code + params for an entity. */
-export function notFoundError(entityType: string, entityId?: string): DomainError {
+function notFoundError(entityType: string, entityId?: string): DomainError {
 	const message = entityId === undefined ? `${entityType} not found` : `${entityType} not found: ${entityId}`;
 
 	return new DomainError("not_found", message, {

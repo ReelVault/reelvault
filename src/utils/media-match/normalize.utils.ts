@@ -102,3 +102,11 @@ export function extractYear(date: string | undefined): number | undefined {
 
 	return year > 0 ? year : undefined;
 }
+
+/** Release years this far apart still name the same title; a file's year may be off by one. */
+export const YEAR_TOLERANCE = 1;
+
+/** Whether two release years are further apart than `YEAR_TOLERANCE`. */
+export function exceedsYearTolerance(left: number, right: number): boolean {
+	return Math.abs(left - right) > YEAR_TOLERANCE;
+}

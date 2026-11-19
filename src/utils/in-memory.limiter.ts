@@ -41,10 +41,6 @@ export class InMemoryRateLimiter {
 		return { allowed: true, remaining: max - current.count, resetMs: windowMs - (now - current.startedAt) };
 	}
 
-	has(key: string): boolean {
-		return this.buckets.has(key);
-	}
-
 	/**
 	 * The state of a key without consuming from it: how many hits it already
 	 * took, how many are left, and when its window ends. Undefined when the key

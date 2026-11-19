@@ -147,19 +147,16 @@ describe("createSemaphore", () => {
 	test("enforces concurrency limit", async () => {
 		const sem = createSemaphore(2);
 		expect(sem.activeCount).toBe(0);
-		expect(sem.queuedCount).toBe(0);
 
 		await sem.acquire();
 		await sem.acquire();
 		expect(sem.activeCount).toBe(2);
-		expect(sem.queuedCount).toBe(0);
 
 		let thirdAcquired = false;
 		const third = sem.acquire().then(() => {
 			thirdAcquired = true;
 		});
 
-		expect(sem.queuedCount).toBe(1);
 		expect(thirdAcquired).toBe(false);
 
 		sem.release();
@@ -188,7 +185,6 @@ describe("createSemaphore", () => {
 
 		const controller = new AbortController();
 		const queued = sem.acquire(controller.signal);
-		expect(sem.queuedCount).toBe(1);
 
 		const cancelled = new Error("Cancelled while waiting");
 		controller.abort(cancelled);

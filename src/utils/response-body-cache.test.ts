@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import { cacheRegistrySnapshot } from "@/utils/memory-cache/cache-registry.registry";
 import {
 	CATALOG_LIST_PATH_PREFIXES,
 	type CachedResponseBody,
@@ -15,6 +16,11 @@ import {
 
 /** Fixed instant for tests that assert a stored expiry. */
 const FIXED_NOW_MS = new Date("2026-01-01T00:00:00.000Z").getTime();
+const ONE_HOUR_MS = 60 * 60_000;
+
+function storedBodyCount(): number | undefined {
+	return cacheRegistrySnapshot().find((cache) => cache.name === "api.responseBody")?.entries;
+}
 
 // `expiresAt` comes from the clock, so a test keeps the entry it stores and compares against that same object.
 function entry(): CachedResponseBody {
@@ -49,10 +55,27 @@ describe("cache entries", () => {
 		expect(getCachedResponseBody(cacheKey("/v1/expired"))).toBeUndefined();
 	});
 
-	test("treats an entry expiring exactly now as expired", () => {
-		setCachedResponseBody(cacheKey("/v1/boundary"), { ...entry(), expiresAt: FIXED_NOW_MS });
+	test("serves an entry until its expiry instant has passed", () => {
+		const key = cacheKey("/v1/boundary");
+		setCachedResponseBody(key, { ...entry(), expiresAt: FIXED_NOW_MS });
 
-		expect(getCachedResponseBody(cacheKey("/v1/boundary"), FIXED_NOW_MS)).toBeUndefined();
+		setSystemTime(new Date(FIXED_NOW_MS));
+		expect(getCachedResponseBody(key)).toMatchObject({ expiresAt: FIXED_NOW_MS });
+
+		setSystemTime(new Date(FIXED_NOW_MS + 1));
+		expect(getCachedResponseBody(key)).toBeUndefined();
+	});
+
+	test("sweeps an expired body out of memory when a later write runs the sweep", () => {
+		invalidateResponseBodies();
+		const base = Date.now() + ONE_HOUR_MS;
+		setSystemTime(new Date(base));
+		setCachedResponseBody(cacheKey("/v1/swept"), { ...entry(), expiresAt: base + 1_000 });
+
+		setSystemTime(new Date(base + 120_000));
+		setCachedResponseBody(cacheKey("/v1/fresh"), entry());
+
+		expect(storedBodyCount()).toBe(1);
 	});
 
 	test("caches an etag body for ten seconds", () => {

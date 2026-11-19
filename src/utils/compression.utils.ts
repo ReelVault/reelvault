@@ -99,7 +99,7 @@ function parseAcceptEncoding(acceptEncoding: string): CompressionEncoding | null
  * keeps the type honest without an assertion; the copy is the fallback for the
  * (never observed) SharedArrayBuffer case.
  */
-export function toResponseBytes(buffer: Buffer): Buffer<ArrayBuffer> {
+function toResponseBytes(buffer: Buffer): Buffer<ArrayBuffer> {
 	if (buffer.buffer instanceof ArrayBuffer) {
 		return Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 	}

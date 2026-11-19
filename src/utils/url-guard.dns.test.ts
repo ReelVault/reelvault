@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { stubFetch } from "../../tests/helpers/fetch-stub.helper";
 import { mockModuleWithRealExports, restoreModuleMocks } from "../../tests/helpers/module-mock.helper";
 
 let resolvedAddresses: string[] = [];
@@ -25,20 +26,6 @@ afterEach(() => {
 
 afterAll(() => restoreModuleMocks());
 
-/** Records the URLs guardedFetch tries to dial; the resolver mock answers every hostname. */
-function stubFetch(): string[] {
-	const calls: string[] = [];
-	globalThis.fetch = ((input: RequestInfo | URL) => {
-		if (input instanceof URL) calls.push(input.href);
-		else if (typeof input === "string") calls.push(input);
-		else calls.push(input.url);
-
-		return Promise.resolve(new Response("ok"));
-	}) as typeof fetch;
-
-	return calls;
-}
-
 describe("guardedFetch resolution", () => {
 	test("rejects a host when any resolved address is private", async () => {
 		resolvedAddresses = ["8.8.8.8", "127.0.0.1"];
@@ -57,7 +44,7 @@ describe("guardedFetch resolution", () => {
 
 		await guardedFetch("https://dual.example/file");
 
-		expect(calls).toEqual(["https://8.8.8.8/file"]);
+		expect(calls.map((call) => call.url)).toEqual(["https://8.8.8.8/file"]);
 	});
 
 	test("rejects a host whose resolution fails", async () => {

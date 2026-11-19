@@ -1,7 +1,7 @@
 /** Quotes a CSV cell when it holds a separator, a quote or a line break. */
 const CSV_SPECIAL_CHARACTERS = /[",\n\r]/;
 
-export function toCsvCell(value: string | number | boolean | null | undefined): string {
+function toCsvCell(value: string | number | boolean | null | undefined): string {
 	const text = String(value ?? "");
 
 	return CSV_SPECIAL_CHARACTERS.test(text) ? `"${text.replaceAll('"', '""')}"` : text;

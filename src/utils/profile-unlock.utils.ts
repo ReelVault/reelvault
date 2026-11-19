@@ -1,5 +1,6 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { MemoryCache } from "@/utils/memory.cache";
+import { createHmac } from "node:crypto";
+import { constantTimeEquals, createHash } from "./crypto.utils";
+import { MemoryCache } from "./memory.cache";
 
 /**
  * Stateless proof that a PIN-protected profile was unlocked by this client.
@@ -83,9 +84,8 @@ export function verifyProfileUnlock(
 	if (!Number.isFinite(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) return null;
 
 	const fingerprint = pinFingerprint ?? "";
-	const expected = Buffer.from(signatureFor(`${profileId}${TOKEN_SEPARATOR}${expiresText}${TOKEN_SEPARATOR}${fingerprint}`, secret));
-	const actual = Buffer.from(signature);
-	if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+	const expected = signatureFor(`${profileId}${TOKEN_SEPARATOR}${expiresText}${TOKEN_SEPARATOR}${fingerprint}`, secret);
+	if (!constantTimeEquals(signature, expected)) return null;
 
 	return { profileId, expiresAt, pinFingerprint: fingerprint };
 }

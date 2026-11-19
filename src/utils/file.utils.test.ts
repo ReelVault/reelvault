@@ -9,6 +9,7 @@ import {
 	consumeStreamBounded,
 	deleteFile,
 	downloadFile,
+	isRegularFile,
 	withTempPath,
 	writeFileAtomic,
 	writeFileIfChanged,
@@ -168,6 +169,19 @@ describe("downloadFile", () => {
 
 		expect(result).toBe(false);
 		expect(await Bun.file(destination).exists()).toBeFalse();
+	});
+});
+
+describe("isRegularFile", () => {
+	test("reports a regular file as a file and a directory or an absent path as not a file", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "reelvault-file-utils-"));
+		temporaryDirectories.push(directory);
+		const present = join(directory, "config.json");
+		await write(present, "{}");
+
+		expect(await isRegularFile(present)).toBe(true);
+		expect(await isRegularFile(directory)).toBe(false);
+		expect(await isRegularFile(join(directory, "missing.json"))).toBe(false);
 	});
 });
 

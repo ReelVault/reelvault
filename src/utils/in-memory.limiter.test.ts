@@ -28,7 +28,7 @@ test("InMemoryRateLimiter keeps buckets in LRU order and evicts the least recent
 	// Public evictOldest: k2 should be evicted (oldest access was 2000, k1 was 4000, k3 was 3000)
 	limiter.evictOldest();
 
-	expect(limiter.has("k2")).toBe(false);
-	expect(limiter.has("k1")).toBe(true);
-	expect(limiter.has("k3")).toBe(true);
+	expect(limiter.peek("k2", 10, 4000)).toBeUndefined();
+	expect(limiter.peek("k1", 10, 4000)?.count).toBe(2);
+	expect(limiter.peek("k3", 10, 4000)?.count).toBe(1);
 });

@@ -10,3 +10,10 @@ export function throwIfAborted(signal?: AbortSignal): void {
 		throw signal.reason instanceof CancellationError ? signal.reason : new CancellationError();
 	}
 }
+
+/** A signal that aborts after `ms`, or as soon as `parent` aborts, whichever comes first. */
+export function timeoutSignal(ms: number, parent?: AbortSignal): AbortSignal {
+	const timeout = AbortSignal.timeout(ms);
+
+	return parent ? AbortSignal.any([parent, timeout]) : timeout;
+}

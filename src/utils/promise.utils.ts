@@ -184,12 +184,6 @@ export function waitForFile(filePath: string, timeoutMs = 10_000, pollMs = 200, 
 			pollTimer.unref();
 		}
 
-		const onError = () => {
-			if (resolved || pollTimer) return;
-
-			startPolling();
-		};
-
 		/**
 		 * Polling is armed unconditionally as a safety net: fs.watch events are
 		 * not reliably delivered on every runtime/filesystem combination (e.g.
@@ -209,18 +203,14 @@ export function waitForFile(filePath: string, timeoutMs = 10_000, pollMs = 200, 
 		const targetName = basename(filePath);
 		const directory = dirname(filePath);
 
-		releaseWatcher = subscribeDirWatcher(
-			directory,
-			(filename) => {
-				if (filename === targetName) {
-					onFound();
-				} else if (filename === null) {
-					// Unknown filename (platform-dependent) — verify instead of assuming.
-					detach(checkExists());
-				}
-			},
-			onError,
-		);
+		releaseWatcher = subscribeDirWatcher(directory, (filename) => {
+			if (filename === targetName) {
+				onFound();
+			} else if (filename === null) {
+				// Unknown filename (platform-dependent) — verify instead of assuming.
+				detach(checkExists());
+			}
+		});
 
 		startPolling();
 
@@ -325,9 +315,6 @@ export function createSemaphore(maxConcurrency: number | (() => number)) {
 		get activeCount(): number {
 			return active;
 		},
-		get queuedCount(): number {
-			return Math.max(0, queue.length - head);
-		},
 	};
 }
 
@@ -335,8 +322,6 @@ interface DirWatcherEntry {
 	controller: AbortController;
 	refs: number;
 	listeners: Set<(filename: string | null) => void>;
-	errorListeners: Set<() => void>;
-	task: Promise<void>;
 }
 
 const dirWatchers = new Map<string, DirWatcherEntry>();
@@ -345,63 +330,45 @@ const dirWatchers = new Map<string, DirWatcherEntry>();
  * Shares a single fs.watch handle per directory across all concurrent waiters.
  * Multiple missing HLS segments of the same session previously armed one
  * watcher per request; the returned function releases the caller's reference
- * and tears the watcher down when the last waiter leaves.
+ * and tears the watcher down when the last waiter leaves. A failed watcher is
+ * not reported to waiters: they poll the file on their own timer.
  */
-function subscribeDirWatcher(directory: string, onEvent: (filename: string | null) => void, onError: () => void): () => void {
-	const existing = dirWatchers.get(directory);
-	if (existing) {
-		existing.refs++;
-		existing.listeners.add(onEvent);
-		existing.errorListeners.add(onError);
-
-		return () => {
-			existing.listeners.delete(onEvent);
-			existing.errorListeners.delete(onError);
-			existing.refs--;
-			if (existing.refs <= 0) {
-				existing.controller.abort();
-				if (dirWatchers.get(directory) === existing) dirWatchers.delete(directory);
-			}
-		};
-	}
-
-	const entry: DirWatcherEntry = {
-		controller: new AbortController(),
-		refs: 1,
-		listeners: new Set([onEvent]),
-		errorListeners: new Set([onError]),
-		task: Promise.resolve(),
-	};
-	entry.task = (async () => {
-		try {
-			const watcher = watch(directory, { recursive: false, signal: entry.controller.signal });
-			for await (const event of watcher) {
-				for (const listener of entry.listeners) {
-					listener(event.filename ?? null);
-				}
-			}
-		} catch {
-			// Aborted by the last waiter releasing — nothing to do. Any other
-			// failure (ENOENT, permission) is surfaced so waiters can poll.
-			if (!entry.controller.signal.aborted) {
-				logger.warn("Directory watcher failed — falling back to polling", { directory });
-				for (const errorListener of entry.errorListeners) {
-					errorListener();
-				}
-			}
-		} finally {
-			if (dirWatchers.get(directory) === entry) dirWatchers.delete(directory);
-		}
-	})();
-	dirWatchers.set(directory, entry);
+function subscribeDirWatcher(directory: string, onEvent: (filename: string | null) => void): () => void {
+	const entry = dirWatchers.get(directory) ?? startDirWatcher(directory);
+	entry.refs++;
+	entry.listeners.add(onEvent);
 
 	return () => {
 		entry.listeners.delete(onEvent);
-		entry.errorListeners.delete(onError);
 		entry.refs--;
-		if (entry.refs <= 0) {
-			entry.controller.abort();
-			if (dirWatchers.get(directory) === entry) dirWatchers.delete(directory);
-		}
+		if (entry.refs > 0) return;
+
+		entry.controller.abort();
+		if (dirWatchers.get(directory) === entry) dirWatchers.delete(directory);
 	};
+}
+
+function startDirWatcher(directory: string): DirWatcherEntry {
+	const entry: DirWatcherEntry = { controller: new AbortController(), refs: 0, listeners: new Set() };
+	detach(
+		(async () => {
+			try {
+				const watcher = watch(directory, { recursive: false, signal: entry.controller.signal });
+				for await (const event of watcher) {
+					for (const listener of entry.listeners) {
+						listener(event.filename ?? null);
+					}
+				}
+			} catch {
+				// Aborted by the last waiter releasing — nothing to do. Any other
+				// failure (ENOENT, permission) leaves the waiters to their polling.
+				if (!entry.controller.signal.aborted) logger.warn("Directory watcher failed — falling back to polling", { directory });
+			} finally {
+				if (dirWatchers.get(directory) === entry) dirWatchers.delete(directory);
+			}
+		})(),
+	);
+	dirWatchers.set(directory, entry);
+
+	return entry;
 }

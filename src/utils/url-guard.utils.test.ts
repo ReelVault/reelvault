@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { guardedFetch, isPublicAddress, pinUrlToAddress } from "./url-guard.utils";
+import { stubFetch } from "../../tests/helpers/fetch-stub.helper";
+import { guardedFetch, isPublicAddress, pinUrlToAddress, unwrapIpv4Mapped } from "./url-guard.utils";
 
 const PUBLIC_IPV4 = ["1.1.1.1", "8.8.8.8", "104.20.23.154", "172.32.0.1", "192.169.0.1", "198.20.0.1"];
 const NON_PUBLIC_IPV4 = [
@@ -92,6 +93,19 @@ describe("isPublicAddress (IPv6)", () => {
 	});
 });
 
+describe("unwrapIpv4Mapped", () => {
+	test("returns the embedded IPv4 address of an IPv4-mapped literal in any letter case", () => {
+		expect(unwrapIpv4Mapped("::ffff:10.0.0.1")).toBe("10.0.0.1");
+		expect(unwrapIpv4Mapped("::FFFF:8.8.8.8")).toBe("8.8.8.8");
+	});
+
+	test("returns undefined for addresses that are not IPv4-mapped", () => {
+		expect(unwrapIpv4Mapped("2001:db8::1")).toBeUndefined();
+		expect(unwrapIpv4Mapped("x::ffff:8.8.8.8")).toBeUndefined();
+		expect(unwrapIpv4Mapped("::ffff:8.8.8.8x")).toBeUndefined();
+	});
+});
+
 describe("pinUrlToAddress", () => {
 	test("rewrites the host to the vetted IPv4 and preserves port/path/query", () => {
 		expect(pinUrlToAddress(new URL("https://example.com:8443/a/b?c=1"), "104.20.23.154")).toBe("https://104.20.23.154:8443/a/b?c=1");
@@ -107,40 +121,6 @@ const originalFetch = globalThis.fetch;
 afterEach(() => {
 	globalThis.fetch = originalFetch;
 });
-
-interface RecordedCall {
-	url: string;
-	headers: Headers;
-	method: string;
-	body: BodyInit | null | undefined;
-	tls: unknown;
-}
-
-function requestUrl(input: RequestInfo | URL): string {
-	if (input instanceof URL) return input.href;
-	if (typeof input === "string") return input;
-
-	return input.url;
-}
-
-/** Replaces global fetch with an offline stub — IP-literal hosts never hit DNS. */
-function stubFetch(handler: (url: string) => Response): RecordedCall[] {
-	const calls: RecordedCall[] = [];
-	globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-		const url = requestUrl(input);
-		calls.push({
-			url,
-			headers: new Headers(init?.headers),
-			method: init?.method ?? "GET",
-			body: init?.body,
-			tls: (init as { tls?: unknown } | undefined)?.tls,
-		});
-
-		return Promise.resolve(handler(url));
-	}) as typeof fetch;
-
-	return calls;
-}
 
 describe("guardedFetch", () => {
 	test("requires https unless the caller opts into more schemes", async () => {

@@ -39,7 +39,6 @@ export function formatDateOnly(date: Date, timeZone: "local" | "utc" = "local"):
 	return `${year}-${month}-${day}`;
 }
 
-/** Returns `true` if the given expiry date is at or before the current time. */
 export function isExpired(expiresAt: Date, now?: number): boolean {
 	return expiresAt.getTime() <= (now ?? Date.now());
 }

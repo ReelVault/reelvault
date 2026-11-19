@@ -1,6 +1,7 @@
 import { env } from "@/config/env.config";
 import { MINUTE } from "@/config/server/server.constants";
 import { DomainError } from "@/utils/domain.errors";
+import { roundTo } from "@/utils/math.utils";
 import { type MemoryCacheStats, registerNamedCache, unregisterNamedCache } from "@/utils/memory-cache/cache-registry.registry";
 import { detach, withTimeout } from "@/utils/promise.utils";
 
@@ -30,8 +31,13 @@ interface MemoryCacheOptions<T, K extends string> {
 	/** Weight of one value, consulted on insert. Only meaningful together with `maxWeight`. */
 	weigh?: ((value: T) => number) | undefined;
 	/**
+	 * Absolute expiry (epoch ms) of one value, read on insert. When set it replaces
+	 * `ttlMs` for every entry, so each value can carry its own lifetime.
+	 */
+	expiresAt?: ((value: T) => number) | undefined;
+	/**
 	 * How often (ms) to sweep for expired entries in the background.
-	 * Only active when ttlMs is set (not -1). Set to 0 to disable.
+	 * Only active when entries can expire (a ttlMs other than -1, or `expiresAt`). Set to 0 to disable.
 	 * @default ttlMs (sweep once per TTL period)
 	 */
 	sweepIntervalMs?: number | undefined;
@@ -67,6 +73,9 @@ type EvictReason = "lru" | "ttl" | "delete" | "clear";
 export class MemoryCache<T, K extends string = string> {
 	private readonly cache = new Map<K, CacheEntry<T>>();
 	private readonly ttlMs: number;
+	private readonly expiresAtOf: ((value: T) => number) | undefined;
+	/** True when entries can expire: a TTL is set, or each value carries its own `expiresAt`. */
+	private readonly expires: boolean;
 	private readonly maxSize: number;
 	private readonly maxWeight: number;
 	private readonly weigh: ((value: T) => number) | undefined;
@@ -89,6 +98,8 @@ export class MemoryCache<T, K extends string = string> {
 
 	constructor(options: MemoryCacheOptions<T, K> = {}) {
 		this.ttlMs = options.ttlMs ?? 5 * MINUTE;
+		this.expiresAtOf = options.expiresAt;
+		this.expires = this.expiresAtOf !== undefined || this.ttlMs !== -1;
 		this.maxSize = options.maxSize ?? 500;
 		this.maxWeight = options.maxWeight ?? -1;
 		this.weigh = options.weigh;
@@ -99,7 +110,7 @@ export class MemoryCache<T, K extends string = string> {
 		if (this.registryName && this.registryEntry) registerNamedCache(this.registryName, this.registryEntry);
 
 		// Sweeps drop TTL-expired entries that are never read again, so they don't leak memory.
-		this.sweepMs = this.ttlMs === -1 ? 0 : (options.sweepIntervalMs ?? this.ttlMs);
+		this.sweepMs = options.sweepIntervalMs ?? (this.ttlMs === -1 ? 0 : this.ttlMs);
 	}
 
 	get size(): number {
@@ -167,9 +178,8 @@ export class MemoryCache<T, K extends string = string> {
 			this.evictOldest();
 		}
 
-		const expiresAt = this.ttlMs === -1 ? Number.POSITIVE_INFINITY : now + this.ttlMs;
 		const weight = this.weigh?.(value) ?? 0;
-		this.cache.set(key, { value, expiresAt, weight });
+		this.cache.set(key, { value, expiresAt: this.expiryOf(value, now), weight });
 		this.totalWeight += weight;
 		this.evictOverWeight(key);
 	}
@@ -354,7 +364,7 @@ export class MemoryCache<T, K extends string = string> {
 			maxSize: this.maxSize === -1 ? null : this.maxSize,
 			hits: this.hits,
 			misses: this.misses,
-			hitRate: total === 0 ? null : Math.round((this.hits / total) * 1000) / 1000,
+			hitRate: total === 0 ? null : roundTo(this.hits / total, 3),
 			evictions: this.evictions,
 			pendingLoads: this.pending.size,
 		};
@@ -371,11 +381,17 @@ export class MemoryCache<T, K extends string = string> {
 		return entry;
 	}
 
+	private expiryOf(value: T, now: number): number {
+		if (this.expiresAtOf) return this.expiresAtOf(value);
+
+		return this.ttlMs === -1 ? Number.POSITIVE_INFINITY : now + this.ttlMs;
+	}
+
 	private evictOldest(): void {
 		// Prefer evicting an already-expired entry over a live one. Only the
 		// oldest-inserted entry (front of the Map) is checked here — a full scan
 		// would defeat the O(1) eviction cost; the periodic sweep handles the rest.
-		if (this.ttlMs !== -1) {
+		if (this.expires) {
 			const oldest = this.cache.entries().next().value;
 			if (oldest && this.isExpired(oldest[1])) {
 				this.remove(oldest[0]);
@@ -424,7 +440,7 @@ export class MemoryCache<T, K extends string = string> {
 
 	/** Removes an entry whose TTL ran out, reporting it as evicted. Returns whether it was dropped. */
 	private dropIfExpired(key: K, entry: CacheEntry<T>): boolean {
-		if (this.ttlMs === -1 || !this.isExpired(entry)) return false;
+		if (!(this.expires && this.isExpired(entry))) return false;
 
 		this.remove(key);
 		this.notifyEvict(key, entry.value, "ttl");

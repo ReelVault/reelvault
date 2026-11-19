@@ -170,7 +170,7 @@ export function parseAllowedOrigins(value?: string | string[]): string[] {
 }
 
 /** Credential segments every request-key builder composes (dedup, response cache). */
-export interface RequestCredentials {
+interface RequestCredentials {
 	authorization: string;
 	cookie: string;
 	/** Raw `x-profile-id` header; the resolved session profile is a separate input. */
@@ -181,7 +181,7 @@ export interface RequestCredentials {
 const credentialsCache = new WeakMap<Request, RequestCredentials>();
 
 /** Reads the credential headers request keys are scoped by; missing headers become empty segments. */
-export function readRequestCredentials(request: Request): RequestCredentials {
+function readRequestCredentials(request: Request): RequestCredentials {
 	const cached = credentialsCache.get(request);
 	if (cached) return cached;
 

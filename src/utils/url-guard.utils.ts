@@ -8,6 +8,11 @@ import { withTimeout } from "./promise.utils";
 const IPV4_MAPPED_IPV6_REGEX = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/;
 const IPV6_ZONE_ID_REGEX = /^%.*$/;
 
+/** The IPv4 address embedded in an IPv4-mapped IPv6 literal (`::ffff:10.0.0.1`), or undefined for any other address. */
+export function unwrapIpv4Mapped(ip: string): string | undefined {
+	return IPV4_MAPPED_IPV6_REGEX.exec(ip.toLowerCase())?.[1];
+}
+
 // ─── CIDR-based IPv4 classification ──────────────────────────────────────────
 
 interface Ipv4Range {
@@ -70,8 +75,8 @@ function isPublicIpv6(ip: string): boolean {
 	const normalized = ip.toLowerCase();
 	if (normalized.includes("%")) return false;
 
-	const mapped = IPV4_MAPPED_IPV6_REGEX.exec(normalized);
-	if (mapped?.[1]) return isPublicIpv4(mapped[1]);
+	const mapped = unwrapIpv4Mapped(normalized);
+	if (mapped !== undefined) return isPublicIpv4(mapped);
 
 	// Special-purpose ranges that sit INSIDE the global-unicast 2000::/3 block and
 	// therefore need explicit rejection: documentation, 6to4 (2002::/16 — embeds

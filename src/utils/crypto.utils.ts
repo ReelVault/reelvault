@@ -4,41 +4,31 @@ import { DomainError } from "./domain.errors";
 
 interface Hasher {
 	update(data: string | Uint8Array): Hasher;
-	digest(encoding: "hex" | "base64"): string;
+	digest(encoding: "hex" | "base64" | "base64url"): string;
 }
 
 const CHECKSUM_PREFIX_REGEX = /^sha256-/;
 
-/**
- * Constant-time comparison of two strings. With `checksum` enabled a leading
- * `sha256-` is stripped from both sides and hex case is ignored, so a streamed
- * archive hash (`sha256-<hex>`) can be compared against a published plain-hex
- * digest without pre-normalizing at the call site.
- */
+/** Constant-time string equality. Strings of different byte length are unequal. */
 export function constantTimeEquals(actual: string, expected: string): boolean {
-	return compareBytes(actual, expected);
-}
-
-/**
- * The checksum variant of `constantTimeEquals`: a leading `sha256-` is stripped
- * from both sides and hex case is ignored, so a streamed archive hash
- * (`sha256-<hex>`) can be compared against a published plain-hex digest
- * without pre-normalizing at the call site.
- */
-export function constantTimeChecksumEquals(actual: string, expected: string): boolean {
-	return compareBytes(actual.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase(), expected.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase());
-}
-
-function compareBytes(actual: string, expected: string): boolean {
 	const actualBytes = Buffer.from(actual);
 	const expectedBytes = Buffer.from(expected);
 
 	return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }
 
+/** Constant-time equality of two checksums: a `sha256-` prefix is dropped and hex case ignored on both sides. */
+function constantTimeChecksumEquals(actual: string, expected: string): boolean {
+	return constantTimeEquals(
+		actual.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase(),
+		expected.replace(CHECKSUM_PREFIX_REGEX, "").toLowerCase(),
+	);
+}
+
 /**
- * Throws `failure` unless the digests match in constant time. `checksum` also ignores
- * a `sha256:` prefix and letter case (see `constantTimeEquals`).
+ * Throws `failure` unless the digests match in constant time. With `checksum`
+ * the comparison ignores a `sha256-` prefix and letter case, so a streamed
+ * archive hash (`sha256-<hex>`) matches a published plain-hex digest.
  */
 export function assertChecksumMatches(
 	actual: string,
