@@ -931,6 +931,7 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 - **A pinned hardware accelerator that fails its startup test falls back to software encoding.** It was still used for transcodes.
 - **A failed keyframe probe is retried.** Seeking no longer treats the file as having no keyframes for 30 minutes after one failed probe.
 - **Paginated lists without a sort order no longer repeat or skip rows between pages.**
+- **Optional metadata fields can be cleared.** `PATCH /metadata/:id` accepts `null` for the original title, overview, tagline, status, budget and revenue and stores it; the admin editor could not empty these fields before.
 - **A show with new episodes can be listed as recently added.** The metadata list accepts `sortBy=recentlyAdded`, which orders titles by the newest file linked to them. `createdAt` only records when the title was first inserted, so an existing show never moved up when episodes were added.
 - **Expired cached API responses are released from memory.** They stayed resident until the cache ran out of room.
 - **A retried playback request no longer starts a second session.** A retry that arrives while the first request is still starting, with the idempotency cache full, now shares the first request, and a retry that changes only the HDR transfer settings is reported as a conflict.
