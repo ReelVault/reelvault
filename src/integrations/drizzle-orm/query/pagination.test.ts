@@ -1,7 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { systemSettingsStore } from "@/config/system-settings.store";
 import { buildAdminPagination, parsePagination } from "@/integrations/drizzle-orm/query/pagination.utils";
 
 describe("QueryPagination", () => {
+	// The default page size is process-wide settings state; other files may have overridden it.
+	beforeEach(() => {
+		systemSettingsStore.clearRuntimeValues();
+	});
+
 	test("clamps page and limit to configured bounds", () => {
 		expect(parsePagination({ page: 200_000, limit: 9999 })).toEqual({
 			page: 100_000,

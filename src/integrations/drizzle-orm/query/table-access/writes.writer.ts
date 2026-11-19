@@ -1,5 +1,5 @@
 import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
-import { eq, getTableColumns, inArray, type SQL, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, type SQL, sql } from "drizzle-orm";
 import type { AnySQLiteInsert, SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import type { DatabaseTables, DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
@@ -178,16 +178,17 @@ export async function upsertRows<TTable extends DatabaseTables>(
 	return await query.returning();
 }
 
-/** Resolves the WHERE clause from the primary id, an id list, or a raw SQL condition (first match wins). */
+/** Every target given (primary id, id list, raw SQL condition) must match, so a row needs all of them. */
 function whereClauseFor<TTable extends DatabaseTables>(
 	repository: TableAccessBase<TTable>,
 	{ primaryId, ids, where }: { primaryId?: string | undefined; ids?: string[] | undefined; where?: SQL | undefined },
 ): SQL | undefined {
-	if (primaryId) return eq(repository.primaryKeyColumn, primaryId);
+	const conditions: SQL[] = [];
+	if (primaryId) conditions.push(eq(repository.primaryKeyColumn, primaryId));
+	if (ids?.length) conditions.push(inArray(repository.primaryKeyColumn, ids));
+	if (where) conditions.push(where);
 
-	if (ids?.length) return inArray(repository.primaryKeyColumn, ids);
-
-	return where;
+	return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
 /**

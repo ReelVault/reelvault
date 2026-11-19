@@ -1,5 +1,6 @@
 import type { FieldsConfig, SelectFields } from "@reelvault/sdk/common";
 import { serverConstants } from "@/config/server/server.constants";
+import { trimAndFilter, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { isRecord } from "@/utils/type.utils";
 
@@ -28,17 +29,7 @@ export function parseFields<F extends string>({ fields: fieldsString }: { fields
 		});
 	}
 
-	const fields: string[] = [];
-	const seen = new Set<string>();
-	for (const raw of fieldsString.split(",")) {
-		const f = raw.trim();
-		if (f.length === 0) continue;
-
-		if (seen.has(f)) continue;
-
-		seen.add(f);
-		fields.push(f);
-	}
+	const fields = unique(trimAndFilter(fieldsString.split(",")));
 
 	if (fields.length > serverConstants.database.fields.maxFields) {
 		throw new DomainError("validation", `Fields query must not contain more than ${serverConstants.database.fields.maxFields} fields`, {
@@ -107,9 +98,7 @@ export function includesField<F extends string>(config: ParsedFieldsConfig<F> | 
 	return fieldSet.has(field) || fieldSet.has(`${field}.*`);
 }
 
-/**
- * Deeply strips empty structures (empty objects/arrays) from a value.
- */
+/** Nested mask of the requested paths: a requested leaf maps to `true`, a parent path to its children. */
 function buildFieldMask(fields: string[]): FieldNode {
 	const root: FieldNode = {};
 

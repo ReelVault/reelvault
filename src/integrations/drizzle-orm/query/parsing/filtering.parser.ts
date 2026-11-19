@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lte, type SQL, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, or, type SQL, sql } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
@@ -29,6 +29,11 @@ const LIKE_WILDCARD_REGEX = /[\\%_]/g;
 /** Wildcards are matched literally: a user searching "50%" means the literal text, not "50" followed by anything. */
 function escapeLike(term: string): string {
 	return term.replaceAll(LIKE_WILDCARD_REGEX, (char) => `\\${char}`);
+}
+
+/** OR of the given conditions; matches nothing when none are given. */
+export function anyOf(...conditions: Array<SQL | undefined>): SQL {
+	return or(...conditions) ?? sql`1 = 0`;
 }
 
 export function filterLike(column: SQLiteColumn, searchTerm: string): SQL {

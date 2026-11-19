@@ -84,15 +84,16 @@ export async function findCleanupDataForMediaFileIds(mediaFileIds: readonly stri
 	if (mediaFileIds.length === 0) return toMediaCleanupData([], []);
 
 	const client = databaseFactory.getClient({ tx });
-	// The chunks run with a bounded concurrency: an unbounded Promise.all over
-	// every chunk would open one statement per chunk at once.
-	const concurrency = systemResourcesService.getIoConcurrency();
-	const subtitleResults = await mapChunked(mediaFileIds, async (idChunk) => await selectSubtitleRefsByMediaFileIds(client, idChunk), {
+	// Outside a transaction the chunks run with a bounded concurrency: an unbounded
+	// Promise.all over every chunk would open one statement per chunk at once.
+	// Inside a transaction every statement is awaited in turn.
+	const concurrency = tx ? undefined : systemResourcesService.getIoConcurrency();
+	const subtitles = await mapChunked(mediaFileIds, async (idChunk) => await selectSubtitleRefsByMediaFileIds(client, idChunk), {
 		concurrency,
 	});
-	const artifactResults = await mapChunked(mediaFileIds, async (idChunk) => await selectArtifactKeysByMediaFileIds(client, idChunk), {
+	const artifacts = await mapChunked(mediaFileIds, async (idChunk) => await selectArtifactKeysByMediaFileIds(client, idChunk), {
 		concurrency,
 	});
 
-	return toMediaCleanupData(subtitleResults.flat(), artifactResults.flat());
+	return toMediaCleanupData(subtitles, artifacts);
 }

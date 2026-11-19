@@ -102,3 +102,40 @@ describe("updateManyFields", () => {
 		expect(rows.map((row) => row.name)).toEqual(["Thriller", "Comedy"]);
 	});
 });
+
+describe("update and delete by id list with a condition", () => {
+	const seedGenres = async () =>
+		await client()
+			.insert(schema.genres)
+			.values([
+				{ id: "g1", stableKey: "s1", name: "Drama" },
+				{ id: "g2", stableKey: "s2", name: "Noir" },
+				{ id: "g3", stableKey: "s3", name: "Comedy" },
+			]);
+
+	test("updates only the listed rows that also match the condition", async () => {
+		await seedGenres();
+
+		await genres.update({
+			ids: ["g1", "g2"],
+			where: eq(genres.table.name, "Drama"),
+			values: { name: "Thriller" },
+		});
+
+		const rows = await genres.selectMany({ orderBy: asc(genres.table.id) });
+		expect(rows.map((row) => [row.id, row.name])).toEqual([
+			["g1", "Thriller"],
+			["g2", "Noir"],
+			["g3", "Comedy"],
+		]);
+	});
+
+	test("deletes only the listed rows that also match the condition", async () => {
+		await seedGenres();
+
+		await genres.delete({ ids: ["g1", "g2"], where: eq(genres.table.name, "Drama") });
+
+		const rows = await genres.selectMany({ orderBy: asc(genres.table.id) });
+		expect(rows.map((row) => row.id)).toEqual(["g2", "g3"]);
+	});
+});

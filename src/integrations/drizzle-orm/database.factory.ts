@@ -178,15 +178,6 @@ export class DatabaseFactory {
 	}
 
 	/**
-	 * Without `sqlite_stat1` the planner guesses, and on the paginated browse
-	 * path it guessed wrong: it picked `metadata_type_title_idx` and sorted the
-	 * whole result with a TEMP B-TREE instead of walking `metadata_title_id_idx`
-	 * (measured 0.14 ms vs 0.04 ms at 5k rows, and the gap grows with the
-	 * catalog). Existing databases predate the composite indexes, so give them
-	 * statistics once; fresh databases are analyzed after seeding by the callers
-	 * that write bulk data. `PRAGMA optimize` on shutdown keeps them fresh.
-	 */
-	/**
 	 * Incremental planner-statistics refresh after a bulk write (e.g. a finished
 	 * library scan). `PRAGMA optimize` re-analyses only the tables whose contents
 	 * changed enough to matter and is a fast no-op otherwise — a full `ANALYZE`
@@ -279,6 +270,15 @@ export class DatabaseFactory {
 		}
 	}
 
+	/**
+	 * Without `sqlite_stat1` the planner guesses, and on the paginated browse
+	 * path it guessed wrong: it picked `metadata_type_title_idx` and sorted the
+	 * whole result with a TEMP B-TREE instead of walking `metadata_title_id_idx`
+	 * (measured 0.14 ms vs 0.04 ms at 5k rows, and the gap grows with the
+	 * catalog). Existing databases predate the composite indexes, so give them
+	 * statistics once; fresh databases are analyzed after seeding by the callers
+	 * that write bulk data. `PRAGMA optimize` on shutdown keeps them fresh.
+	 */
 	private analyzeIfStatisticsMissing(): void {
 		const stats = this.sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_stat1'").get();
 		if (stats) return;
@@ -288,15 +288,13 @@ export class DatabaseFactory {
 
 	/** Number of migrations recorded as applied; 0 when the journal does not exist yet. */
 	countAppliedMigrations(): number {
-		try {
-			const row: unknown = this.sqlite.query(`SELECT count(*) AS count FROM ${MIGRATIONS_TABLE_NAME}`).get();
-			if (!isRecord(row) || typeof row.count !== "number") return 0;
+		const journal = this.sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(MIGRATIONS_TABLE_NAME);
+		if (!journal) return 0;
 
-			return row.count;
-		} catch {
-			// No migrations folder content means the ledger was never created.
-			return 0;
-		}
+		const row: unknown = this.sqlite.query(`SELECT count(*) AS count FROM ${MIGRATIONS_TABLE_NAME}`).get();
+		if (!isRecord(row) || typeof row.count !== "number") return 0;
+
+		return row.count;
 	}
 
 	getClient({ tx }: { tx?: DatabaseTransaction | undefined } = {}): DatabaseTransaction {
@@ -471,25 +469,10 @@ export class DatabaseFactory {
 	 */
 	async backup(targetPath: string): Promise<void> {
 		const escapedTarget = targetPath.replaceAll("'", "''");
-		const script = [
-			'import { Database } from "bun:sqlite";',
-			`const db = new Database(${JSON.stringify(this.path)});`,
-			"try {",
-			'	db.run("PRAGMA busy_timeout = 15000");',
-			`	db.run(${JSON.stringify(`VACUUM INTO '${escapedTarget}'`)});`,
-			"} finally {",
-			"	db.close();",
-			"}",
-		].join("\n");
-
-		const proc = Bun.spawn({
-			cmd: [process.execPath, "-e", script],
-			stdout: "ignore",
-			stderr: "pipe",
-			timeout: DATABASE_BACKUP_TIMEOUT_MS,
-			killSignal: "SIGKILL",
+		const { exitCode, stderr } = await this.runChildScript([`db.run(${JSON.stringify(`VACUUM INTO '${escapedTarget}'`)});`], {
+			busyTimeoutMs: 15_000,
+			timeoutMs: DATABASE_BACKUP_TIMEOUT_MS,
 		});
-		const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
 		if (exitCode !== 0) {
 			// stderr stays in the message for the server log; the response carries only the code and exit status.
 			throw new DomainError("internal", `Database backup failed (exit ${exitCode}): ${stderr.trim()}`, {
@@ -505,27 +488,10 @@ export class DatabaseFactory {
 	 * froze HTTP, WebSocket and playback for the duration.
 	 */
 	async quickCheck(timeoutMs = DATABASE_CHECK_TIMEOUT_MS): Promise<string[]> {
-		const script = [
-			'import { Database } from "bun:sqlite";',
-			`const db = new Database(${JSON.stringify(this.path)});`,
-			"try {",
-			'	db.run("PRAGMA busy_timeout = 5000");',
-			'	const rows = db.query("PRAGMA quick_check").all();',
-			"	console.log(JSON.stringify(rows.map((row) => row.quick_check)));",
-			"} finally {",
-			"	db.close();",
-			"}",
-		].join("\n");
-
-		const proc = Bun.spawn({
-			cmd: [process.execPath, "-e", script],
-			stdout: "pipe",
-			stderr: "pipe",
-			timeout: timeoutMs,
-			killSignal: "SIGKILL",
-			maxBuffer: 16 * MIB,
-		});
-		const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+		const { exitCode, stdout, stderr } = await this.runChildScript(
+			['const rows = db.query("PRAGMA quick_check").all();', "console.log(JSON.stringify(rows.map((row) => row.quick_check)));"],
+			{ busyTimeoutMs: 5_000, timeoutMs },
+		);
 
 		if (exitCode !== 0) {
 			throw new DomainError("internal", `Database integrity check failed (exit ${exitCode}): ${stderr.trim()}`, {
@@ -551,6 +517,39 @@ export class DatabaseFactory {
 		}
 
 		return parsed;
+	}
+
+	/**
+	 * Runs `work` against this database in a short-lived Bun child process with
+	 * its own connection. Both maintenance paths use it: the work is synchronous
+	 * SQLite, which would otherwise block the event loop for its full duration.
+	 */
+	private async runChildScript(
+		work: string[],
+		{ busyTimeoutMs, timeoutMs }: { busyTimeoutMs: number; timeoutMs: number },
+	): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+		const script = [
+			'import { Database } from "bun:sqlite";',
+			`const db = new Database(${JSON.stringify(this.path)});`,
+			"try {",
+			`	db.run("PRAGMA busy_timeout = ${busyTimeoutMs}");`,
+			...work.map((line) => `	${line}`),
+			"} finally {",
+			"	db.close();",
+			"}",
+		].join("\n");
+
+		const proc = Bun.spawn({
+			cmd: [process.execPath, "-e", script],
+			stdout: "pipe",
+			stderr: "pipe",
+			timeout: timeoutMs,
+			killSignal: "SIGKILL",
+			maxBuffer: 16 * MIB,
+		});
+		const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+
+		return { exitCode, stdout, stderr };
 	}
 
 	shutdown() {
@@ -605,7 +604,7 @@ export class DatabaseFactory {
 	}
 
 	/** 256 MiB of address space when RAM is plentiful, 64 MiB on small hosts. */
-	private resolveMmapSizeBytes(): number {
+	private resolveMmapSizeBytes(): 268_435_456 | 67_108_864 {
 		const totalKiB = this.totalMemoryKiB();
 
 		return totalKiB !== undefined && totalKiB > LOW_MEMORY_KIB ? 268_435_456 : 67_108_864;

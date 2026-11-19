@@ -44,15 +44,19 @@ function mapFailure(status: number, code: string, invalidPasswordCode: string): 
 	return new DomainError("internal", "Authentication provider failed", { code: "auth.provider_failed" });
 }
 
+/** The better-auth machine `code` carried by an error body, or "" when the body has none. */
+function codeOf(body: unknown): string {
+	return isRecord(body) && typeof body.code === "string" ? body.code : "";
+}
+
 /** Maps a non-OK better-auth `Response` (`{ code, message }` body) to a DomainError. */
 export async function toAuthFailure(response: Response, invalidPasswordCode: string = DEFAULT_INVALID_PASSWORD_CODE): Promise<DomainError> {
 	const body: unknown = await response
 		.clone()
 		.json()
 		.catch(() => null);
-	const code = isRecord(body) && typeof body.code === "string" ? body.code : "";
 
-	return mapFailure(response.status, code, invalidPasswordCode);
+	return mapFailure(response.status, codeOf(body), invalidPasswordCode);
 }
 
 /** Runs a better-auth server call and rethrows its `APIError` as a DomainError (other errors pass through). */
@@ -62,7 +66,6 @@ export async function withAuthFailures<T>(operation: () => Promise<T>): Promise<
 	} catch (error) {
 		if (!isAPIError(error)) throw error;
 
-		const code = isRecord(error.body) && typeof error.body.code === "string" ? error.body.code : "";
-		throw mapFailure(error.statusCode, code, DEFAULT_INVALID_PASSWORD_CODE);
+		throw mapFailure(error.statusCode, codeOf(error.body), DEFAULT_INVALID_PASSWORD_CODE);
 	}
 }

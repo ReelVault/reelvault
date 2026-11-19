@@ -11,7 +11,7 @@ import {
 	type QueryMap,
 	resolveSortOrder,
 } from "@/integrations/drizzle-orm/query/parsing/query.parser";
-import { withTiebreaker } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
+import { applySorting, withTiebreaker } from "@/integrations/drizzle-orm/query/parsing/sorting.parser";
 import { selectByIdWithFields } from "@/integrations/drizzle-orm/query/primary-id.reader";
 import { unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
@@ -60,17 +60,17 @@ export async function findPageWithQueryMap<
 }): Promise<PaginatedResponse<TRow>> {
 	const { pagination, fields, sorting, filters } = parseWithFilters<F, TFilters, TSorting>(query);
 	const where = buildWhereConditions(filters, queryMap.filters);
-	const baseOrderBy = buildOrderBy(sorting, queryMap.orderBy, queryMap.defaults);
-	// Append the primary key as a tiebreaker: most sort keys are non-unique
-	// (title/createdAt at second resolution), so equal keys would otherwise make
-	// offset pagination return overlapping/skipped rows.
-	let orderBy: typeof baseOrderBy | undefined;
-	if (baseOrderBy) {
-		orderBy = withTiebreaker(baseOrderBy, access.primaryKeyColumn, resolveSortOrder(sorting, queryMap.defaults));
-	}
-	const pageParams = { where, orderBy, fields, limit: pagination.limit, offset: pagination.offset };
-	const countPromise = cachedCount(access.tableName, filterSignature(filters, queryMap.filters), () => access.count({ where }));
-	const [total, data] = await Promise.all([countPromise, findMany(pageParams)]);
+	const { data, total } = await findOffsetPage<TRow>({
+		access,
+		where,
+		orderBy: buildOrderBy(sorting, queryMap.orderBy, queryMap.defaults),
+		limit: pagination.limit,
+		offset: pagination.offset,
+		tiebreakerOrder: resolveSortOrder(sorting, queryMap.defaults),
+		countKey: filterSignature(filters, queryMap.filters),
+		count: () => access.count({ where }),
+		findMany: (page) => findMany({ ...page, fields }),
+	});
 
 	return createPageResponse({ total, pagination, data });
 }
@@ -106,6 +106,11 @@ export async function findById<TTable extends DatabaseTables, F extends string>(
 	return await selectByIdWithFields(repository, { primaryId, fields, tx });
 }
 
+/** Distinct, non-empty ids in first-seen order: an empty id never matches a row. */
+function uniqueNonEmptyIds(ids: readonly string[]): string[] {
+	return unique(ids.filter((id) => id.length > 0));
+}
+
 export async function findByIds<TTable extends DatabaseTables, F extends string>(
 	repository: TableAccessBase<TTable>,
 	{
@@ -120,7 +125,7 @@ export async function findByIds<TTable extends DatabaseTables, F extends string>
 		tx?: DatabaseTransaction | undefined;
 	},
 ): Promise<Array<SelectFields<TableSelect<TTable>, F>>> {
-	const uniqueIds = unique(ids.filter(Boolean));
+	const uniqueIds = uniqueNonEmptyIds(ids);
 	if (uniqueIds.length === 0) return [];
 
 	// SQLite binds one parameter per id — chunk oversized id lists so one call
@@ -163,7 +168,7 @@ export async function findExistingIds<TTable extends DatabaseTables>(
 	ids: readonly string[],
 	{ column = repository.primaryKeyColumn, tx }: { column?: SQLiteColumn | undefined; tx?: DatabaseTransaction | undefined } = {},
 ): Promise<Set<string>> {
-	const uniqueIds = unique(ids.filter(Boolean));
+	const uniqueIds = uniqueNonEmptyIds(ids);
 	if (uniqueIds.length === 0) return new Set();
 
 	const rows = await mapChunked(uniqueIds, (idChunk) =>
@@ -177,7 +182,7 @@ export interface OffsetPageParams<TRow> {
 	/** Only the identity fields are needed: the table name keys the count cache and the key column breaks ties. */
 	access: { tableName: string; primaryKeyColumn: SQLiteColumn };
 	where?: SQL | undefined;
-	orderBy: SQL;
+	orderBy?: SQL | undefined;
 	limit: number;
 	offset: number;
 	findMany: (page: { where?: SQL | undefined; orderBy: SQL; limit: number; offset: number }) => PromiseLike<TRow[]>;
@@ -192,7 +197,8 @@ export interface OffsetPageParams<TRow> {
  * One offset page plus its total, with the primary key appended as a
  * tiebreaker. Callers pass their own loader and count so repositories that
  * project columns or map rows keep doing so, while the pagination contract
- * (parallel count, stable ordering) lives in one place.
+ * (parallel count, stable ordering) lives in one place. Without a sort the page
+ * is ordered by the primary key alone, so consecutive pages never overlap.
  */
 export async function findOffsetPage<TRow>({
 	access,
@@ -205,7 +211,9 @@ export async function findOffsetPage<TRow>({
 	countKey,
 	tiebreakerOrder = "desc",
 }: OffsetPageParams<TRow>): Promise<{ data: TRow[]; total: number }> {
-	const ordered = withTiebreaker(orderBy, access.primaryKeyColumn, tiebreakerOrder);
+	const ordered = orderBy
+		? withTiebreaker(orderBy, access.primaryKeyColumn, tiebreakerOrder)
+		: applySorting(access.primaryKeyColumn, tiebreakerOrder);
 	const countPromise = countKey === undefined ? count() : cachedCount(access.tableName, countKey, count);
 	const [total, data] = await Promise.all([countPromise, findMany({ where, orderBy: ordered, limit, offset })]);
 

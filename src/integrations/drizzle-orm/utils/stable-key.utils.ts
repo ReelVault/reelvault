@@ -28,6 +28,28 @@ export function createLocalStableKey({ namespace, value }: { namespace: string; 
 	return [STABLE_KEY_VERSION, "local", encodeComponent(namespace), encodeComponent(value)].join(":");
 }
 
+/**
+ * Stable key of a row that hangs under a parent: the parent's stored stable key, or its id under the
+ * parent namespace when none is stored, followed by `suffix`.
+ */
+export function createChildStableKey({
+	namespace,
+	parentNamespace,
+	parentId,
+	parentStableKey,
+	suffix = "",
+}: {
+	namespace: string;
+	parentNamespace: string;
+	parentId: string;
+	parentStableKey?: string | null | undefined;
+	suffix?: string;
+}): string {
+	const parentKey = parentStableKey ?? createLocalStableKey({ namespace: parentNamespace, value: parentId });
+
+	return createLocalStableKey({ namespace, value: `${parentKey}${suffix}` });
+}
+
 export function createLocalMetadataStableKey({ title, type, releaseDate }: { title: string; type: string; releaseDate: string }): string {
 	return createLocalStableKey({
 		namespace: "metadata",

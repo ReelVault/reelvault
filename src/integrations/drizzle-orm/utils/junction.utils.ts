@@ -27,6 +27,17 @@ type JunctionTable<TColumns extends Record<string, JunctionEntityColumn>> = SQLi
 	dialect: "sqlite";
 }>;
 
+/** The entity column of a junction table, which the table builder always declares. */
+function entityColumnOf<TColumn>(columns: Record<string, TColumn>, entityIdColumn: string, tableName: string): TColumn {
+	const entityColumn = columns[entityIdColumn];
+	if (!entityColumn)
+		throw new DomainError("internal", `${tableName}: entity column "${entityIdColumn}" is missing from the junction table`, {
+			code: "junction.entity_column_missing",
+		});
+
+	return entityColumn;
+}
+
 function providerJunctionColumns(entityIdColumn: string, entityIdRef: () => AnySQLiteColumn) {
 	return {
 		[entityIdColumn]: tableRef(entityIdColumn, entityIdRef, { onDelete: "cascade" }),
@@ -44,11 +55,7 @@ export function createProviderJunction(tableName: string, entityIdColumn: string
 	const columns = providerJunctionColumns(entityIdColumn, entityIdRef);
 
 	return sqliteTable(tableName, columns, (t) => {
-		const entityColumn = t[entityIdColumn];
-		if (!entityColumn)
-			throw new DomainError("internal", `${tableName}: entity column "${entityIdColumn}" is missing from the junction table`, {
-				code: "junction.entity_column_missing",
-			});
+		const entityColumn = entityColumnOf(t, entityIdColumn, tableName);
 
 		// Composite PK only. A provider row is shared per (name, external id,
 		// entity type) and may legitimately link to several local rows (duplicates,
@@ -207,11 +214,7 @@ export function createMetadataEntityJunction(
 	};
 
 	return sqliteTable(tableName, columns, (t) => {
-		const entityColumn = t[entityIdColumn];
-		if (!entityColumn)
-			throw new DomainError("internal", `${tableName}: entity column "${entityIdColumn}" is missing from the junction table`, {
-				code: "junction.entity_column_missing",
-			});
+		const entityColumn = entityColumnOf(t, entityIdColumn, tableName);
 
 		const entityName = entityIdColumnName.endsWith("_id") ? entityIdColumnName.slice(0, -3) : entityIdColumnName;
 

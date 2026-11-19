@@ -1,6 +1,7 @@
 import { type SQL, type SQLChunk, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { safeParseJson } from "@/utils/json.utils";
+import { isRecord } from "@/utils/type.utils";
 
 /**
  * Builders and readers for relation payloads carried as JSON columns: one
@@ -69,13 +70,9 @@ export interface RelationJsonKeys {
 	dateKeys: readonly string[];
 }
 
-function isRecordValue(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** Applies the mappings SQLite JSON cannot carry: 0/1 → boolean, seconds → Date. */
 export function reviveJsonItem(item: unknown, keys: RelationJsonKeys): void {
-	if (!isRecordValue(item)) return;
+	if (!isRecord(item)) return;
 
 	for (const key of keys.booleanKeys) {
 		const value = item[key];
@@ -95,18 +92,13 @@ export function reviveJsonItem(item: unknown, keys: RelationJsonKeys): void {
  * DTO type.
  */
 export function isRelationItem<T extends object>(item: unknown, keys: readonly string[], _shape?: T): item is T {
-	if (!isRecordValue(item)) return false;
+	if (!isRecord(item)) return false;
 
 	return keys.every((key) => key in item);
 }
 
 /** Parses a `json_group_array` payload into DTO items, dropping malformed entries. */
-export function parseJsonRelationArray<T extends object>(
-	payload: string,
-	keys: readonly string[],
-	revive: RelationJsonKeys,
-	_shape?: T,
-): T[] {
+export function parseJsonRelationArray<T extends object>(payload: string, keys: readonly string[], revive: RelationJsonKeys): T[] {
 	return parseJsonRelationArrayWith<T>(payload, keys, (item) => reviveJsonItem(item, revive));
 }
 

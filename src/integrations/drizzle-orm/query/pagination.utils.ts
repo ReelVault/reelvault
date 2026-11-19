@@ -3,16 +3,12 @@ import { serverConstants } from "@/config/server/server.constants";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { clamp } from "@/utils/math.utils";
 
-/** Parses URL parameters, applies limits and builds the pagination config. */
+/** Parses URL parameters, applies limits and builds the pagination config (the default limit is a system setting). */
 export function parsePagination(query: PaginationQuery): PaginationConfig {
-	const page = clamp(query.page ?? 1, 1, serverConstants.api.pagination.maxPage);
-	const limit = clamp(query.limit ?? systemSettingsStore.get("api.pagination.defaultLimit"), 1, serverConstants.api.pagination.maxLimit);
-	const offset = (page - 1) * limit;
-
-	return { page, limit, offset };
+	return resolvePageParams(query, { defaultLimit: systemSettingsStore.get("api.pagination.defaultLimit") });
 }
 
-/** Clamps admin page/limit (admin defaults vary per endpoint) and computes the offset. */
+/** Clamps page/limit to the configured bounds (admin defaults vary per endpoint) and computes the offset. */
 export function resolvePageParams(
 	query: { page?: number | undefined; limit?: number | undefined },
 	options: { defaultLimit: number; maxLimit?: number | undefined },

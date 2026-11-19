@@ -1,7 +1,7 @@
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 
 /**
- * Per-call-site prepared-statement factory (Faza 3 pilot).
+ * Per-call-site prepared-statement factory.
  *
  * Returns a getter that builds the prepared query once per drizzle instance —
  * the main connection and the dedicated transaction connection are distinct

@@ -17,6 +17,14 @@ interface CreateUserInput {
 	headers: Headers;
 }
 
+/** Runs an auth mutation and drops cached session verifications once it has succeeded. */
+async function mutateAuth<T>(operation: () => Promise<T>): Promise<T> {
+	const result = await operation();
+	invalidateSessionCache();
+
+	return result;
+}
+
 /**
  * Integration adapter for the better-auth server API. Application use cases call
  * this instead of `auth.api.*` directly, so better-auth stays in the
@@ -41,27 +49,26 @@ export const betterAuthApi = {
 	},
 
 	async signOut(headers: Headers): Promise<Response> {
-		const response = await auth.api.signOut({ headers, asResponse: true });
-		invalidateSessionCache();
-
-		return response;
+		return await mutateAuth(async () => await auth.api.signOut({ headers, asResponse: true }));
 	},
 
 	async revokeSession(input: { token: string; headers: Headers }): Promise<void> {
-		await withAuthFailures(async () => await auth.api.revokeSession({ body: { token: input.token }, headers: input.headers }));
-		invalidateSessionCache();
+		await mutateAuth(
+			async () =>
+				await withAuthFailures(async () => await auth.api.revokeSession({ body: { token: input.token }, headers: input.headers })),
+		);
 	},
 
 	async changePassword(input: { currentPassword: string; newPassword: string; headers: Headers }): Promise<Response> {
-		const response = await auth.api.changePassword({
-			// `revokeOtherSessions` is forced on by the before-hook in better-auth.config.
-			body: { currentPassword: input.currentPassword, newPassword: input.newPassword, revokeOtherSessions: true },
-			headers: input.headers,
-			asResponse: true,
-		});
-		invalidateSessionCache();
-
-		return response;
+		return await mutateAuth(
+			async () =>
+				await auth.api.changePassword({
+					// `revokeOtherSessions` is forced on by the before-hook in better-auth.config.
+					body: { currentPassword: input.currentPassword, newPassword: input.newPassword, revokeOtherSessions: true },
+					headers: input.headers,
+					asResponse: true,
+				}),
+		);
 	},
 
 	async createUser(input: CreateUserInput): Promise<{ user: { id: string } }> {
@@ -75,49 +82,55 @@ export const betterAuthApi = {
 	},
 
 	async setUserPassword(input: { userId: string; newPassword: string; headers: Headers }): Promise<void> {
-		await withAuthFailures(
+		await mutateAuth(
 			async () =>
-				await auth.api.setUserPassword({ body: { userId: input.userId, newPassword: input.newPassword }, headers: input.headers }),
+				await withAuthFailures(
+					async () =>
+						await auth.api.setUserPassword({ body: { userId: input.userId, newPassword: input.newPassword }, headers: input.headers }),
+				),
 		);
-		invalidateSessionCache();
 	},
 
 	async setRole(input: { userId: string; role: "admin" | "user"; headers: Headers }): Promise<void> {
-		await withAuthFailures(
-			async () => await auth.api.setRole({ body: { userId: input.userId, role: input.role }, headers: input.headers }),
+		await mutateAuth(
+			async () =>
+				await withAuthFailures(
+					async () => await auth.api.setRole({ body: { userId: input.userId, role: input.role }, headers: input.headers }),
+				),
 		);
-		invalidateSessionCache();
 	},
 
 	async banUser(input: { userId: string; banReason?: string | undefined; headers: Headers }): Promise<void> {
-		await withAuthFailures(
-			async () => await auth.api.banUser({ body: { userId: input.userId, banReason: input.banReason }, headers: input.headers }),
+		await mutateAuth(
+			async () =>
+				await withAuthFailures(
+					async () => await auth.api.banUser({ body: { userId: input.userId, banReason: input.banReason }, headers: input.headers }),
+				),
 		);
-		invalidateSessionCache();
 	},
 
 	async unbanUser(input: { userId: string; headers: Headers }): Promise<void> {
-		await withAuthFailures(async () => await auth.api.unbanUser({ body: { userId: input.userId }, headers: input.headers }));
-		invalidateSessionCache();
+		await mutateAuth(
+			async () => await withAuthFailures(async () => await auth.api.unbanUser({ body: { userId: input.userId }, headers: input.headers })),
+		);
 	},
 
 	async removeUser(input: { userId: string; headers: Headers }): Promise<void> {
-		await withAuthFailures(async () => await auth.api.removeUser({ body: { userId: input.userId }, headers: input.headers }));
-		invalidateSessionCache();
+		await mutateAuth(
+			async () => await withAuthFailures(async () => await auth.api.removeUser({ body: { userId: input.userId }, headers: input.headers })),
+		);
 	},
 
 	async enableTwoFactor(input: { password: string; headers: Headers }): Promise<Response> {
-		const response = await auth.api.enableTwoFactor({ body: { password: input.password }, headers: input.headers, asResponse: true });
-		invalidateSessionCache();
-
-		return response;
+		return await mutateAuth(
+			async () => await auth.api.enableTwoFactor({ body: { password: input.password }, headers: input.headers, asResponse: true }),
+		);
 	},
 
 	async disableTwoFactor(input: { password: string; headers: Headers }): Promise<Response> {
-		const response = await auth.api.disableTwoFactor({ body: { password: input.password }, headers: input.headers, asResponse: true });
-		invalidateSessionCache();
-
-		return response;
+		return await mutateAuth(
+			async () => await auth.api.disableTwoFactor({ body: { password: input.password }, headers: input.headers, asResponse: true }),
+		);
 	},
 
 	async verifyTotp(input: { code: string; headers: Headers }): Promise<Response> {

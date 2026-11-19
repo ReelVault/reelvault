@@ -16,7 +16,7 @@ export async function mapChunked<T, R>(
 ): Promise<R[]> {
 	if (items.length === 0) return [];
 
-	const chunks = chunksFor(items);
+	const chunks = chunk([...items], serverConstants.database.queryChunkSize);
 	if (options?.concurrency !== undefined) {
 		return (await mapConcurrent(chunks, options.concurrency, fn)).flat();
 	}
@@ -29,32 +29,19 @@ export async function mapChunked<T, R>(
 	return results;
 }
 
-/**
- * The chunks to run `fn` over: one chunk for a short list, otherwise
- * fixed-size chunks, so one statement cannot exceed SQLite's variable limit.
- */
-function chunksFor<T>(items: readonly T[]): T[][] {
-	if (items.length <= serverConstants.database.queryChunkSize) return [[...items]];
-
-	return chunk([...items], serverConstants.database.queryChunkSize);
-}
-
 /** Same chunking contract as mapChunked for loops that only await a side effect (bulk INSERTs, deletes). */
 export async function forEachChunked<T>(
 	items: readonly T[],
 	fn: (chunkItems: T[]) => Promise<unknown>,
 	options?: { concurrency?: number | undefined },
 ): Promise<void> {
-	if (items.length === 0) return;
+	await mapChunked(
+		items,
+		async (chunkItems) => {
+			await fn(chunkItems);
 
-	const chunks = chunksFor(items);
-	if (options?.concurrency !== undefined) {
-		await mapConcurrent(chunks, options.concurrency, fn);
-
-		return;
-	}
-
-	for (const chunkItems of chunks) {
-		await fn(chunkItems);
-	}
+			return [];
+		},
+		options,
+	);
 }

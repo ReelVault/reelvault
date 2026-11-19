@@ -19,14 +19,8 @@ export function encodeCursor(cursor: CreatedAtCursor): string {
 }
 
 export function decodeCursor(value: string): CreatedAtCursor {
-	let text: string;
-	try {
-		text = Buffer.from(value, "base64url").toString("utf8");
-	} catch (error) {
-		throw new DomainError("validation", "Invalid pagination cursor", { cause: error, code: "validation.invalid_cursor" });
-	}
-
-	const parsed = safeParseJson(text);
+	// base64url decoding never throws: malformed input becomes text that fails the JSON shape check below.
+	const parsed = safeParseJson(Buffer.from(value, "base64url").toString("utf8"));
 	if (!isCreatedAtCursor(parsed)) throw new DomainError("validation", "Invalid pagination cursor", { code: "validation.invalid_cursor" });
 
 	return parsed;
