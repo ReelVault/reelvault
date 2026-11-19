@@ -312,6 +312,9 @@ export const metadataQueryMap: QueryMap<MetadataRepositoryFilters, MetadataSorti
 		matchScore: schema.metadata.matchScore,
 		createdAt: schema.metadata.createdAt,
 		updatedAt: schema.metadata.updatedAt,
+		// Bumped whenever a media file is linked to the title (a new episode
+		// included), unlike createdAt which only records the first insert.
+		recentlyAdded: schema.metadata.latestMediaCreatedAt,
 		collectionOrder: sql`(SELECT MIN(${schema.metadataCollections.sortOrder}) FROM ${schema.metadataCollections} WHERE ${schema.metadataCollections.metadataId} = ${schema.metadata.id})`,
 		castOrder: sql`(SELECT CASE WHEN MIN(${schema.metadataCast.sortOrder}) < 0 THEN 9999 ELSE MIN(${schema.metadataCast.sortOrder}) END FROM ${schema.metadataCast} WHERE ${schema.metadataCast.metadataId} = ${schema.metadata.id})`,
 	},

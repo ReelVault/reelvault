@@ -61,3 +61,31 @@ describe("metadataRepository.findRecentlyAddedByTypes", () => {
 		expect(result.get("tv_show")?.map((row) => row.id)).toEqual(["s-new"]);
 	});
 });
+
+describe("metadataRepository.findPage sortBy recentlyAdded", () => {
+	test("orders by the newest linked file, not by when the title row was created", async () => {
+		await seedTitles();
+		// "m-new" was inserted long before "m-old" but received a file later,
+		// the way an existing show gets a new episode.
+		await db
+			.client()
+			.update(schema.metadata)
+			.set({ createdAt: new Date(100 * 1_000) })
+			.where(eq(schema.metadata.id, "m-new"));
+		await db
+			.client()
+			.update(schema.metadata)
+			.set({ createdAt: new Date(5_000 * 1_000) })
+			.where(eq(schema.metadata.id, "m-old"));
+
+		const page = await metadataRepository.findPage({
+			limit: 10,
+			type: "movie",
+			hasMediaFiles: true,
+			sortBy: "recentlyAdded",
+			sortOrder: "desc",
+		});
+
+		expect(page.data.map((row) => row.id)).toEqual(["m-new", "m-old"]);
+	});
+});
