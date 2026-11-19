@@ -982,3 +982,11 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 - **Concurrent identical requests all receive the first request's status code,** for example `202` instead of `200` with a wrapped body.
 - **The HLS playlist and stream-preference endpoints apply the stream-access policy,** as the other playback endpoints already did.
 - **Log cleanup stops when the admin cancels the request.**
+
+# v1.3.7
+
+## Fixes
+
+- **The resources page no longer freezes the server.** Its history query re-ran a window function for every row and returned the whole day of samples instead of the requested point budget, blocking the event loop for tens of seconds.
+- **Server updates no longer hang after a successful install.** When a systemd unit was installed but systemd did not start the running process, the restart request never reached it and the update stayed on the database backup step until the server was reset.
+- **Database maintenance no longer waits forever on a stuck child process.** A backup or integrity check now has a deadline even when the process cannot be killed.

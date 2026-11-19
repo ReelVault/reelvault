@@ -18,13 +18,14 @@ type SecretValues = Partial<Record<PersistedSecretKey, string>>;
 export const generatedSecrets: Partial<Record<PersistedSecretKey, boolean>> = {};
 
 /**
- * systemd's notify/watchdog handshake. These variables are set by systemd only
- * for a unit with `Type=notify`/`WatchdogSec=`; they are read once here because
- * `process.env` access belongs to the config layer.
+ * systemd's notify/watchdog handshake and process identity. `NOTIFY_SOCKET` is
+ * set for `Type=notify` units, `INVOCATION_ID` for every unit-started process;
+ * they are read once here because `process.env` access belongs to the config layer.
  */
-export const systemdNotify: { socketPath: string | undefined; watchdogUsec: string | undefined } = {
+export const systemdNotify: { socketPath: string | undefined; watchdogUsec: string | undefined; invocationId: string | undefined } = {
 	socketPath: process.env.NOTIFY_SOCKET,
 	watchdogUsec: process.env.WATCHDOG_USEC,
+	invocationId: process.env.INVOCATION_ID,
 };
 
 function resolveRootDir(): string {

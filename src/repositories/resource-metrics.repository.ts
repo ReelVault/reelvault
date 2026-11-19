@@ -1,4 +1,4 @@
-import { and, desc, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { DAY, HOUR } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -56,15 +56,18 @@ export const resourceMetricsRepository = {
 		// rows, far past what a graph can render. The stride goes into SQL so the
 		// client never materializes rows it will throw away (exports pass Infinity).
 		const stride = Math.max(1, Math.ceil((countRow?.count ?? 0) / maxPoints));
-		const stridedIds = sql`
-			${metrics.id} IN (
-				SELECT ${metrics.id} FROM (
-					SELECT ${metrics.id}, ROW_NUMBER() OVER (ORDER BY ${metrics.createdAt} DESC) AS rn
-					FROM ${metrics}
-					WHERE ${gte(metrics.createdAt, cutoff)}
-				) WHERE (rn - 1) % ${stride} = 0
-			)
-		`;
+		// A derived table in the JOIN is evaluated once. An `IN (SELECT ... ROW_NUMBER() ...)`
+		// with Drizzle's table-qualified columns is a CORRELATED list subquery in SQLite:
+		// it re-runs the window per outer row (O(n²), ~35 s on a 24 h window) and matches
+		// every row instead of thinning the history.
+		const ranked = client
+			.select({
+				id: metrics.id,
+				rn: sql<number>`ROW_NUMBER() OVER (ORDER BY ${metrics.createdAt} DESC)`.as("rn"),
+			})
+			.from(metrics)
+			.where(gte(metrics.createdAt, cutoff))
+			.as("ranked");
 
 		return await client
 			.select({
@@ -77,7 +80,8 @@ export const resourceMetricsRepository = {
 				activeWorkers: metrics.activeWorkers,
 			})
 			.from(metrics)
-			.where(and(gte(metrics.createdAt, cutoff), stridedIds))
+			.innerJoin(ranked, eq(metrics.id, ranked.id))
+			.where(and(gte(metrics.createdAt, cutoff), sql`((${ranked.rn} - 1) % ${stride} = 0)`))
 			.orderBy(desc(metrics.createdAt));
 	},
 

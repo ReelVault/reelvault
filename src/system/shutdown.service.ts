@@ -32,6 +32,11 @@ export function setActiveShutdown(handler: Shutdown): void {
 	activeShutdownHandler = handler;
 }
 
+/** True once a graceful shutdown (signal, fatal error or update restart) is under way. */
+export function isShutdownInProgress(): boolean {
+	return activeShutdownHandler?.inProgress ?? false;
+}
+
 /** One stop step. Steps run in array order, so the array the composition root passes is the shutdown order. */
 export interface ShutdownStep {
 	readonly name: string;
@@ -52,6 +57,10 @@ export class Shutdown {
 
 	private isShuttingDown = false;
 	private shutdownTimeout?: Timer | undefined;
+
+	get inProgress(): boolean {
+		return this.isShuttingDown;
+	}
 
 	constructor(steps: readonly ShutdownStep[]) {
 		this.steps = steps;

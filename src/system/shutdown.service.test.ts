@@ -17,6 +17,17 @@ function stubExit() {
 }
 
 describe("Shutdown per-step budget", () => {
+	test("reports a shutdown as in progress while its steps run", async () => {
+		const shutdown = new Shutdown([]);
+		const exit = stubExit();
+
+		const stopping = shutdown.shutdown("test");
+		expect(shutdown.inProgress).toBeTrue();
+		await stopping;
+
+		expect(exit.calls).toEqual([[0]]);
+	});
+
 	test("runs every later step after an earlier step misses its budget", async () => {
 		let afterRan = false;
 		const steps: ShutdownStep[] = [

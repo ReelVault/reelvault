@@ -10,6 +10,7 @@ import { KIB, MIB } from "@/utils/bytes.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { clamp } from "@/utils/math.utils";
 import { getTotalMemoryKiB } from "@/utils/mem.utils";
+import { withTimeout } from "@/utils/promise.utils";
 import { isRecord } from "@/utils/type.utils";
 import { MIGRATIONS_DIR } from "./constants/migrations.constants";
 import type { DatabaseTransaction, DatabaseType } from "./database.types";
@@ -547,9 +548,20 @@ export class DatabaseFactory {
 			killSignal: "SIGKILL",
 			maxBuffer: 16 * MIB,
 		});
-		const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+		try {
+			// Bun's spawn timeout kills the child, but a process stuck in uninterruptible
+			// I/O never closes its pipes and the await would otherwise never settle.
+			const [stdout, stderr, exitCode] = await withTimeout(
+				Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]),
+				timeoutMs,
+				"SQLite child process",
+			);
 
-		return { exitCode, stdout, stderr };
+			return { exitCode, stdout, stderr };
+		} catch (error) {
+			proc.kill();
+			throw error;
+		}
 	}
 
 	shutdown() {

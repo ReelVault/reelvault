@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { systemdNotify } from "@/config/env.config";
 import {
 	DISCARD_DIR,
 	detectSystemdScope,
@@ -7,9 +8,24 @@ import {
 	PENDING_DIR,
 	PREVIOUS_DIR,
 	SERVER_DIR_NAMES,
+	type SystemdScope,
 } from "@/services/updates/update-environment.utils";
-import { requestApplicationRestart } from "@/system/shutdown.service";
+import { isShutdownInProgress, requestApplicationRestart } from "@/system/shutdown.service";
+import { createLogger } from "@/utils/logger.utils";
 import type { RestartScheduler } from "./shared.types";
+
+const RESTART_FALLBACK_MS = 10_000;
+const logger = createLogger("UpdateRestart");
+
+/** A unit file can remain installed after the server was started by hand or in a container. */
+function isRunningUnderSystemd(): boolean {
+	return Boolean(systemdNotify.socketPath ?? systemdNotify.invocationId);
+}
+
+/** Systemd owns the stop/start pair only for a process it actually started. */
+export function shouldRequestSystemdRestart(scope: SystemdScope | null, underSystemd: boolean): boolean {
+	return scope !== null && underSystemd;
+}
 
 export function defaultRestartScheduler(): RestartScheduler {
 	return {
@@ -18,11 +34,21 @@ export function defaultRestartScheduler(): RestartScheduler {
 				writeWindowsSwapScript(root);
 			} else {
 				const systemdScope = detectSystemdScope();
-				if (systemdScope) {
+				if (systemdScope !== null && shouldRequestSystemdRestart(systemdScope, isRunningUnderSystemd())) {
 					// systemd owns the stop/start pair: it sends SIGTERM, the normal
 					// shutdown path runs, and a second in-process restart would race
 					// that signal and force-exit mid-shutdown.
+					logger.info("Requesting systemd restart", { scope: systemdScope });
 					detachedSpawn("systemctl", [...(systemdScope === "user" ? ["--user"] : []), "restart", "reelvault"]);
+					// A wrong scope or a failed daemon-reload leaves the process alive with
+					// the new files swapped in. Restart ourselves when no shutdown follows.
+					const fallback = setTimeout(() => {
+						if (!isShutdownInProgress()) {
+							logger.warn("Systemd restart did not reach the process; restarting in-process");
+							requestApplicationRestart();
+						}
+					}, RESTART_FALLBACK_MS);
+					fallback.unref();
 
 					return;
 				}
