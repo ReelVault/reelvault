@@ -1,6 +1,7 @@
 ---
 
 paths:
+
 - "scripts/benchmarks/**"
 - "packages/benchkit/**"
 

@@ -3,6 +3,7 @@
 [![CI](https://github.com/ReelVault/reelvault/actions/workflows/ci.yml/badge.svg)](https://github.com/ReelVault/reelvault/actions/workflows/ci.yml)
 
 **ReelVault is a self-hosted media server.** Point it at your folders of movies and TV shows, and it builds a library you can browse and stream to any browser, phone or TV on your network. Posters, descriptions, subtitles and resume come with it.
+
 - **Plays what it can, converts only what it must.** Files your device understands stream untouched. Everything else is converted on the fly, on the GPU when one is available.
 - **Made for a household.** Each account has profiles with their own progress, watchlist and preferences. Profiles can be locked with a PIN.
 - **Extensible.** Metadata, subtitles, media requests, webhooks and more come from plugins. Install them from the admin panel, with no restart.

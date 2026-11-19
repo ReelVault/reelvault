@@ -69,6 +69,7 @@ trust them. With `--strict` a "slower" verdict, a failed task or a failed equali
 ## For AI agents
 
 Everything an agent needs is machine-readable or grep-friendly:
+
 - `bun run benchmark` lists the suites with one-line descriptions; `--help` lists every flag.
 - `--only <regex>` narrows a run to the units that matter; a pattern matching nothing exits 1.
 - `--json=<path>` writes every result (`schema: "benchkit/v1"`): per bench `stats` (count, mean,

@@ -1,6 +1,7 @@
 ---
 
 paths:
+
 - "**/*.test.ts"
 - "tests/**"
 
@@ -19,6 +20,7 @@ Every test case passes all six. A case that fails one of them is rewritten or de
 ### 1. Provenance — the expected value is a fact
 
 The expected side of an assertion is a **fact about the behavior**:
+
 - a literal,
 - a row read back from the database,
 - bytes read from the real system,
@@ -81,6 +83,7 @@ A call assertion is allowed only when the call itself is the invariant — the c
 ### 4. Ownership — the file owns the code
 
 A test file under `src/` exercises a module from its own folder. A test that covers another area's code belongs to that area:
+
 - the coverage map lies about what is protected,
 - the test reads as noise in the folder it sits in,
 - the next agent moves the code and the test stays behind.
@@ -138,6 +141,7 @@ The input is a case the product really handles: a real file, a real row, a real 
 A fixture shaped to what the implementation does today passes by accident, and it hides the bug the test exists to catch. Replace it with a real case.
 
 When a test fails, read the production code first:
+
 - Fix the function when it is wrong, and keep the assertion.
 - Change an expected value only when the old one contradicts a written fact: a specification, a documented behavior, a reported bug. Name the fact in the commit or the CHANGELOG.
 - Never move an expected value to what the new code prints because the code now does something else. That ships the defect with a green test attached.
@@ -154,6 +158,7 @@ When a test fails, read the production code first:
 ## Don't write
 
 Each item says what to write instead.
+
 - **Pass-through**: a stub echoed back, or a call asserted with the arguments it was given. Assert the returned value or the stored row.
 - **Tautology**: an expected value recomputed with the logic under test, or with a helper the logic under test also calls. Use a literal.
 - **Call count or call order on collaborators**: assert the outcome. Keep a call assertion only when the order is the invariant, and say so in the title.
@@ -208,6 +213,7 @@ In the report of the change, name the mutation you used and the test it failed. 
 ## The gate
 
 `bun run lint tests` fails on:
+
 - an expected value recomputed with the code under test or with a helper it also uses,
 - an expected value that is a constant the code under test defines,
 - a case whose only assertion proves something exists,

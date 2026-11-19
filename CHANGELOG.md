@@ -261,6 +261,7 @@ Representative end-to-end and database measurements. Timed values are p50 unless
 ## Additional measurements
 
 Smaller benchmarks are kept separately so the main table stays focused:
+
 - `findRootsById`: **-50%**
 - `upsertProgress`: **-50%**
 - `findNumberingModeById`: **-83%**

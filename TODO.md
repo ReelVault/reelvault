@@ -5,6 +5,7 @@ the 1.4.0 plugin hook points. Every item is written so that someone who has not 
 person or an AI agent — can pick it up without asking.
 
 Before you start any item:
+
 - Read `AGENTS.md` (architecture, layer rules, test gates, Definition of Done) and, for tests,
   `.claude/rules/testing.md`. The Definition of Done is `bun run format`, `bun run lint`, `bun run test`.
 - 1.3.2 must not change the SDK (`@reelvault/sdk`, a separate repository: https://github.com/ReelVault/sdk)
@@ -34,6 +35,7 @@ heatmap all stop at 365 days. The method also computes a "previous period" of th
 is a change to returned data.
 
 **Proposed change:**
+
 1. For `all`, take `since` from the profile's first `watched_history.watched_at` (one indexed query —
    the `history_profile_watched_id_idx` index on `(profile_id, watched_at, id)` serves `MIN(watched_at)`
    per profile), or simply use the epoch.
@@ -49,6 +51,7 @@ with literal expected minutes.
 ### 2. Person biographies are always in the provider's default language
 
 **Where:**
+
 - SDK: `MetadataProvider.getPersonDetails?(externalId: string)` in `@reelvault/sdk/plugin` takes no
   options. Every other provider lookup takes `hints?: ProviderRequestHints` (`{ language?: string }`):
   `search`, `getDetails`, `getSeasonDetails`, `getEpisodeDetails`.
@@ -65,6 +68,7 @@ so a Polish library shows Polish titles next to English biographies.
 **Why deferred:** needs a new optional parameter in the SDK's provider interface.
 
 **Proposed change:**
+
 1. SDK: `getPersonDetails?(externalId: string, hints?: ProviderRequestHints)`. Optional, so existing
    providers keep working.
 2. Server: `fetchPerson(externalId, language?)`, passing `{ language }` to the provider, and the
@@ -289,6 +293,7 @@ The **metadata counters** in `computeStats()` are still one live aggregate over 
 rows: total, movies, shows, low-confidence and missing-translation. They are the remaining 4–5 ms
 of the admin dashboard. Add `catalog_metadata_stats` (one row, same shape as
 `catalog_media_stats`) and update it in the metadata writers:
+
 - `src/repositories/metadata/writes.writer.ts` — create/update (`type`, `matchScore`,
   `hasMissingTranslation`);
 - `src/repositories/metadata/cleanup.writer.ts` — `deleteWithMediaFiles` and the orphan purge;
@@ -317,6 +322,7 @@ descending. The default browse sorts by title and uses `page`/`offset`.
 but SQLite still walks 25,000 index entries. More rows make it linearly worse.
 
 **Proposed change:** add a keyset cursor for the title sort:
+
 - cursor payload `(sortTitle, id)`; use the same `encodeCursor`/`decodeCursor` helpers or add a
   typed variant next to `keysetWhere`.
 - `WHERE (COALESCE(sort_title, title) COLLATE NOCASE, id) > (?, ?)` for ascending, the reverse for
@@ -330,6 +336,7 @@ but SQLite still walks 25,000 index entries. More rows make it linearly worse.
 - SDK: add the cursor/response fields; bump `@reelvault/sdk`, then the website client and this repo.
 
 **Acceptance:**
+
 - A test with at least 50 titles sharing a title prefix fetches page 1 and the cursor page; no row
   repeats and no row is skipped, with literal expected ids.
 - Deep cursor on 50k is **<1 ms** in-process; the `EXPLAIN QUERY PLAN` is a range search on the
@@ -348,6 +355,7 @@ waits for the release that can bump the SDK.
 
 **Current cost:** **4.6 ms** in-process, **83 req/s** at c=10/no-dedup (p95 205 ms). Measured
 variants on 50k:
+
 - direct join + `ORDER BY rank`: 4.62 ms;
 - FTS-only ids + second metadata lookup: 4.27 ms;
 - subquery + join: 4.06 ms;
@@ -357,6 +365,7 @@ variants on 50k:
 
 **Do not** add a speculative trigram/prefix rewrite. If search latency becomes a product problem,
 choose a semantics change explicitly:
+
 1. cap the ranked candidate set by a cheap filter (e.g. popularity/recency) before ranking — changes
    which titles can appear;
 2. require a longer prefix or an exact token before the ranking path;
@@ -395,6 +404,7 @@ CREATE TABLE collection_poster_previews (
 
 One row per displayed poster (max four per collection), with `rank` 0..3. Rebuild the affected
 collection when:
+
 - metadata joins/leaves a collection (`collections.repository.ts` `process()` and the metadata
   collection writers);
 - a poster link is added/removed/changed (`metadataImages` writes, image deletion, image update);
@@ -407,6 +417,7 @@ collection when:
 log progress.
 
 **Acceptance:**
+
 - Existing preview tests pass unchanged (four distinct posters in shelf order; one shared poster
   deduplicates).
 - A 20-title collection sharing one poster returns **<2 ms** cold and exactly one poster.
@@ -426,6 +437,7 @@ poster. This is a schema/write-path change, not a query-only patch.
 is ~**8.4 ms** in-process. The HTTP endpoint at **c=1** is **21.9 ms p50**, and the CPU profile shows
 **61.8%** of samples in native SQLite `values`. At c=10/no-dedup it is **47 req/s** (p95 248 ms).
 Measured service subparts after the recent cleanup:
+
 - `findRecommendationCandidates` ~1.0–1.4 ms (four queries; catalog 500, watched 300, ratings,
   watchlist);
 - `findRecentlyAddedByTypes` ~0.7–1.7 ms;
@@ -435,6 +447,7 @@ Measured service subparts after the recent cleanup:
   The sum does not explain the 13 ms gap between service and HTTP.
 
 **Investigation plan (do this before changing code):**
+
 1. In the spawned benchmark server (not an in-process script), enable per-statement timing for one
    discover request. The existing `DatabaseQueryLogger` logs only statements ≥100 ms in production;
    add a benchmark-only threshold (or an env-gated low threshold) and flush the server log before the
@@ -468,6 +481,7 @@ cost is grouping ~13k candidates and sorting by the dynamic score.
 indexes took the raw query from ~19.1 to ~16.5 ms; a further large win needs a different model.
 
 **Options:**
+
 1. Precompute a per-title trait vector or top-N similar ids on metadata save/refresh. Invalidate on
    any trait change (genres, keywords, cast, crew, collections, type) and on title deletion. This
    needs a table plus write-path maintenance, similar in risk to 3.1/3.4.
@@ -493,6 +507,7 @@ the expected loss of request coalescing, but some may be background work on the 
 connection. The discover c=1 profile has 61.8% native SQLite while the service build is 8.4 ms.
 
 **Investigation:**
+
 - Add an async-context label (request vs worker) around DB calls or log the current async scope in
   the query logger.
 - Run the same benchmark with workers/watchers disabled or with a longer polling interval; compare
@@ -507,6 +522,7 @@ time, close this item with the evidence; if it is larger, name the query and the
 ### 3.8 Investigated, no action
 
 Keep these notes so another agent does not repeat the work:
+
 - **Admin breadth** (`GET /v1/admin/*` 9 routes): per-route warm p50 0.2–1.3 ms. The 459 ms p95 at
   c=10/no-dedup is queueing across nine routes, not one slow route. No route-specific fix.
 - **Filtered `year+genre` count**: 5.3 ms with the covering genre index; the page still uses a temp
@@ -531,6 +547,7 @@ explicitly; do not start one of those without approval for the release that owns
 ### 4.1 Streaming uploads and the real request-body ceiling
 
 **Where:**
+
 - `src/index.ts` — `app.listen({ maxRequestBodySize: 50 * MIB })`;
 - `src/api/routes/v1/metadata.routes.ts` — `t.File({ maxSize: IMAGE_UPLOAD_MAX_SIZE })`;
 - `src/api/routes/admin/admin-database.routes.ts` — `t.File({ maxSize: DATABASE_BACKUP_UPLOAD_MAX_SIZE })`;
@@ -545,6 +562,7 @@ database backup or plugin package is rejected at the transport layer even though
 could then receive a 512 MB body before the handler or auth guard runs.
 
 **Proposed change (contract-safe option first):**
+
 1. Keep the global transport ceiling at 50 MiB and lower the three advertised `t.File` limits to
    `50m`. Add one boundary test per upload route proving that a 50 MiB file is accepted and a slightly
    larger one fails with the documented status. This is a behavior change, not a response-shape
@@ -562,6 +580,7 @@ could then receive a 512 MB body before the handler or auth guard runs.
    request cannot allocate the limit.
 
 **Acceptance:**
+
 - A 50 MiB image upload and a 50 MiB database backup upload succeed; a 50 MiB + 1 byte upload fails
   with a stable code, not a dropped socket.
 - An anonymous `POST /v1/auth/sign-in/email` with a 200 MB body is rejected before more than the
@@ -577,6 +596,7 @@ upload large backups. Measure before choosing the limit.
 ### 4.2 Move the remaining unbounded admin sweeps behind an operation
 
 **Where:**
+
 - `src/services/catalog/metadata/records/remove.service.ts` — `deleteOrphans`;
 - `src/services/catalog/metadata/refresh/metadata-refresh-queue.service.ts` — the "all" branch;
 - `src/services/catalog/metadata/records/images.service.ts` — `refreshImagesMany`;
@@ -589,12 +609,14 @@ time even though it no longer starves the event loop.
 
 **Proposed change:** enqueue a worker operation and return `202` with an operation id + progress
 surface. This is an API/SDK change. If it is not approved, add a bounded budget instead:
+
 - a maximum number of pages/rows per request (for example 50 pages for orphan purge);
 - return the number processed in the existing `{ count }` field, log a warning, and let the client
   call again;
 - never silently claim that the whole catalog was processed.
 
 **Acceptance:**
+
 - The operation worker processes pages, reports progress, supports cancellation, and survives a
   server restart through the existing worker checkpoint/operation model.
 - A catalog of 100k titles can be refreshed without a request lasting longer than the route budget.
@@ -616,6 +638,7 @@ library partially emptied, with no marker that a delete was in progress. A retry
 but the admin UI may show a partially emptied library in the meantime.
 
 **Proposed change:**
+
 1. Add an internal deletion marker/operation row (`library_delete_operations` or an existing worker
    operation reference) with `libraryId`, cursor, metadata ids page, and state.
 2. Resume from the cursor after a restart; make media-page deletion idempotent.
@@ -624,6 +647,7 @@ but the admin UI may show a partially emptied library in the meantime.
    operation completes synchronously; if it does not, this becomes the same `202` decision as 4.2.
 
 **Acceptance:**
+
 - Kill the process after the first media page; restart; the next delete call or boot recovery
   completes the delete without duplicate artifact deletes or foreign-key failures.
 - No partially deleted library is left without a discoverable marker.
@@ -644,6 +668,7 @@ with a cheap request. Keyset pagination already exists for the `createdAt` order
 default title order.
 
 **Proposed change:**
+
 1. Lower `maxPage` or add a per-route maximum offset; reject with a stable validation code before the
    query. This preserves the response shape and only narrows the accepted inputs.
 2. For the default title sort, add a keyset cursor in a later contract release; the SDK already has
@@ -651,6 +676,7 @@ default title order.
 3. Add a benchmark assertion that a deep page fails fast or stays under a fixed budget.
 
 **Acceptance:**
+
 - A request above the configured maximum returns a validation error with a stable code and no SQL
   execution.
 - Deep pages under the limit stay within the query-plan budget; the existing keyset tests remain
@@ -677,6 +703,7 @@ bounded run. This is a settings/API contract addition; do not hard-code a deleti
 approval.
 
 **Acceptance:**
+
 - The daily cleanup removes only rows older than the configured cutoff.
 - `0` is a true no-op.
 - The cleanup is chunked and yields between chunks.
@@ -697,6 +724,7 @@ loop, a blocking native call or a runaway memory allocation cannot be interrupte
 a process/worker boundary can stop it.
 
 **Proposed change:**
+
 1. Run plugin entry code in a worker thread or child process, with capability proxies over IPC.
 2. Terminate the worker on timeout or unload; recreate on enable.
 3. Keep the public plugin SDK surface unchanged by proxying the existing host capabilities.
@@ -704,6 +732,7 @@ a process/worker boundary can stop it.
 5. Keep a feature flag for compatibility while the official plugins migrate.
 
 **Acceptance:**
+
 - A plugin with `setup() { while (true) {} }` cannot stall HTTP, WebSocket, playback or shutdown.
 - Unload terminates the worker and releases its memory.
 - Provider/job/hook latency stays within the current budgets.
@@ -724,6 +753,7 @@ threadpool; enough of them starve unrelated file and DNS work. The current code 
 but has no shared "this mount is unhealthy" state.
 
 **Proposed change:**
+
 1. Add a small `StorageHealth` registry keyed by filesystem root (or device id): after N timeouts in
    a window, mark that root degraded for a cooldown.
 2. Degraded roots fail fast with a typed `storage.unavailable` error and are skipped by scans,
@@ -732,6 +762,7 @@ but has no shared "this mount is unhealthy" state.
 4. Expose the state in admin diagnostics and logs; never let it delete rows.
 
 **Acceptance:**
+
 - A simulated hanging stat root produces at most N in-flight operations and then fast failures.
 - When the mount recovers, the next probe clears the state and normal work resumes.
 - Removal guard, scanner and playback return the typed storage error; no data-loss path treats it as
@@ -744,6 +775,7 @@ state change.
 ### 4.8 Move remaining synchronous admin work off the event loop
 
 **Where:**
+
 - `src/services/admin/admin-logs/bundle.service.ts` — reads every log into memory and `zipSync`;
 - `src/repositories/database-maintenance.repository.ts` — `verifyBackupFile` runs a synchronous
   `quick_check` on an uploaded database;
@@ -757,6 +789,7 @@ still runs `quick_check` synchronously on the main thread. The log bundle still 
 seconds.
 
 **Proposed change:**
+
 1. Verify an uploaded backup in the same child-process helper used by the live check, with a timeout
    and `SIGKILL`.
 2. Run the support ZIP in a worker (the plugin-package worker pattern) or use `fflate`'s streaming
@@ -767,6 +800,7 @@ seconds.
    a stable code.
 
 **Acceptance:**
+
 - Uploading a corrupt/large backup never holds the event loop for more than one stat/read chunk.
 - A 64 MiB bundle does not freeze HTTP; client abort stops the work.
 - Restore/update cancellation before the swap leaves the running version intact.
@@ -787,12 +821,14 @@ thousands of closures and keeps all paths in memory. The paged library delete re
 window but still accumulates the full cleanup plan.
 
 **Proposed change:** delete in bounded chunks as the plan is collected:
+
 - process one media-id page, delete its artifacts/subtitles, then release that page;
 - keep only counts/log metadata, not every path;
 - preserve the existing "delete files before/after rows" ordering and idempotency;
 - make the cleanup resumable if the caller is a worker.
 
 **Acceptance:**
+
 - Peak RSS while deleting a 100k-file library stays under the benchmark budget.
 - No artifact or subtitle file is skipped; a retry after a failure removes the remainder.
 - The existing library-delete and artifact-cleanup tests pass.
@@ -813,6 +849,7 @@ to it that can reject becomes an unhandled rejection. The audit showed a few pla
 only safe because the callee catches internally.
 
 **Proposed change:**
+
 1. Add a single `runBounded({ signal, timeoutMs, label, run })` helper that combines the caller
    signal with a deadline and passes the combined signal to the operation.
 2. Use generation tokens for plugin load/unload and session start, so a timed-out operation cannot
@@ -823,6 +860,7 @@ only safe because the callee catches internally.
    external process.
 
 **Acceptance:**
+
 - A timed-out plugin load cannot register routes, jobs or providers.
 - A timed-out stream start cannot attach a late ffmpeg process.
 - Every detached task has an error owner; the test suite reports zero unhandled rejections.
@@ -841,6 +879,7 @@ playlist route may legitimately wait for ffmpeg. That also lets a slowloris clie
 for 255 seconds. Bun's server API does not expose a per-route timeout in the current version.
 
 **Proposed change:**
+
 1. Prefer a reverse proxy read timeout (nginx `proxy_read_timeout`) and document it; keep the app
    timeout as the last-resort bound.
 2. If Bun exposes a per-request timeout in a later version, apply a short timeout globally and a
@@ -849,6 +888,7 @@ for 255 seconds. Bun's server API does not expose a per-route timeout in the cur
    a 60-second playlist wait still succeeds.
 
 **Acceptance:**
+
 - A connection that sends no request is closed by the documented bound.
 - A valid slow playlist request is not cut off.
 - The behavior is covered by a proxy config example and, if possible, an integration test.
@@ -868,6 +908,7 @@ warning. The row and its operation stay pending forever; the idle backoff never 
 queued, or after a manual database import.
 
 **Proposed change:**
+
 1. Add a repository method that terminalizes pending rows for an unregistered worker with a stable
    code such as `worker.unregistered`.
 2. Run it once per unknown worker id per process (not on every poll), and update the operation
@@ -876,6 +917,7 @@ queued, or after a manual database import.
    rows that survived it.
 
 **Acceptance:**
+
 - A plugin is removed with three pending jobs; the next poll marks them failed with
   `worker.unregistered`, updates the operation, and logs once.
 - A job for a temporarily unavailable core worker is not terminalized before registration.

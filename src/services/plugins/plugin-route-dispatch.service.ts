@@ -21,6 +21,12 @@ export type PluginRouteDispatchResult =
 	| { type: "forbidden"; message: string }
 	| { type: "invalid_request"; message: string };
 
+type RouteAuthorizationDenial = Extract<PluginRouteDispatchResult, { type: "forbidden" }>;
+
+function denial(message: string): RouteAuthorizationDenial {
+	return { type: "forbidden", message };
+}
+
 /**
  * Checks the access level of a plugin route.
  *
@@ -28,22 +34,17 @@ export type PluginRouteDispatchResult =
  * admin role; "user" means any authenticated user — the plugin performs its own
  * resource scoping.
  */
-async function authorize(
-	userContext: { id: string; role?: string },
-	routeAccess: PluginRouteAccess,
-): Promise<Extract<PluginRouteDispatchResult, { type: "forbidden" }> | undefined> {
-	if (!userContext.id) return { type: "forbidden", message: "Authentication required" };
+async function authorize(userContext: { id: string; role?: string }, routeAccess: PluginRouteAccess) {
+	if (!userContext.id) return denial("Authentication required");
 
 	if (routeAccess === "admin") {
-		if (userContext.role === "admin") return undefined;
+		if (userContext.role === "admin") return null;
 
 		const user = await pluginUserData.findById(userContext.id);
-		if (user?.role !== "admin") {
-			return { type: "forbidden", message: "Admin role required for this plugin route" };
-		}
+		if (user?.role !== "admin") return denial("Admin role required for this plugin route");
 	}
 
-	return undefined;
+	return null;
 }
 
 /**
