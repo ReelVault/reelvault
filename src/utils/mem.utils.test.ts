@@ -5,33 +5,59 @@ import {
 	isMemoryCacheEntryFresh,
 	parseCgroupLimitKiB,
 	parseCgroupUsageKiB,
-	parseMeminfoAvailableKiB,
-	parseMeminfoTotalKiB,
+	parseMeminfoKiB,
 	parseZfsArcReclaimableKiB,
+	readCgroupMemoryLimitKiB,
 } from "./mem.utils";
 
 const MEMINFO = ["MemTotal:       16384000 kB", "MemFree:         1234567 kB", "MemAvailable:    8192000 kB"].join("\n");
 
-describe("parseMeminfoTotalKiB", () => {
+describe("parseMeminfoKiB", () => {
 	test("reads the total RAM line", () => {
-		expect(parseMeminfoTotalKiB(MEMINFO)).toBe(16_384_000);
+		expect(parseMeminfoKiB(MEMINFO, "MemTotal")).toBe(16_384_000);
+	});
+
+	test("reads the available RAM line", () => {
+		expect(parseMeminfoKiB(MEMINFO, "MemAvailable")).toBe(8_192_000);
 	});
 
 	test("reports nothing when the line is missing or zero", () => {
-		expect(parseMeminfoTotalKiB("MemFree: 1234 kB")).toBeUndefined();
-		expect(parseMeminfoTotalKiB("MemTotal: 0 kB")).toBeUndefined();
-		expect(parseMeminfoTotalKiB("")).toBeUndefined();
+		expect(parseMeminfoKiB("MemFree: 1234 kB", "MemTotal")).toBeUndefined();
+		expect(parseMeminfoKiB("MemTotal: 0 kB", "MemTotal")).toBeUndefined();
+		expect(parseMeminfoKiB("", "MemTotal")).toBeUndefined();
+		expect(parseMeminfoKiB("MemTotal: 16384000 kB", "MemAvailable")).toBeUndefined();
+		expect(parseMeminfoKiB("MemAvailable: 0 kB", "MemAvailable")).toBeUndefined();
 	});
 });
 
-describe("parseMeminfoAvailableKiB", () => {
-	test("reads the available RAM line", () => {
-		expect(parseMeminfoAvailableKiB(MEMINFO)).toBe(8_192_000);
+describe("readCgroupMemoryLimitKiB", () => {
+	// Timestamps sit far from the wall clock, so no entry cached here is fresh for a later real read.
+	const fileWith = (raw: string | undefined) => (): string => {
+		if (raw === undefined) throw new Error("ENOENT");
+
+		return raw;
+	};
+
+	test("reports the cgroup v2 quota in KiB", () => {
+		expect(readCgroupMemoryLimitKiB(1_000_000, "v2", fileWith("1073741824"))).toBe(1_048_576);
 	});
 
-	test("reports nothing when the line is missing or zero", () => {
-		expect(parseMeminfoAvailableKiB("MemTotal: 16384000 kB")).toBeUndefined();
-		expect(parseMeminfoAvailableKiB("MemAvailable: 0 kB")).toBeUndefined();
+	test("forgets the quota once a later read reports no limit", () => {
+		expect(readCgroupMemoryLimitKiB(2_000_000, "v2", fileWith("max"))).toBeUndefined();
+	});
+
+	test("keeps the previous read until the cache entry expires", () => {
+		expect(readCgroupMemoryLimitKiB(3_000_000, "v2", fileWith("2147483648"))).toBe(2_097_152);
+		expect(readCgroupMemoryLimitKiB(3_000_001, "v2", fileWith("max"))).toBe(2_097_152);
+		expect(readCgroupMemoryLimitKiB(3_300_000, "v2", fileWith("max"))).toBeUndefined();
+	});
+
+	test("reports no limit for the cgroup v1 unlimited sentinel", () => {
+		expect(readCgroupMemoryLimitKiB(4_000_000, "v1", fileWith("9223372036854771712"))).toBeUndefined();
+	});
+
+	test("reports no limit when the cgroup file cannot be read", () => {
+		expect(readCgroupMemoryLimitKiB(5_000_000, "v2", fileWith(undefined))).toBeUndefined();
 	});
 });
 
@@ -73,6 +99,10 @@ describe("isMemoryCacheEntryFresh", () => {
 		expect(isMemoryCacheEntryFresh(0, 1_000)).toBeFalse();
 		expect(isMemoryCacheEntryFresh(1_000, 1_000 + 299_999)).toBeTrue();
 		expect(isMemoryCacheEntryFresh(1_000, 1_000 + 300_000)).toBeFalse();
+	});
+
+	test("treats an entry resolved in the future as stale after the clock moves backwards", () => {
+		expect(isMemoryCacheEntryFresh(1_000, 999)).toBeFalse();
 	});
 });
 

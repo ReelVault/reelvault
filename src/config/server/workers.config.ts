@@ -32,8 +32,8 @@ export const workerConfig = {
 					return systemSettingsStore.get("workers.definitions.imageProcessing.concurrency");
 				},
 				timeoutMs: 5 * MINUTE,
-				removeOnComplete: 100,
-				removeOnFail: 100,
+				removeOnComplete: serverConstants.workers.scheduling.defaultRemoveOnComplete,
+				removeOnFail: serverConstants.workers.scheduling.defaultRemoveOnFail,
 				priorities: { metadata: 1, season: 2, episode: 3, person: 4 },
 			},
 			mediaFileAnalysis: {
@@ -43,8 +43,8 @@ export const workerConfig = {
 				timeoutMs: 10 * MINUTE,
 				attempts: 3,
 				backoff: WORKER_BACKOFF_2S,
-				removeOnComplete: 100,
-				removeOnFail: 100,
+				removeOnComplete: serverConstants.workers.scheduling.defaultRemoveOnComplete,
+				removeOnFail: serverConstants.workers.scheduling.defaultRemoveOnFail,
 			},
 			mediaFileTechnicalRefresh: {
 				get concurrency() {
@@ -53,8 +53,8 @@ export const workerConfig = {
 				timeoutMs: 10 * MINUTE,
 				attempts: 3,
 				backoff: WORKER_BACKOFF_2S,
-				removeOnComplete: 100,
-				removeOnFail: 100,
+				removeOnComplete: serverConstants.workers.scheduling.defaultRemoveOnComplete,
+				removeOnFail: serverConstants.workers.scheduling.defaultRemoveOnFail,
 			},
 			metadataRefresh: {
 				get concurrency() {
@@ -73,8 +73,8 @@ export const workerConfig = {
 				},
 				timeoutMs: 2 * MINUTE,
 				attempts: 1,
-				removeOnComplete: 100,
-				removeOnFail: 100,
+				removeOnComplete: serverConstants.workers.scheduling.defaultRemoveOnComplete,
+				removeOnFail: serverConstants.workers.scheduling.defaultRemoveOnFail,
 			},
 			// One file at a time — the generator itself reads one frame at a time.
 			// Two attempts allow a transient storage read to recover, while a file
@@ -84,8 +84,8 @@ export const workerConfig = {
 				timeoutMs: 30 * MINUTE,
 				attempts: 2,
 				backoff: { type: "exponential", delayMs: 30_000 } as const,
-				removeOnComplete: 100,
-				removeOnFail: 100,
+				removeOnComplete: serverConstants.workers.scheduling.defaultRemoveOnComplete,
+				removeOnFail: serverConstants.workers.scheduling.defaultRemoveOnFail,
 			},
 			downloadsProcess: {
 				concurrency: 1,
@@ -93,8 +93,8 @@ export const workerConfig = {
 					return systemSettingsStore.get("workers.definitions.downloadsProcess.timeoutMs");
 				},
 				attempts: 1,
-				removeOnComplete: 100,
-				removeOnFail: 100,
+				removeOnComplete: serverConstants.workers.scheduling.defaultRemoveOnComplete,
+				removeOnFail: serverConstants.workers.scheduling.defaultRemoveOnFail,
 			},
 			// Overrides the spread: ingest runs an ffprobe plus catalog writes per
 			// file — derive from measured CPU capacity, not a fixed number.
@@ -105,8 +105,8 @@ export const workerConfig = {
 				timeoutMs: 30 * MINUTE,
 				attempts: 3,
 				backoff: WORKER_BACKOFF_2S,
-				removeOnComplete: 100,
-				removeOnFail: 100,
+				removeOnComplete: serverConstants.workers.scheduling.defaultRemoveOnComplete,
+				removeOnFail: serverConstants.workers.scheduling.defaultRemoveOnFail,
 			},
 		},
 	},

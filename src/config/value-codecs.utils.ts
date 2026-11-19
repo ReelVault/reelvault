@@ -1,4 +1,4 @@
-import { trimAndFilter } from "@/utils/array.utils";
+import { splitCommaList, trimAndFilter } from "@/utils/array.utils";
 import { safeParseJson } from "@/utils/json.utils";
 import { isFiniteNumber, parseBooleanToken } from "@/utils/type.utils";
 
@@ -41,7 +41,7 @@ export function createValueCodecs() {
 					return trimAndFilter(parsed.filter((item): item is string => typeof item === "string"));
 				}
 
-				return trimAndFilter(raw.split(","));
+				return splitCommaList(raw);
 			},
 			serialize: (value) => JSON.stringify(Array.isArray(value) ? value : []),
 		}),

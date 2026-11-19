@@ -34,9 +34,12 @@ export interface RateLimitOverrideIssues {
 	untunable: string[];
 }
 
-/** Splits `name=max,name=max` into trimmed entries; empty entries are ignored. */
-function splitEntries(raw: string): string[] {
-	return splitCommaList(raw);
+/** One `name=max` entry, or undefined when it is not exactly that with a positive whole-number max. */
+function parseOverrideEntry(entry: string): { name: string; max: number } | undefined {
+	const [name, value, ...rest] = entry.split("=").map((part) => part.trim());
+	if (!name || value === undefined || rest.length > 0 || !WHOLE_NUMBER_PATTERN.test(value)) return undefined;
+
+	return { name, max: Number(value) };
 }
 
 /**
@@ -47,11 +50,11 @@ function splitEntries(raw: string): string[] {
  */
 const parsedOverrides = revisionMemo((): ReadonlyMap<string, number> => {
 	const parsed = new Map<string, number>();
-	for (const entry of splitEntries(systemSettingsStore.get("network.rateLimit.routeOverrides"))) {
-		const [entryName, value] = entry.split("=").map((part) => part.trim());
-		if (!(entryName && value && WHOLE_NUMBER_PATTERN.test(value)) || parsed.has(entryName)) continue;
+	for (const entry of splitCommaList(systemSettingsStore.get("network.rateLimit.routeOverrides"))) {
+		const override = parseOverrideEntry(entry);
+		if (override === undefined || parsed.has(override.name)) continue;
 
-		parsed.set(entryName, Number(value));
+		parsed.set(override.name, override.max);
 	}
 
 	return parsed;
@@ -62,12 +65,12 @@ export function rateLimitOverrideIssues(raw: string): RateLimitOverrideIssues {
 	const malformed: string[] = [];
 	const untunable: string[] = [];
 
-	for (const entry of splitEntries(raw)) {
-		const [name, value, ...rest] = entry.split("=").map((part) => part.trim());
-		if (!name || value === undefined || rest.length > 0 || !WHOLE_NUMBER_PATTERN.test(value)) {
+	for (const entry of splitCommaList(raw)) {
+		const override = parseOverrideEntry(entry);
+		if (override === undefined) {
 			malformed.push(entry);
-		} else if (!TUNABLE_RATE_LIMIT_BUCKETS.has(name)) {
-			untunable.push(name);
+		} else if (!TUNABLE_RATE_LIMIT_BUCKETS.has(override.name)) {
+			untunable.push(override.name);
 		}
 	}
 

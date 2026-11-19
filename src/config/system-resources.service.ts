@@ -1,7 +1,6 @@
 import type { Logger } from "@reelvault/sdk/common";
 import { env } from "@/config/env.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
-import { MIB } from "@/utils/bytes.utils";
 import { EventLoopMonitor } from "@/utils/event-loop-monitor.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
@@ -200,9 +199,8 @@ export class SystemResourcesService {
 		const totalKiB = this.getTotalMemoryKiB();
 		if (totalKiB === undefined) return cpuBudget;
 
-		const totalGb = totalKiB / MIB;
-
-		return Math.min(cpuBudget, totalGb < 16 ? 1 : 2);
+		// One grid per 8 GiB of RAM: 1 below 16 GiB, 2 from 16 GiB.
+		return Math.min(cpuBudget, ramScaled(totalKiB, 1 / 8, 1, 2));
 	}
 
 	/** Frames decoded at once inside one grid. Two single-thread decoders fit an
@@ -210,8 +208,7 @@ export class SystemResourcesService {
 	getTrickplayFrameConcurrency(): number {
 		const capacityBudget = this.getMetrics().capacity >= 3 ? 2 : 1;
 		const totalKiB = this.getTotalMemoryKiB();
-		let ramBudget = 2;
-		if (totalKiB !== undefined && totalKiB / MIB < 8) ramBudget = 1;
+		const ramBudget = totalKiB === undefined ? 2 : ramScaled(totalKiB, 1 / 4, 1, 2);
 
 		return Math.min(2, capacityBudget, ramBudget);
 	}

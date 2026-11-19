@@ -46,7 +46,9 @@ function needsSanitization(value: unknown, key: string | undefined, seen: WeakSe
 		return isSensitiveString(value);
 	}
 
-	if (depth >= MAX_SANITIZE_DEPTH) return false;
+	// Past the depth limit the slow path replaces the object with "[MaxDepth]", so it must run
+	// here; returning false would log the subtree raw, secrets included.
+	if (depth >= MAX_SANITIZE_DEPTH) return true;
 
 	if (Array.isArray(value)) return arrayNeedsSanitization(value, seen, depth);
 

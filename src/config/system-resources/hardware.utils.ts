@@ -6,7 +6,7 @@ import { isFiniteNumber, isNonEmptyString } from "@/utils/type.utils";
 
 const WHITESPACE_REGEX = /\s+/;
 
-export function parseCgroupQuotaCores(quotaStr: string, periodStr: string): number | undefined {
+function parseCgroupQuotaCores(quotaStr: string, periodStr: string): number | undefined {
 	const quota = Number.parseInt(quotaStr, 10);
 	const period = Number.parseInt(periodStr, 10);
 	if (!(quota > 0 && period > 0)) return undefined;
@@ -15,7 +15,7 @@ export function parseCgroupQuotaCores(quotaStr: string, periodStr: string): numb
 }
 
 /** Counts CPUs listed in a cpuset string like "0-3,7,9-10". */
-export function parseCpusetCores(raw: string): number | undefined {
+function parseCpusetCores(raw: string): number | undefined {
 	if (!isNonEmptyString(raw)) return undefined;
 
 	const trimmed = raw.trim();

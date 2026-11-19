@@ -1,5 +1,5 @@
 import type { SettingDefinition, SettingGroup, SettingMeta } from "./system-settings.types";
-import { createValueCodecs } from "./value-codecs.utils";
+import { createValueCodecs, type ValueCodec } from "./value-codecs.utils";
 
 interface SettingBuilder {
 	string(key: string, defaultValue: string): SettingDefinition<string>;
@@ -14,6 +14,14 @@ const stringCodec = codecs.string();
 const booleanCodec = codecs.boolean();
 const stringArrayCodec = codecs.stringArray();
 
+/** Parses with the codec and falls back when it rejects the input; validation reports the codec's verdict. */
+function fromCodec<T>(codec: ValueCodec<T>, fallback: () => T) {
+	return {
+		parse: (raw: string): T => codec.parse(raw) ?? fallback(),
+		validate: (raw: string): T | null => codec.parse(raw),
+	};
+}
+
 export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 	return {
 		string: (key, defaultValue) => ({
@@ -27,29 +35,23 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			validate: (raw) => stringCodec.parse(raw) ?? (defaultValue === "" ? "" : null),
 			serialize: (val) => stringCodec.serialize(String(val)),
 		}),
-		number: (key, min, max, defaultValue, meta = {}) => {
-			const codec = codecs.number(min, max);
-
-			return {
-				key,
-				group,
-				type: "number",
-				default: defaultValue,
-				min,
-				max,
-				...meta,
-				parse: (raw) => codec.parse(raw) ?? defaultValue,
-				validate: (raw) => codec.parse(raw),
-				serialize: (val) => String(val),
-			};
-		},
+		number: (key, min, max, defaultValue, meta = {}) => ({
+			key,
+			group,
+			type: "number",
+			default: defaultValue,
+			min,
+			max,
+			...meta,
+			...fromCodec(codecs.number(min, max), () => defaultValue),
+			serialize: (val) => String(val),
+		}),
 		boolean: (key, defaultValue) => ({
 			key,
 			group,
 			type: "boolean",
 			default: defaultValue,
-			parse: (raw) => booleanCodec.parse(raw) ?? defaultValue,
-			validate: (raw) => booleanCodec.parse(raw),
+			...fromCodec(booleanCodec, () => defaultValue),
 			serialize: (val) => booleanCodec.serialize(Boolean(val)),
 		}),
 		stringArray: (key, defaultValue) => ({
@@ -57,23 +59,17 @@ export function SystemSettingsCreator(group: SettingGroup): SettingBuilder {
 			group,
 			type: "string_array",
 			default: [...defaultValue],
-			parse: (raw) => stringArrayCodec.parse(raw) ?? [...defaultValue],
-			validate: (raw) => stringArrayCodec.parse(raw),
+			...fromCodec(stringArrayCodec, () => [...defaultValue]),
 			serialize: (val) => JSON.stringify(Array.isArray(val) ? val : []),
 		}),
-		enum: <T extends string>(key: string, options: T[], defaultValue: T) => {
-			const codec = codecs.enum(options);
-
-			return {
-				key,
-				group,
-				type: "enum" as const,
-				options: [...options],
-				default: defaultValue,
-				parse: (raw) => codec.parse(raw) ?? defaultValue,
-				validate: (raw) => codec.parse(raw),
-				serialize: (val) => String(val),
-			};
-		},
+		enum: <T extends string>(key: string, options: T[], defaultValue: T) => ({
+			key,
+			group,
+			type: "enum" as const,
+			options: [...options],
+			default: defaultValue,
+			...fromCodec(codecs.enum(options), () => defaultValue),
+			serialize: (val) => String(val),
+		}),
 	};
 }

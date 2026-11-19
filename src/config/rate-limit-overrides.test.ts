@@ -48,4 +48,11 @@ describe("tunedRouteMax", () => {
 
 		expect(tunedRouteMax("admin-analytics", 100)).toBe(7);
 	});
+
+	test("ignores an entry with extra equals signs, which the save check also refuses", () => {
+		systemSettingsStore.setRuntimeValue("network.rateLimit.routeOverrides", "admin-analytics=5=6");
+
+		expect(rateLimitOverrideIssues("admin-analytics=5=6")).toEqual({ malformed: ["admin-analytics=5=6"], untunable: [] });
+		expect(tunedRouteMax("admin-analytics", 100)).toBeUndefined();
+	});
 });
