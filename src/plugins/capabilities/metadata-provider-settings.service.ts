@@ -10,6 +10,15 @@ import { MemoryCache } from "@/utils/memory.cache";
 /** Upper bound on cached per-library override sets (oldest entry is dropped first). */
 const LIBRARY_OVERRIDES_CACHE_MAX_ENTRIES = 200;
 
+/** A provider's priority: the library override first, then the server-wide setting, then the default. */
+function priorityOf(
+	providerId: string,
+	settings: ReadonlyMap<string, MetadataProviderSetting>,
+	overrides?: ReadonlyMap<string, LibraryProviderPriority>,
+): number {
+	return overrides?.get(providerId)?.priority ?? settings.get(providerId)?.priority ?? serverConfig.plugins.providers.defaultPriority;
+}
+
 class MetadataProviderSettingsService {
 	private cachedOrdered?: { source: MetadataProvider[]; values: MetadataProvider[] } | undefined;
 	private readonly cachedSettings = new MemoryCache<Map<string, MetadataProviderSetting>>({
@@ -33,9 +42,7 @@ class MetadataProviderSettingsService {
 		const values = source
 			.filter((provider) => overrides?.get(provider.id)?.enabled ?? settings.get(provider.id)?.enabled ?? true)
 			.toSorted((left, right) => {
-				const priorityDifference =
-					(overrides?.get(left.id)?.priority ?? settings.get(left.id)?.priority ?? serverConfig.plugins.providers.defaultPriority) -
-					(overrides?.get(right.id)?.priority ?? settings.get(right.id)?.priority ?? serverConfig.plugins.providers.defaultPriority);
+				const priorityDifference = priorityOf(left.id, settings, overrides) - priorityOf(right.id, settings, overrides);
 
 				return priorityDifference || left.id.localeCompare(right.id);
 			});
@@ -64,7 +71,7 @@ class MetadataProviderSettingsService {
 	}
 
 	async getPriority(providerId: string): Promise<number> {
-		return (await this.getSettings()).get(providerId)?.priority ?? serverConfig.plugins.providers.defaultPriority;
+		return priorityOf(providerId, await this.getSettings());
 	}
 
 	async list(): Promise<MetadataProviderConfiguration[]> {
@@ -74,7 +81,7 @@ class MetadataProviderSettingsService {
 		return providers
 			.map((provider) => ({
 				...provider,
-				priority: settings.get(provider.id)?.priority ?? serverConfig.plugins.providers.defaultPriority,
+				priority: priorityOf(provider.id, settings),
 				enabled: settings.get(provider.id)?.enabled ?? true,
 			}))
 			.toSorted((left, right) => left.priority - right.priority || left.id.localeCompare(right.id));

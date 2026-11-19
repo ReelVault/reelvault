@@ -172,7 +172,7 @@ export class PluginInstaller {
 
 		// Only the package this upgrade replaced is dropped: a second upgrade before the first is confirmed.
 		if (backupDirectory && !record.previous) await removeTree(backupDirectory);
-		if (previousRecord?.previous) await removeTree(join(pluginsDirectory, previousRecord.previous.backupDirectory));
+		if (previousRecord?.previous) await this.removeRollbackPoint(previousRecord.previous);
 		if (!isUpgrade) await discardConfigBackup(pluginsDirectory, manifest.id);
 
 		await this.removeDuplicateDirectories(manifest.id, targetName);
@@ -191,6 +191,11 @@ export class PluginInstaller {
 		const resolved = await resolvePluginDirectoryName(pluginId, lockfile, this.pluginsDirectory);
 
 		return resolved ?? pluginId;
+	}
+
+	/** Deletes the package an upgrade replaced, once its lockfile record no longer points at it. */
+	private async removeRollbackPoint(previous: { backupDirectory: string }): Promise<void> {
+		await removeTree(join(this.pluginsDirectory, previous.backupDirectory));
 	}
 
 	/** Best-effort removal of other directories carrying the same plugin id. */
@@ -221,7 +226,7 @@ export class PluginInstaller {
 		lockfile.plugins[pluginId] = confirmed;
 		// awaits: sequential — the lockfile stops referencing the backup before the backup is removed
 		await this.lockfileStore.write(lockfile);
-		await removeTree(join(this.pluginsDirectory, record.previous.backupDirectory));
+		await this.removeRollbackPoint(record.previous);
 
 		return true;
 	}
@@ -360,9 +365,7 @@ export class PluginInstaller {
 			throw error;
 		}
 
-		if (record.previous) {
-			await removeTree(join(this.pluginsDirectory, record.previous.backupDirectory));
-		}
+		if (record.previous) await this.removeRollbackPoint(record.previous);
 
 		return record;
 	}

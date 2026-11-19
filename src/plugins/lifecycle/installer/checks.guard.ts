@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import type { PluginManifest } from "@reelvault/sdk/plugin";
-import { file as bunFile } from "bun";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { loadPluginManifest, resolvePluginEntry } from "@/plugins/lifecycle/plugin.manifest";
 import { DomainError } from "@/utils/domain.errors";
+import { getFileStats, isRegularFile } from "@/utils/file.utils";
 import { clamp } from "@/utils/math.utils";
 import { isSubpath } from "@/utils/path.utils";
 import { minServerVersionError } from "@/utils/semver.utils";
@@ -44,22 +44,14 @@ export function assertSeparateDirectories(source: string, pluginsDirectory: stri
 }
 
 async function assertDirectory(directory: string): Promise<void> {
-	const source = await bunFile(directory)
-		.stat()
-		.catch(() => {
-			// intentionally empty
-		});
+	const source = await getFileStats(directory);
 	if (!source?.isDirectory())
 		throw new DomainError("validation", `Plugin source directory does not exist: ${directory}`, { code: "plugin.source_missing" });
 }
 
 async function assertFile(path: string, name: string): Promise<void> {
-	const metadata = await bunFile(path)
-		.stat()
-		.catch(() => {
-			// intentionally empty
-		});
-	if (!metadata?.isFile()) throw new DomainError("validation", `${name} does not exist: ${path}`, { code: "plugin.entry_missing" });
+	if (!(await isRegularFile(path)))
+		throw new DomainError("validation", `${name} does not exist: ${path}`, { code: "plugin.entry_missing" });
 }
 
 function isWithinDirectory(path: string, directory: string): boolean {

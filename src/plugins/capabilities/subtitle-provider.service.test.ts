@@ -116,6 +116,19 @@ describe("subtitle provider search", () => {
 
 		expect(results.map((result) => result.providerId)).toEqual(["on"]);
 	});
+
+	test("searches without a year when the release date does not start with one", async () => {
+		await db.client().update(schema.metadata).set({ releaseDate: "5/1/2020" }).where(eq(schema.metadata.id, "metadata-1"));
+		registerProviders([
+			createProvider("year", async ({ media }) => [
+				{ id: "candidate-1", language: "pl", label: `year ${media.year ?? "none"}`, format: "vtt" },
+			]),
+		]);
+
+		await expect(subtitleProviderService.search({ mediaFileId, languages: ["pl"] })).resolves.toEqual([
+			{ providerId: "year", results: [{ id: "candidate-1", language: "pl", label: "year none", format: "vtt" }] },
+		]);
+	});
 });
 
 describe("subtitle provider downloads", () => {

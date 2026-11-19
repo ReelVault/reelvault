@@ -13,6 +13,7 @@ import { pluginSubtitleData, pluginSubtitleSettingsData } from "@/services/plugi
 import { DomainError } from "@/utils/domain.errors";
 import { deleteFile } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
+import { extractYear } from "@/utils/media-match/normalize.utils";
 import { isSubpath } from "@/utils/path.utils";
 import { withTimeout } from "@/utils/promise.utils";
 import { normalizeLower } from "@/utils/type.utils";
@@ -148,7 +149,7 @@ class SubtitleProviderService {
 			id: metadata.id,
 			type: metadata.type,
 			title: metadata.title,
-			year: parseYear(metadata.releaseDate),
+			year: extractYear(metadata.releaseDate),
 			externalIds: metadata.externalIds,
 		};
 	}
@@ -177,12 +178,6 @@ function normalizeFormat(value: string): string {
 	}
 
 	return format;
-}
-
-function parseYear(releaseDate: string): number | undefined {
-	const year = Number.parseInt(releaseDate.slice(0, 4), 10);
-
-	return Number.isInteger(year) ? year : undefined;
 }
 
 export const subtitleProviderService = new SubtitleProviderService();

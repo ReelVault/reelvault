@@ -105,7 +105,7 @@ export async function uninstallPlugin(state: PluginManagerState, pluginId: strin
 			// removed below regardless.
 			await state.installer.uninstall(pluginId);
 		} catch (error) {
-			if (!(error instanceof DomainError && error.category === "validation")) throw error;
+			if (!(error instanceof DomainError && error.code === "plugin.not_installed")) throw error;
 
 			state.logger.warn(`No installer record for ${pluginId} — removed loaded data only`);
 		}

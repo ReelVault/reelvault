@@ -1,10 +1,10 @@
 import { join } from "node:path";
 import type { PluginValidationIssue, PluginValidationResult } from "@reelvault/sdk/common";
-import { file as bunFile } from "bun";
 import { validatePluginUiManifest } from "@/plugins/lifecycle/manifest/ui.validator";
 import { installDirection } from "@/plugins/lifecycle/plugin.installer";
-import { loadPluginManifest, resolvePluginEntry } from "@/plugins/lifecycle/plugin.manifest";
+import { loadPluginManifest, resolvePluginEntry, resolvePluginUiSchemas } from "@/plugins/lifecycle/plugin.manifest";
 import { DomainError, definedParams, errorMessage } from "@/utils/domain.errors";
+import { isRegularFile } from "@/utils/file.utils";
 import { requiresNewerServer, serverVersionRequirementMessage } from "@/utils/semver.utils";
 
 export interface InstalledVersion {
@@ -36,15 +36,6 @@ export function archiveValidationFailure(error: unknown): PluginValidationResult
 	return { valid: false, issues: [issueFromError("error", error, "plugin.archive_invalid")] };
 }
 
-async function isFile(path: string): Promise<boolean> {
-	return await bunFile(path)
-		.stat()
-		.then(
-			(metadata) => metadata.isFile(),
-			() => false,
-		);
-}
-
 /**
  * Dry run of an unpacked plugin package: the checks an install and the first load
  * would make, without touching the installed plugins. An `error` blocks the install;
@@ -63,15 +54,18 @@ export async function validatePluginPackage(pluginRoot: string, installed: reado
 		issues.push(issue("error", "plugin.server_too_old", serverVersionRequirementMessage(manifest.minServerVersion)));
 	}
 
-	if (!(await isFile(resolvePluginEntry(pluginRoot, manifest)))) {
+	if (!(await isRegularFile(resolvePluginEntry(pluginRoot, manifest)))) {
 		issues.push(issue("error", "plugin.entry_missing", `entry ${manifest.entry} does not exist`));
 	}
 
 	// The loader keeps a plugin whose interface manifest is malformed and skips only the interface, so this is a warning.
 	const uiManifestPath = join(pluginRoot, "ui.json");
-	if (await isFile(uiManifestPath)) {
+	if (await isRegularFile(uiManifestPath)) {
 		try {
-			validatePluginUiManifest(JSON.parse(await Bun.file(uiManifestPath).text()));
+			const uiManifest: unknown = JSON.parse(await Bun.file(uiManifestPath).text());
+			validatePluginUiManifest(uiManifest);
+			// The loader inlines every schemaRef file, so a missing or invalid one fails the load and must fail the dry run too.
+			await resolvePluginUiSchemas(pluginRoot, uiManifest);
 		} catch (error) {
 			issues.push(issueFromError("warning", error, "plugin.ui_manifest_invalid"));
 		}

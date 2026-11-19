@@ -9,6 +9,7 @@ import type { PluginConfig } from "./plugin.config";
 import { PluginLoader } from "./plugin.loader";
 import { PluginRegistry } from "./plugin.registry";
 
+const DOMAIN_ERRORS_MODULE = join(import.meta.dir, "../../utils/domain.errors.ts");
 const lifecycleKey = "__reelvaultPluginLifecycle";
 const reloadKey = "__reelvaultPluginReload";
 const failUnloadKey = "__reelvaultPluginFailUnload";
@@ -104,7 +105,10 @@ describe("plugin loader lifecycle: resource cleanup after a failed disable", () 
 		await loader.load("lifecycle");
 		(globalThis as Record<string, unknown>).__reelvaultPluginDisableFails = true;
 
-		await expect(loader.unloadPlugin("org.reelvault.lifecycle")).rejects.toBeInstanceOf(Error);
+		await expect(loader.unloadPlugin("org.reelvault.lifecycle")).rejects.toMatchObject({
+			category: "internal",
+			code: "plugin.test.disable_failed",
+		});
 		expect(registry.get("org.reelvault.lifecycle")).toBeUndefined();
 		expect(registry.getProvider("lifecycle-provider")).toBeUndefined();
 		expect(registry.getSubtitleProvider("lifecycle-subtitle-provider")).toBeUndefined();
@@ -182,9 +186,10 @@ describe("plugin loader lifecycle: unload after a partial setup failure", () => 
 		);
 		await write(
 			join(pluginDirectory, "index.mjs"),
-			`const events = globalThis.${failUnloadKey} ??= [];
+			`import { DomainError } from "${DOMAIN_ERRORS_MODULE}";
+const events = globalThis.${failUnloadKey} ??= [];
 export default {
-  async setup() { events.push("setup"); throw new Error("setup failed"); },
+  async setup() { events.push("setup"); throw new DomainError("internal", "setup failed", { code: "plugin.test.setup_failed" }); },
   onUnload() { events.push("unload"); },
 };
 `,
@@ -194,7 +199,7 @@ export default {
 		const config: Pick<PluginConfig, "load"> = { load: async () => ({}) };
 		const loader = new PluginLoader(config as PluginConfig, registry, pluginsDirectory);
 
-		await expect(loader.load("fail-unload")).rejects.toBeInstanceOf(Error);
+		await expect(loader.load("fail-unload")).rejects.toMatchObject({ category: "internal", code: "plugin.test.setup_failed" });
 		expect((globalThis as Record<string, unknown>)[failUnloadKey]).toEqual(["setup", "unload"]);
 		expect(registry.get("org.reelvault.fail-unload")).toBeUndefined();
 	});
@@ -275,7 +280,8 @@ describe("plugin loader lifecycle: provider initialization failure", () => {
 		);
 		await write(
 			join(pluginDirectory, "index.mjs"),
-			`export default {
+			`import { DomainError } from "${DOMAIN_ERRORS_MODULE}";
+export default {
   config: {
     fields: {},
     descriptors: [{ name: "accessToken", type: "secret", label: "Access token", required: true }],
@@ -286,7 +292,7 @@ describe("plugin loader lifecycle: provider initialization failure", () => {
       id: "unconfigured-provider",
       name: "Unconfigured provider",
       version: "1.0.0",
-      initialize() { throw new Error("requires an access token"); },
+      initialize() { throw new DomainError("validation", "requires an access token", { code: "plugin.test.access_token_missing" }); },
       async search() { return []; },
       async getDetails() { return null; },
       async getSeasonDetails() { return null; },
@@ -301,9 +307,11 @@ describe("plugin loader lifecycle: provider initialization failure", () => {
 		const config: Pick<PluginConfig, "load"> = { load: async () => ({}) };
 		const loader = new PluginLoader(config as PluginConfig, registry, pluginsDirectory);
 
-		await expect(loader.load("unconfigured")).rejects.toBeInstanceOf(Error);
+		await expect(loader.load("unconfigured")).rejects.toMatchObject({ category: "validation", code: "plugin.test.access_token_missing" });
 		expect(registry.get("org.reelvault.unconfigured")).toBeUndefined();
-		expect(registry.getFailedStatuses()).toMatchObject([{ id: "org.reelvault.unconfigured", state: "failed" }]);
+		expect(registry.getFailedStatuses()).toMatchObject([
+			{ id: "org.reelvault.unconfigured", state: "failed", errorCode: "plugin.test.access_token_missing" },
+		]);
 		expect(registry.getConfigDefinition("org.reelvault.unconfigured")?.descriptors).toEqual([
 			{ name: "accessToken", type: "secret", label: "Access token", required: true },
 		]);
@@ -459,7 +467,7 @@ function lifecycleEvents(): string[] {
 }
 
 function pluginModuleSource(): string {
-	return `
+	return `import { DomainError } from "${DOMAIN_ERRORS_MODULE}";
 const events = globalThis.${lifecycleKey} ??= [];
 
 export default {
@@ -494,7 +502,7 @@ export default {
   onEnable() { events.push("enable"); },
   onDisable() {
     events.push("disable");
-    if (globalThis.__reelvaultPluginDisableFails) throw new Error("disable failed");
+    if (globalThis.__reelvaultPluginDisableFails) throw new DomainError("internal", "disable failed", { code: "plugin.test.disable_failed" });
   },
   onUnload() { events.push("unload"); }
 };`;

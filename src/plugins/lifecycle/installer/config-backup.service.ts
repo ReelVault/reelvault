@@ -1,6 +1,7 @@
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { file, write } from "bun";
+import { isRegularFile } from "@/utils/file.utils";
 import { MUTABLE_CONFIG_FILENAME } from "./directory-hash.utils";
 
 /** Uninstalled configurations wait here until the same plugin is installed again. Dot-directory, so it is never a plugin. */
@@ -26,7 +27,7 @@ async function copyOwnerOnly(sourcePath: string, targetPath: string): Promise<vo
  */
 export async function preserveMutableConfig(fromDirectory: string, toDirectory: string): Promise<void> {
 	const sourcePath = join(fromDirectory, MUTABLE_CONFIG_FILENAME);
-	if (!(await file(sourcePath).exists())) return;
+	if (!(await isRegularFile(sourcePath))) return;
 
 	await copyOwnerOnly(sourcePath, join(toDirectory, MUTABLE_CONFIG_FILENAME));
 }
@@ -34,7 +35,7 @@ export async function preserveMutableConfig(fromDirectory: string, toDirectory: 
 /** Keeps an uninstalled plugin's config so a later install of the same id gets it back. */
 export async function backupMutableConfig(fromDirectory: string, pluginsDirectory: string, pluginId: string): Promise<void> {
 	const sourcePath = join(fromDirectory, MUTABLE_CONFIG_FILENAME);
-	if (!(await file(sourcePath).exists())) return;
+	if (!(await isRegularFile(sourcePath))) return;
 
 	// awaits: sequential — the backup directory exists before the config is copied into it
 	await mkdir(join(pluginsDirectory, CONFIG_BACKUP_DIRECTORY), { recursive: true });
@@ -43,7 +44,7 @@ export async function backupMutableConfig(fromDirectory: string, pluginsDirector
 
 export async function restoreUninstalledConfig(pluginsDirectory: string, pluginId: string, toDirectory: string): Promise<void> {
 	const backupPath = configBackupPath(pluginsDirectory, pluginId);
-	if (!(await file(backupPath).exists())) return;
+	if (!(await isRegularFile(backupPath))) return;
 
 	await copyOwnerOnly(backupPath, join(toDirectory, MUTABLE_CONFIG_FILENAME));
 }

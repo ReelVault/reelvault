@@ -372,7 +372,7 @@ export class PluginLoader {
 		}
 
 		await this.runFailedLoadUnload(plugin, trackedPluginId);
-		const phase = this.recordLoadFailure({ trackedPluginId, manifest, pluginName, failurePhase: undefined, configDefinition }, error);
+		const phase = this.recordLoadFailure({ trackedPluginId, manifest, pluginName, configDefinition }, error);
 		this.logger.error(`Failed to load plugin ${pluginName}`, error, { failurePhase: phase });
 	}
 
@@ -390,18 +390,17 @@ export class PluginLoader {
 		}
 	}
 
-	/** Records a failed load in the registry; returns the phase the failure happened in. */
+	/** Records a failed load in the registry; returns the phase a tracked plugin failed in. */
 	private recordLoadFailure(
 		attempt: {
 			trackedPluginId: string | undefined;
 			manifest: LoadedPluginManifest | undefined;
 			pluginName: string;
-			failurePhase: PluginLoadPhase | undefined;
 			configDefinition: ConfigDefinition | undefined;
 		},
 		err: unknown,
 	): PluginLoadPhase | undefined {
-		const { trackedPluginId, manifest, pluginName, failurePhase, configDefinition } = attempt;
+		const { trackedPluginId, manifest, pluginName, configDefinition } = attempt;
 		if (trackedPluginId) {
 			this.registry.fail(trackedPluginId, err, configDefinition);
 			const phase = this.registry.get(trackedPluginId)?.failurePhase;
@@ -411,13 +410,13 @@ export class PluginLoader {
 		}
 
 		if (manifest) {
-			this.registry.recordFailure(manifest, err, failurePhase, configDefinition);
+			this.registry.recordFailure(manifest, err, undefined, configDefinition);
 		} else {
 			// plugin.json missing or invalid: without this the admin saw nothing at all for a broken package.
 			this.registry.recordFailure({ id: pluginName, name: pluginName, version: "unknown" }, err, "manifest");
 		}
 
-		return failurePhase;
+		return undefined;
 	}
 
 	/** Drops a plugin from the registry, the directory index and its scope. */

@@ -1,4 +1,5 @@
 import type { PluginUiSettings, UpdatePluginUiSettingsBody } from "@reelvault/sdk/common";
+import { pluginNotFoundError } from "@/plugins/shared/plugin.errors";
 import { pluginUiOverrideData } from "@/services/plugins/plugin-data.service";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
@@ -41,8 +42,7 @@ class PluginUiSettingsService {
 	async update(pluginId: string, body: UpdatePluginUiSettingsBody): Promise<PluginUiSettings> {
 		return await runSafely(this, "update", async () => {
 			this.assertKnownPlugin(pluginId);
-			const manifest = pluginRegistry.getUiManifest(pluginId);
-			const known = new Set((manifest ? listUiContributions(manifest) : []).map((item) => item.key));
+			const known = this.knownContributionKeys(pluginId);
 			for (const key of body.disabledKeys) {
 				if (!known.has(key)) {
 					throw new DomainError("validation", `Plugin ${pluginId} has no UI contribution "${key}"`, {
@@ -71,7 +71,7 @@ class PluginUiSettingsService {
 		const hidden = (await this.getHiddenByPlugin()).get(pluginId);
 		if (!(manifest && hidden)) return;
 
-		const known = new Set(listUiContributions(manifest).map((item) => item.key));
+		const known = this.knownContributionKeys(pluginId);
 		const kept = [...hidden].filter((key) => key === PLUGIN_UI_MASTER_KEY || known.has(key));
 		if (kept.length === hidden.size) return;
 
@@ -85,10 +85,15 @@ class PluginUiSettingsService {
 		this.hiddenByPlugin = undefined;
 	}
 
+	/** The contribution keys the plugin's interface manifest declares now. */
+	private knownContributionKeys(pluginId: string): Set<string> {
+		const manifest = pluginRegistry.getUiManifest(pluginId);
+
+		return new Set((manifest ? listUiContributions(manifest) : []).map((item) => item.key));
+	}
+
 	private assertKnownPlugin(pluginId: string): void {
-		if (!pluginRegistry.get(pluginId)) {
-			throw new DomainError("not_found", `Plugin not found: ${pluginId}`, { code: "plugin.not_found", params: { pluginId } });
-		}
+		if (!pluginRegistry.get(pluginId)) throw pluginNotFoundError(pluginId);
 	}
 }
 

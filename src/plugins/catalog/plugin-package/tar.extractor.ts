@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DomainError } from "@/utils/domain.errors";
 import { isSubpath } from "@/utils/path.utils";
-import { assertSafeDestination, invalidSymlink, unpackedTooLarge } from "./extraction.guard";
+import { assertSafeDestination, invalidSymlink, unpackedTooLarge, writeEntry } from "./extraction.guard";
 
 const TAR_BLOCK_SIZE = 512;
 /** A ustar long name is a path; 16 KiB is far beyond any real plugin path. */
@@ -196,7 +196,8 @@ function consumeHeader(reader: TarReader): boolean {
 function beginDirectory(reader: TarReader, entry: TarEntry): void {
 	// Preserve declared directories (including empty ones) like a real
 	// tar reader; files inside would create their parents anyway.
-	mkdirSync(assertSafeDestination(reader.workRoot, entry.name), { recursive: true });
+	const directory = assertSafeDestination(reader.workRoot, entry.name);
+	writeEntry(entry.name, () => mkdirSync(directory, { recursive: true }));
 	reader.payload = { kind: "discard", remaining: entry.size, padding: entry.padding };
 }
 
@@ -219,9 +220,11 @@ function beginRegularFile(reader: TarReader, entry: TarEntry): void {
 	if (reader.total > reader.maxUncompressedBytes) throw unpackedTooLarge();
 
 	const target = assertSafeDestination(reader.workRoot, entry.name);
-	mkdirSync(dirname(target), { recursive: true });
 	const mode = parseTarNumber(reader.header, 100, 8);
-	writeFileSync(target, new Uint8Array(0), mode ? { mode: mode & 0o777 } : undefined);
+	writeEntry(entry.name, () => {
+		mkdirSync(dirname(target), { recursive: true });
+		writeFileSync(target, new Uint8Array(0), mode ? { mode: mode & 0o777 } : undefined);
+	});
 	reader.payload = { kind: "file", target, remaining: entry.size, padding: entry.padding };
 }
 

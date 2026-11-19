@@ -1,8 +1,8 @@
 import { copyFile, link, mkdir, readdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { removeTree } from "@/utils/directory.utils";
+import { getFileStats } from "@/utils/file.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 
 /**
@@ -84,9 +84,7 @@ async function collectMirrorPlan(source: string, destination: string, visitedRea
 		const real = await realpath(from).catch(() => null);
 		if (!real || visitedRealPaths.has(real)) continue;
 
-		const info = await bunFile(real)
-			.stat()
-			.catch(() => null);
+		const info = await getFileStats(real);
 		if (info?.isDirectory()) {
 			visitedRealPaths.add(real);
 			await collectMirrorPlan(real, to, visitedRealPaths, plan);

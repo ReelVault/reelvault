@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { MIB } from "@/utils/bytes.utils";
+import { timeoutSignal } from "@/utils/cancellation.utils";
 import { createHash } from "@/utils/crypto.utils";
 import { removeTree } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
@@ -60,10 +61,9 @@ async function requestArchive(url: string, options: DownloadArchiveOptions): Pro
 	try {
 		// A catalog manifest's downloadUrl is remote-controlled — every hop must be
 		// a public https address, not loopback/RFC1918/cloud-metadata.
-		const timeout = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 		response = await fetcher(url, {
 			...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
-			signal: options.signal ? AbortSignal.any([timeout, options.signal]) : timeout,
+			signal: timeoutSignal(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, options.signal),
 		});
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : "unknown error";

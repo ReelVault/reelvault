@@ -276,6 +276,25 @@ test("the aggregated lookup is cached per metadata language, so a language chang
 	expect(languages).toEqual(["pl", "en"]);
 });
 
+test("an exact-id lookup is refetched after the provider is reloaded with a new implementation", async () => {
+	const reloadable = (title: string) =>
+		createProvider("reload-provider", {
+			getDetails: (_type, externalId) => Promise.resolve({ externalId, title, releaseDate: "2003-01-01" }),
+		});
+	registerProviders([reloadable("Before reload")]);
+
+	await expect(providerService.fetchAggregatedDetailsByProvider("reload-provider", "movie", "ext-reload")).resolves.toMatchObject({
+		metadata: { title: "Before reload" },
+	});
+
+	pluginRegistry.unregister(manifest.id);
+	registerProviders([reloadable("After reload")]);
+
+	await expect(providerService.fetchAggregatedDetailsByProvider("reload-provider", "movie", "ext-reload")).resolves.toMatchObject({
+		metadata: { title: "After reload" },
+	});
+});
+
 test("a library's provider order is part of the aggregated lookup key, so a reorder yields fresh results", async () => {
 	const fetched: string[] = [];
 	const provider = (id: string) =>

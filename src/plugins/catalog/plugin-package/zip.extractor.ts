@@ -1,8 +1,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { UnzipFileHandler } from "fflate";
-import { fsErrorCode } from "@/utils/domain.errors";
-import { assertSafeDestination, conflictingEntry, unpackedTooLarge } from "./extraction.guard";
+import { assertSafeDestination, unpackedTooLarge, writeEntry } from "./extraction.guard";
 
 /** fflate streams entry data in chunks; the shared counter bounds the whole archive. */
 export function createZipEntryHandler(workRoot: string, maxUncompressedBytes: number, onFailure: (error: Error) => void): UnzipFileHandler {
@@ -29,15 +28,10 @@ export function createZipEntryHandler(workRoot: string, maxUncompressedBytes: nu
 	};
 }
 
-/** An entry that cannot be created because an earlier entry holds its path as a directory (or the reverse) is a malformed package. */
+/** Creates an empty entry file; a path clash with an earlier entry is reported as a conflict. */
 function createEntryFile(target: string, entryPath: string): void {
-	try {
+	writeEntry(entryPath, () => {
 		mkdirSync(dirname(target), { recursive: true });
 		writeFileSync(target, new Uint8Array(0));
-	} catch (error) {
-		const code = fsErrorCode(error);
-		if (code === "EISDIR" || code === "ENOTDIR") throw conflictingEntry(entryPath);
-
-		throw error;
-	}
+	});
 }

@@ -13,6 +13,13 @@ interface PluginEntityEntry<T> {
 	entity: T;
 }
 
+function duplicateEntityError(label: string, id: string): DomainError {
+	return new DomainError("validation", `Plugin ${label} ${id} is registered more than once`, {
+		code: "plugin.entity_duplicate",
+		params: { id },
+	});
+}
+
 /**
  * Id-keyed table of plugin-contributed entities (metadata providers, subtitle
  * providers, media analyzers) with per-plugin ownership, duplicate rejection
@@ -38,43 +45,52 @@ export class PluginEntityTable<T extends { id: string; name: string; version: st
 		return this.getAll().map((entity) => entity.id);
 	}
 
-	/** Pre-flight duplicate check so a multi-entity registration stays all-or-nothing. */
+	/**
+	 * Pre-flight check for a multi-entity registration: an invalid entity, an id
+	 * owned by another plugin, or an id named twice in the batch is refused before
+	 * anything is stored, so a registration stays all-or-nothing.
+	 */
 	assertRegisterable(entities: readonly T[]): void {
-		for (const entity of entities) {
-			const existing = this.entries.get(entity.id);
-			if (existing) {
-				throw new DomainError(
-					"validation",
-					`${this.label} "${entity.id}" is already registered by plugin "${existing.pluginId ?? "unknown"}"`,
-					{
-						code: "plugin.entity_conflict",
-						params: { id: entity.id, plugin: existing.pluginId ?? "unknown" },
-					},
-				);
-			}
-		}
+		this.assertBatch(entities, (entity, existing) => {
+			throw new DomainError(
+				"validation",
+				`${this.label} "${entity.id}" is already registered by plugin "${existing.pluginId ?? "unknown"}"`,
+				{
+					code: "plugin.entity_conflict",
+					params: { id: entity.id, plugin: existing.pluginId ?? "unknown" },
+				},
+			);
+		});
 	}
 
 	register(pluginId: string | undefined, entities: readonly T[]): void {
+		this.assertBatch(entities, (entity) => {
+			throw duplicateEntityError(this.label, entity.id);
+		});
+
+		for (const entity of entities) this.entries.set(entity.id, { pluginId, entity });
+
+		this.invalidate();
+	}
+
+	/**
+	 * Checks every entity of a batch before any is stored: each must be well formed and no id may appear twice in
+	 * the batch. `onExisting` decides what an id already in the table means for the caller.
+	 */
+	private assertBatch(entities: readonly T[], onExisting: (entity: T, existing: PluginEntityEntry<T>) => never): void {
 		const batchIds = new Set<string>();
 		for (const entity of entities) {
 			if (!(entity.id && entity.name && entity.version)) {
 				throw new DomainError("validation", `Plugin ${this.label} must have id, name and version`, { code: "plugin.entity_invalid" });
 			}
 
-			if (this.entries.has(entity.id) || batchIds.has(entity.id)) {
-				throw new DomainError("validation", `Plugin ${this.label} ${entity.id} is registered more than once`, {
-					code: "plugin.entity_duplicate",
-					params: { id: entity.id },
-				});
-			}
+			const existing = this.entries.get(entity.id);
+			if (existing) onExisting(entity, existing);
+
+			if (batchIds.has(entity.id)) throw duplicateEntityError(this.label, entity.id);
 
 			batchIds.add(entity.id);
 		}
-
-		for (const entity of entities) this.entries.set(entity.id, { pluginId, entity });
-
-		this.invalidate();
 	}
 
 	removeForPlugin(pluginId: string): void {

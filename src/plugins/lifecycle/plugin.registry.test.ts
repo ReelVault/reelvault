@@ -177,15 +177,28 @@ describe("plugin registry: registered plugin state", () => {
 		expect(registry.getProvider("tmdb")).toBeUndefined();
 	});
 
-	it("advances the generation on register and unregister so provider caches epoch", () => {
-		const before = registry.getGeneration();
+	it("advances the generation by one on register and one on unregister so provider caches epoch", () => {
+		const fresh = new PluginRegistry();
 		const provider = createProvider("gen");
-		registry.register(createRuntime("gen-plugin", [provider]), [provider]);
-		const afterRegister = registry.getGeneration();
-		expect(afterRegister).toBeGreaterThan(before);
+		fresh.register(createRuntime("gen-plugin", [provider]), [provider]);
+		expect(fresh.getGeneration()).toBe(1);
 
-		registry.unregister("gen-plugin");
-		expect(registry.getGeneration()).toBeGreaterThan(afterRegister);
+		fresh.unregister("gen-plugin");
+		expect(fresh.getGeneration()).toBe(2);
+	});
+
+	it("does not register a plugin whose batch names one provider twice, and leaves no state behind", () => {
+		const first = createProvider("tmdb");
+		const second = createProvider("tmdb");
+
+		const fresh = new PluginRegistry();
+
+		expect(() => fresh.register(createRuntime("batch", [first, second]), [first, second])).toThrow(
+			expect.objectContaining({ category: "validation", code: "plugin.entity_duplicate", params: { id: "tmdb" } }),
+		);
+		expect(fresh.get("batch")).toBeUndefined();
+		expect(fresh.getProvider("tmdb")).toBeUndefined();
+		expect(fresh.getGeneration()).toBe(0);
 	});
 
 	it("merges csp sources from loaded plugins and drops them on unregister", () => {

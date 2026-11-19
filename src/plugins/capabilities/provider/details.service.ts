@@ -1,5 +1,5 @@
 import type { MediaIdentity, MetadataProviderSearchResponse } from "@reelvault/sdk/common";
-import type { ExternalIdentifiers, ProviderMediaType, ProviderMetadataResult } from "@reelvault/sdk/plugin";
+import type { ExternalIdentifiers, MetadataProvider, ProviderMediaType, ProviderMetadataResult } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import {
@@ -151,11 +151,7 @@ export async function fetchDetailsByProvider(
 	if (!provider) return undefined;
 
 	try {
-		const metadata = await withTimeout(
-			provider.getDetails(type, externalId, options.language ? { language: options.language } : undefined),
-			serverConfig.plugins.providers.requestTimeoutMs,
-			`provider ${provider.id} details`,
-		);
+		const metadata = await getDetailsWithTimeout(provider, type, externalId, options.language);
 
 		return metadata ? normalizeMetadataDetails(metadata) : undefined;
 	} catch (error) {
@@ -174,7 +170,9 @@ export async function fetchAggregatedDetailsByProvider(
 	options: { language?: string | undefined } = {},
 ): Promise<AggregatedMetadata | null> {
 	const { providerId, type, externalId } = ref;
-	const key = `by-id:${providerId}:${type}:${externalId}:${options.language ?? ""}`;
+	// The provider order and registry generation belong in the key: a disabled or reloaded provider must not serve its old result.
+	const providerKey = await getProviderKey();
+	const key = `${providerKey}:by-id:${providerId}:${type}:${externalId}:${options.language ?? ""}`;
 
 	return await getAggregatedOrNull(key, async () => {
 		const metadata = await fetchDetailsByProvider(providerId, type, externalId, options);
@@ -228,6 +226,15 @@ export async function fetchDetailsByLocalIdentifiers(
 	return firstMatch ? [firstMatch] : [];
 }
 
+/** One provider's details lookup, time-boxed by the provider request timeout. */
+function getDetailsWithTimeout(provider: MetadataProvider, type: ProviderMediaType, externalId: string, language?: string) {
+	return withTimeout(
+		provider.getDetails(type, externalId, language ? { language } : undefined),
+		serverConfig.plugins.providers.requestTimeoutMs,
+		`provider ${provider.id} details`,
+	);
+}
+
 /**
  * Searches every enabled provider in parallel (bounded by configured
  * concurrency) and returns the confident matches sorted by provider priority.
@@ -273,8 +280,9 @@ async function collectAcceptedMatches(
 
 			return { provider, index, bestMatch: best };
 		},
-		() => {
-			// rankProviderResults reports per-provider failures through its own callback.
+		({ provider }, error) => {
+			// rankProviderResults reports search failures itself; this catches what it cannot, such as a timeout.
+			providerLog.logger.warn("Metadata provider search timed out", { providerId: provider.id, error: errorMessage(error) });
 		},
 	);
 
@@ -288,11 +296,7 @@ async function fetchDetailsOnce(type: "movie" | "tv_show", parsed: MediaIdentity
 	for (const candidate of accepted) {
 		const provider = candidate.provider;
 		try {
-			const metadata = await withTimeout(
-				provider.getDetails(type, candidate.bestMatch.item.externalId),
-				serverConfig.plugins.providers.requestTimeoutMs,
-				`provider ${provider.id} details`,
-			);
+			const metadata = await getDetailsWithTimeout(provider, type, candidate.bestMatch.item.externalId);
 			if (!metadata) continue;
 
 			if (candidate.index > 0 || candidate.bestMatch.score < 0.8) {

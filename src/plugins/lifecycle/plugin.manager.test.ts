@@ -21,6 +21,7 @@ import { pluginRegistry } from "./plugin.registry";
  * The entry records what happens to it in a global log, and a test makes a plugin
  * fail by listing its `id@version` in the failure sets. Nothing inside the manager is stubbed.
  */
+const DOMAIN_ERRORS_MODULE = join(import.meta.dir, "../../utils/domain.errors.ts");
 const CONTROL_KEY = "__reelvaultPluginManagerTest";
 
 interface PluginControl {
@@ -143,16 +144,17 @@ function entrySource(id: string, version: string, exportMembers: string): string
 	const name = JSON.stringify(id);
 	const control = JSON.stringify(CONTROL_KEY);
 
-	return `const control = () => globalThis[${control}];
+	return `import { DomainError } from ${JSON.stringify(DOMAIN_ERRORS_MODULE)};
+const control = () => globalThis[${control}];
 export default {
 	${exportMembers}
 	setup() {
 		control().events.push("setup:" + ${name});
-		if (control().failSetup.has(${key})) throw new Error("setup failed for " + ${key});
+		if (control().failSetup.has(${key})) throw new DomainError("internal", "setup failed", { code: "plugin.test.setup_failed" });
 	},
 	onUnload() {
 		control().events.push("unload:" + ${name});
-		if (control().failUnload.has(${key})) throw new Error("onUnload failed for " + ${key});
+		if (control().failUnload.has(${key})) throw new DomainError("internal", "onUnload failed", { code: "plugin.test.unload_failed" });
 	},
 };
 `;
@@ -250,7 +252,10 @@ describe("PluginManager enable and disable", () => {
 		await manager.setEnabled("org.reelvault.broken", false);
 		readControl().failSetup.add("org.reelvault.broken@1.0.0");
 
-		await expect(manager.setEnabled("org.reelvault.broken", true)).rejects.toThrow("setup failed for org.reelvault.broken@1.0.0");
+		await expect(manager.setEnabled("org.reelvault.broken", true)).rejects.toMatchObject({
+			category: "internal",
+			code: "plugin.test.setup_failed",
+		});
 		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.broken", state: "failed" })]);
 	});
 });
@@ -261,7 +266,10 @@ describe("PluginManager unload and uninstall", () => {
 		await manager.installFromDirectory(await writePackage("org.reelvault.stuck", "1.0.0"), { source: "test" });
 		readControl().failUnload.add("org.reelvault.stuck@1.0.0");
 
-		await expect(manager.setEnabled("org.reelvault.stuck", false)).rejects.toThrow("onUnload failed for org.reelvault.stuck@1.0.0");
+		await expect(manager.setEnabled("org.reelvault.stuck", false)).rejects.toMatchObject({
+			category: "internal",
+			code: "plugin.test.unload_failed",
+		});
 		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.stuck", state: "disabled" })]);
 	});
 
@@ -316,6 +324,21 @@ describe("PluginManager unload and uninstall", () => {
 
 		expect(manager.getStatus()).toEqual([]);
 		expect(existsSync(directory)).toBe(false);
+	});
+});
+
+describe("PluginManager uninstall errors", () => {
+	test("uninstalling refuses to delete the plugin data when the lockfile cannot be read", async () => {
+		const manager = new PluginManager();
+		await manager.installFromDirectory(await writePackage("org.reelvault.broken-lock", "1.0.0"), { source: "test" });
+		const directory = await installedDirectory(manager, "org.reelvault.broken-lock");
+		await writeFile(join(serverConfig.paths.plugins, "plugins.lock.json"), JSON.stringify({ plugins: "not a record" }));
+
+		await expect(manager.uninstall("org.reelvault.broken-lock")).rejects.toMatchObject({
+			category: "validation",
+			code: "plugin.lockfile_invalid",
+		});
+		expect(existsSync(directory)).toBe(true);
 	});
 });
 
@@ -437,7 +460,7 @@ describe("PluginManager install and upgrade", () => {
 			previousVersion: "1.0.0",
 			direction: "upgrade",
 			state: "rolled_back",
-			error: "setup failed for org.reelvault.reverted@2.0.0",
+			errorCode: "plugin.test.setup_failed",
 		});
 		expect(manager.getStatus()).toEqual([expect.objectContaining({ id: "org.reelvault.reverted", version: "1.0.0", state: "enabled" })]);
 	});
@@ -462,7 +485,10 @@ describe("PluginManager install and upgrade", () => {
 		await manager.setEnabled("org.reelvault.no-undo", false);
 		readControl().failSetup.add("org.reelvault.no-undo@1.0.0");
 
-		await expect(manager.setEnabled("org.reelvault.no-undo", true)).rejects.toThrow("setup failed for org.reelvault.no-undo@1.0.0");
+		await expect(manager.setEnabled("org.reelvault.no-undo", true)).rejects.toMatchObject({
+			category: "internal",
+			code: "plugin.test.setup_failed",
+		});
 	});
 });
 

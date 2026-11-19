@@ -54,7 +54,7 @@ export class PluginRouteRegistry {
 			}
 		}
 
-		this.routesByPlugin.set(pluginId, candidates);
+		this.routesByPlugin.set(pluginId, [...existingRoutes, ...candidates]);
 	}
 
 	unregisterPlugin(pluginId: string): void {

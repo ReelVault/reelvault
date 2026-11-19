@@ -35,6 +35,17 @@ describe("plugin ROUTES registry", () => {
 		expect(registry.resolve("org.reelvault.trickplay", "POST", "/refresh/file-1")).toBeUndefined();
 	});
 
+	test("keeps the routes a plugin registered earlier when it registers more", () => {
+		const registry = new PluginRouteRegistry();
+		const first: PluginHttpRoute = { method: "GET", path: "/first", body: objectSchema, handler: () => ({ body: {} }) };
+		const second: PluginHttpRoute = { method: "GET", path: "/second", body: objectSchema, handler: () => ({ body: {} }) };
+		registry.register("org.example.two", [first]);
+		registry.register("org.example.two", [second]);
+
+		expect(registry.resolve("org.example.two", "GET", "/first")?.route).toBe(first);
+		expect(registry.resolve("org.example.two", "GET", "/second")?.route).toBe(second);
+	});
+
 	test("rejects conflicting routes and malformed request data", async () => {
 		const registry = new PluginRouteRegistry();
 		const route: PluginHttpRoute = {

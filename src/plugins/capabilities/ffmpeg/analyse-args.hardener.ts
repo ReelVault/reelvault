@@ -6,7 +6,39 @@ import { DomainError } from "@/utils/domain.errors";
 import { isSubpath } from "@/utils/path.utils";
 
 /** Flags that read a caller-supplied local file outside the media input. */
-const BANNED_ANALYSE_FLAGS = new Set(["-attach", "-dump_attachment", "-filter_script", "-filter_complex_script"]);
+const BANNED_ANALYSE_FLAGS = new Set([
+	"-attach",
+	"-dump_attachment",
+	"-filter_script",
+	"-filter_complex_script",
+	// These write a file named by their value, so they can reach a path outside the output root.
+	"-passlogfile",
+	"-sdp_file",
+	"-vstats_file",
+]);
+/** ffmpeg options that take no value: the token after one of them is a file, not an argument. */
+const BOOLEAN_OPTIONS = new Set([
+	"-accurate_seek",
+	"-an",
+	"-autorotate",
+	"-benchmark",
+	"-copyts",
+	"-dn",
+	"-hide_banner",
+	"-n",
+	"-noaccurate_seek",
+	"-noautorotate",
+	"-nostats",
+	"-nostdin",
+	"-re",
+	"-report",
+	"-shortest",
+	"-sn",
+	"-stats",
+	"-vn",
+	"-xerror",
+	"-y",
+]);
 /** Filter constructs that open arbitrary files (`movie=`/`amovie=`/`subtitles=`/`textfile=`). */
 const BANNED_FILTER_TOKENS_RE = /movie=|amovie=|subtitles=|ass=|textfile=/i;
 /** Demuxers that read a list of files (arbitrary local file read via a crafted list). */
@@ -17,6 +49,28 @@ export function processFailureDetail(stderr: string | null, exitCode: number | n
 	if (stderr !== null && stderr !== "") return stderr;
 
 	return `${label} exited with code ${exitCode ?? "unknown"}`;
+}
+
+/**
+ * The output files of an ffmpeg argv: every positional token that is not the value of an option. `-` is the
+ * pipe and is not a file. An option that takes a value consumes the token after it, except the boolean ones.
+ */
+function outputArguments(args: string[]): string[] {
+	const outputs: string[] = [];
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === undefined || arg === "-") continue;
+
+		if (arg.startsWith("-")) {
+			if (!BOOLEAN_OPTIONS.has(arg)) index += 1;
+
+			continue;
+		}
+
+		outputs.push(arg);
+	}
+
+	return outputs;
 }
 
 /** Rejects the banned flags, input formats and filter tokens. */
@@ -69,11 +123,10 @@ export function hardenAnalyseArgs(args: string[], hardwareDecode: boolean): stri
 		hardened.push(arg);
 	}
 
-	const last = args.at(-1);
-	if (last && last !== "-" && !last.startsWith("-")) {
-		const outputPath = resolve(last);
-		const allowedRoots = [serverConfig.paths.transcodes, serverConfig.paths.subtitles];
-		if (!allowedRoots.some((root) => isSubpath(outputPath, resolve(root)))) {
+	const allowedRoots = [serverConfig.paths.transcodes, serverConfig.paths.subtitles].map((root) => resolve(root));
+	for (const outputArg of outputArguments(args)) {
+		const outputPath = resolve(outputArg);
+		if (!allowedRoots.some((root) => isSubpath(outputPath, root))) {
 			throw new DomainError("validation", "runAnalyse output must stay inside server-managed temporary directories", {
 				code: "plugin.ffmpeg.security_violation",
 			});

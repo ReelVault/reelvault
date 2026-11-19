@@ -326,6 +326,21 @@ describe("plugin package utils: tar extraction", () => {
 		}
 	});
 
+	test("rejects a tar entry whose path an earlier entry already holds as a directory", async () => {
+		const workRoot = await mkdtemp(join(tmpdir(), "reelvault-tar-conflict-"));
+		temporaryDirectories.push(workRoot);
+		const tar = buildTar([
+			{ path: "plugin-dir/lnk/escaped.txt", data: strToU8("first") },
+			{ path: "plugin-dir/lnk", data: strToU8("second") },
+		]);
+		const extractor = createTarStreamExtractor(workRoot, 1024 * 1024);
+
+		expect(() => {
+			extractor.push(tar);
+			extractor.finish();
+		}).toThrow(expect.objectContaining({ category: "validation", code: "plugin.package_path_conflict" }));
+	});
+
 	test("rejects a tar stream that ends mid-entry", async () => {
 		const workRoot = await mkdtemp(join(tmpdir(), "reelvault-tar-truncated-"));
 		temporaryDirectories.push(workRoot);

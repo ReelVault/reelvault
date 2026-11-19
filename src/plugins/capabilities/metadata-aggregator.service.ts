@@ -100,38 +100,37 @@ function ratingsFromContribution(contribution: ProviderContribution): ProviderRa
 	];
 }
 
+/** The first contribution, in priority order, whose picked value passes `accept`. */
+function firstContributed<T>(
+	contributions: readonly ProviderContribution[],
+	pick: (metadata: ProviderMetadataResult) => T | undefined | null,
+	accept: (value: T | undefined | null) => value is T,
+): T | undefined {
+	for (const contribution of contributions) {
+		const value = pick(contribution.metadata);
+		if (accept(value)) return value;
+	}
+
+	return undefined;
+}
+
 function firstNonEmptyString(
 	contributions: readonly ProviderContribution[],
 	pick: (metadata: ProviderMetadataResult) => string | undefined,
 ): string | undefined {
-	for (const contribution of contributions) {
-		const value = pick(contribution.metadata);
-		if (isNonEmptyString(value)) return value;
-	}
-
-	return undefined;
+	return firstContributed(contributions, pick, isNonEmptyString);
 }
 
 function firstDefined<T>(
 	contributions: readonly ProviderContribution[],
 	pick: (metadata: ProviderMetadataResult) => T | undefined | null,
 ): T | undefined {
-	for (const contribution of contributions) {
-		const value = pick(contribution.metadata);
-		if (!isNullish(value)) return value;
-	}
-
-	return undefined;
+	return firstContributed(contributions, pick, (value): value is T => !isNullish(value));
 }
 
 function firstNonEmptyArray<T>(
 	contributions: readonly ProviderContribution[],
 	pick: (metadata: ProviderMetadataResult) => T[] | undefined,
 ): T[] | undefined {
-	for (const contribution of contributions) {
-		const value = pick(contribution.metadata);
-		if (value && value.length > 0) return value;
-	}
-
-	return undefined;
+	return firstContributed(contributions, pick, (value): value is T[] => value !== undefined && value !== null && value.length > 0);
 }

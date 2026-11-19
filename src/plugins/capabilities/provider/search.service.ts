@@ -1,6 +1,6 @@
 import type { MetadataProviderSearchRequest, MetadataProviderSearchResponse } from "@reelvault/sdk/common";
 import type { ProviderSearchRequest, ProviderSearchResponse } from "@reelvault/sdk/plugin";
-import { DomainError } from "@/utils/domain.errors";
+import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { searchByProviderExternalId } from "./details.service";
 import { mapProvidersSafely } from "./fan-out.service";
 import { providerLog, publishSearchRequested, rankProviderResults, resolveProviders } from "./provider-lookup.utils";
@@ -59,8 +59,9 @@ export async function searchProviders(request: ProviderSearchRequest): Promise<P
 
 			return { providerId: provider.id, results: ranked.map((candidate) => candidate.item) };
 		},
-		() => {
-			// rankProviderResults reports per-provider failures through its own callback.
+		(provider, error) => {
+			// rankProviderResults reports search failures itself; this catches what it cannot, such as a timeout.
+			providerLog.logger.warn("Metadata provider search timed out", { providerId: provider.id, error: errorMessage(error) });
 		},
 	);
 }

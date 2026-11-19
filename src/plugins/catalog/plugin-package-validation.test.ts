@@ -84,6 +84,20 @@ describe("validatePluginPackage", () => {
 		expect(result.issues).toEqual([expect.objectContaining({ severity: "warning", code: "plugin.ui_manifest_invalid" })]);
 	});
 
+	test("warns about an interface manifest whose schemaRef file is missing, as the loader would refuse it", async () => {
+		const uiManifest = {
+			name: "UI",
+			version: "1.0.0",
+			pages: [{ id: "home", path: "home", name: "Home", schemaRef: "./missing.schema.json" }],
+		};
+		const root = await createPackage({}, { "index.mjs": "export default {};", "ui.json": JSON.stringify(uiManifest) });
+
+		const result = await validatePluginPackage(root, []);
+
+		expect(result.valid).toBe(true);
+		expect(result.issues).toEqual([expect.objectContaining({ severity: "warning", code: "plugin.ui.schema_ref_missing" })]);
+	});
+
 	test("describes a replacement of an installed version and warns when it is a downgrade", async () => {
 		const root = await createPackage({ version: "1.0.0" });
 

@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { systemSettingsStore } from "@/config/system-settings.store";
+import { timeoutSignal } from "@/utils/cancellation.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { MemoryCache } from "@/utils/memory.cache";
 import { normalizeLower } from "@/utils/type.utils";
@@ -73,8 +74,7 @@ function inputToUrl(input: RequestInfo | URL): string {
  * http(s)-only, allowlist/local-host policy, and pinned to a vetted public IP.
  */
 export function guardedPluginFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-	const timeout = AbortSignal.timeout(PLUGIN_HTTP_TIMEOUT_MS);
-	const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+	const signal = timeoutSignal(PLUGIN_HTTP_TIMEOUT_MS, init?.signal ?? undefined);
 
 	return guardedFetch(inputToUrl(input), {
 		...init,

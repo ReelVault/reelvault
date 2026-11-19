@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { DomainError } from "@/utils/domain.errors";
+import { DomainError, fsErrorCode } from "@/utils/domain.errors";
 import { isSubpath } from "@/utils/path.utils";
 
 export function unsafeEntryPath(entryPath: string): DomainError {
@@ -21,6 +21,21 @@ export function conflictingEntry(entryPath: string): DomainError {
 		code: "plugin.package_path_conflict",
 		params: { path: entryPath },
 	});
+}
+
+/**
+ * Runs the filesystem write of one archive entry. A path an earlier entry holds as a directory (or the reverse)
+ * is a malformed package, whichever archive format carries it.
+ */
+export function writeEntry(entryPath: string, write: () => void): void {
+	try {
+		write();
+	} catch (error) {
+		const code = fsErrorCode(error);
+		if (code === "EISDIR" || code === "ENOTDIR") throw conflictingEntry(entryPath);
+
+		throw error;
+	}
 }
 
 /** A symlink entry the extractor refuses; `reason` completes the sentence "Plugin package contains <reason>: <name>". */

@@ -176,12 +176,16 @@ class PluginFfmpegService {
 			);
 
 			if (result.exitCode !== 0) {
-				this.logger.error(
+				throw this.spriteProcessFailure(
 					"FFmpeg frame extraction failed during sprite build",
-					new Error(processFailureDetail(result.stderr, result.exitCode, "FFmpeg process")),
-					{ mediaFileId: request.mediaFileId, timeMs, exitCode: result.exitCode },
+					result.stderr,
+					result.exitCode,
+					"FFmpeg process",
+					{
+						mediaFileId: request.mediaFileId,
+						timeMs,
+					},
 				);
-				throw new DomainError("internal", "FFmpeg sprite extraction failed", { code: "plugin.ffmpeg.process_failed" });
 			}
 		});
 	}
@@ -203,14 +207,25 @@ class PluginFfmpegService {
 			maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
 		});
 		if (tileExitCode !== 0) {
-			this.logger.error("FFmpeg sprite tile failed", new Error(processFailureDetail(tileStderr, tileExitCode, "FFmpeg tile process")), {
+			throw this.spriteProcessFailure("FFmpeg sprite tile failed", tileStderr, tileExitCode, "FFmpeg tile process", {
 				mediaFileId: request.mediaFileId,
-				exitCode: tileExitCode,
 			});
-			throw new DomainError("internal", "FFmpeg sprite extraction failed", { code: "plugin.ffmpeg.process_failed" });
 		}
 
 		return { columns, rows };
+	}
+
+	/** Logs a failed sprite ffmpeg process with its stderr and returns the error that fails the request. */
+	private spriteProcessFailure(
+		message: string,
+		stderr: string | null,
+		exitCode: number | null,
+		label: string,
+		context: Record<string, unknown>,
+	): DomainError {
+		this.logger.error(message, new Error(processFailureDetail(stderr, exitCode, label)), { ...context, exitCode });
+
+		return new DomainError("internal", "FFmpeg sprite extraction failed", { code: "plugin.ffmpeg.process_failed" });
 	}
 
 	private async readSpriteOutput(

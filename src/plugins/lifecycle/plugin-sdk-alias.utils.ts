@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { errorMessage } from "@/utils/domain.errors";
+import { writeFileIfChanged } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { isRecord } from "@/utils/type.utils";
 
@@ -92,11 +93,8 @@ async function materializePluginSdkShim(pluginsDirectory: string): Promise<boole
 		await mkdir(join(pluginsDirectory, "node_modules", "@reelvault"), { recursive: true });
 		await Bun.write(join(shimDir, "package.json"), `${JSON.stringify(manifest, null, "\t")}\n`);
 
-		for (const file of files) {
-			// Only rewrite changed files so the shim does not churn the SD card / NAS.
-			const existing = existsSync(file.path) ? readFileSync(file.path, "utf8") : "";
-			if (existing !== file.contents) await Bun.write(file.path, file.contents);
-		}
+		// Only rewrite changed files so the shim does not churn the SD card / NAS.
+		for (const file of files) await writeFileIfChanged(file.path, file.contents);
 
 		logger.info("Plugin SDK runtime shim ready", { shimDir });
 

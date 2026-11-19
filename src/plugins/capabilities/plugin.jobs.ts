@@ -25,22 +25,11 @@ export interface PluginJobBatchOptions {
 	reference?: { type: string; id: string };
 }
 
-function clampPluginJobConcurrency(workerId: string, value: number | undefined): number | undefined {
+/** Floors an optional job option and clamps it into `[min, max]`; an absent option stays absent. */
+function clampJobOption(value: number | undefined, min: number, max: number): number | undefined {
 	if (value === undefined) return undefined;
 
-	return clamp(Math.floor(value), 1, resourceAllocator.getWorkerConcurrencyCeiling(workerId));
-}
-
-function clampPluginJobTimeout(value: number | undefined): number | undefined {
-	if (value === undefined) return undefined;
-
-	return clamp(Math.floor(value), 1, MAX_PLUGIN_JOB_TIMEOUT_MS);
-}
-
-function clampPluginJobAttempts(value: number | undefined): number | undefined {
-	if (value === undefined) return undefined;
-
-	return clamp(Math.floor(value), 1, MAX_PLUGIN_JOB_ATTEMPTS);
+	return clamp(Math.floor(value), min, max);
 }
 
 export const pluginJobsService = {
@@ -88,9 +77,9 @@ export const pluginJobsService = {
 					description: job.description,
 					category: "plugins",
 					defaultTriggers: job.schedule?.defaultTriggers,
-					concurrency: clampPluginJobConcurrency(name, job.options?.concurrency),
-					timeoutMs: clampPluginJobTimeout(job.options?.timeoutMs),
-					attempts: clampPluginJobAttempts(job.options?.attempts),
+					concurrency: clampJobOption(job.options?.concurrency, 1, resourceAllocator.getWorkerConcurrencyCeiling(name)),
+					timeoutMs: clampJobOption(job.options?.timeoutMs, 1, MAX_PLUGIN_JOB_TIMEOUT_MS),
+					attempts: clampJobOption(job.options?.attempts, 1, MAX_PLUGIN_JOB_ATTEMPTS),
 					backoff: job.options?.backoff,
 					removeOnComplete: job.options?.removeOnComplete,
 					removeOnFail: job.options?.removeOnFail,
