@@ -25,14 +25,14 @@ ReelVault is a self-hosted media server. It scans the folders you point it at, b
 
 ## Why ReelVault
 
-| What you get | How it works |
-|---|---|
-| 🎬 **A library built from your files** | Point the server at your movie and show folders. It finds the titles, fetches artwork and descriptions, and remembers where you left off in each one. |
-| ▶ **Playback without the guesswork** | If your device can play a file as-is, it gets the original file — no re-encoding, no quality loss. Otherwise the server converts it on the fly, using your graphics card when it can. You set the quality limits; the server does the rest. |
-| 👨‍👩‍👧 **Profiles for the whole household** | One account, several viewers. Each profile has its own continue-watching list, watchlist and playback settings, and you can lock a profile with a PIN. |
-| 🧩 **Plugins for the extras** | Metadata, subtitles, requests, webhooks and notifications are all plugins. Install them from the admin panel and they load right away — no restart, no rebuild. |
-| 🛠️ **Build on it** | The web app's own typed API is published as `@reelvault/sdk`. Write your own client, or add the feature you're missing as a plugin. |
-| 🔒 **Your data stays with you** | Files, watch history and settings live on your machine. Plugins are the only things that may reach outside services — and you choose which ones to install. |
+| What you get                            | How it works                                                                                                                                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🎬 **A library built from your files**  | Point the server at your movie and show folders. It finds the titles, fetches artwork and descriptions, and remembers where you left off in each one.                                                                                       |
+| ▶ **Playback without the guesswork**    | If your device can play a file as-is, it gets the original file — no re-encoding, no quality loss. Otherwise the server converts it on the fly, using your graphics card when it can. You set the quality limits; the server does the rest. |
+| 👨‍👩‍👧 **Profiles for the whole household** | One account, several viewers. Each profile has its own continue-watching list, watchlist and playback settings, and you can lock a profile with a PIN.                                                                                      |
+| 🧩 **Plugins for the extras**           | Metadata, subtitles, requests, webhooks and notifications are all plugins. Install them from the admin panel and they load right away — no restart, no rebuild.                                                                             |
+| 🛠️ **Build on it**                      | The web app's own typed API is published as `@reelvault/sdk`. Write your own client, or add the feature you're missing as a plugin.                                                                                                         |
+| 🔒 **Your data stays with you**         | Files, watch history and settings live on your machine. Plugins are the only things that may reach outside services — and you choose which ones to install.                                                                                 |
 
 The full documentation is at [reelvault.org](https://reelvault.org).
 
@@ -74,16 +74,16 @@ Install plugins from **Admin → Plugins → Available**. They run inside the se
 
 ## Repositories
 
-| Repository | What it is |
-|---|---|
-| [reelvault](https://github.com/ReelVault/reelvault) | The server (this repository) |
-| [website](https://github.com/ReelVault/website) | Web and desktop client |
-| app | Mobile client, in development |
-| [sdk](https://github.com/ReelVault/sdk) | Typed TypeScript SDK, published as `@reelvault/sdk` |
-| [plugins](https://github.com/ReelVault/plugins) | Official plugins and their catalog |
-| [plugin-template](https://github.com/ReelVault/plugin-template) | Starting point for a new plugin |
-| [installer](https://github.com/ReelVault/installer) | Installers, Docker setup and release bundles |
-| [reelvault.org](https://github.com/ReelVault/reelvault.org) | Documentation site |
+| Repository                                                      | What it is                                          |
+| --------------------------------------------------------------- | --------------------------------------------------- |
+| [reelvault](https://github.com/ReelVault/reelvault)             | The server (this repository)                        |
+| [website](https://github.com/ReelVault/website)                 | Web and desktop client                              |
+| app                                                             | Mobile client, in development                       |
+| [sdk](https://github.com/ReelVault/sdk)                         | Typed TypeScript SDK, published as `@reelvault/sdk` |
+| [plugins](https://github.com/ReelVault/plugins)                 | Official plugins and their catalog                  |
+| [plugin-template](https://github.com/ReelVault/plugin-template) | Starting point for a new plugin                     |
+| [installer](https://github.com/ReelVault/installer)             | Installers, Docker setup and release bundles        |
+| [reelvault.org](https://github.com/ReelVault/reelvault.org)     | Documentation site                                  |
 
 ## Development
 
@@ -108,13 +108,13 @@ Without a `.env` file, the server uses port 3030, keeps its data in `./data` and
 
 Most settings live in the admin panel. The environment variables you're most likely to need:
 
-| Variable | Default | What it does |
-|---|---|---|
-| `APP_PORT` | `3030` | HTTP port |
-| `APP_HOST` | `127.0.0.1` | Set to `0.0.0.0` to reach the server from other devices |
-| `ROOT_DIR` | `./data` | Database, images, plugins, logs and secrets |
-| `APP_PUBLIC_URL` | — | Public URL, used for links and sign-in if you use a domain |
-| `SETUP_TOKEN_ENABLED` | `false` | Require a one-time token for first-run setup |
+| Variable              | Default     | What it does                                               |
+| --------------------- | ----------- | ---------------------------------------------------------- |
+| `APP_PORT`            | `3030`      | HTTP port                                                  |
+| `APP_HOST`            | `127.0.0.1` | Set to `0.0.0.0` to reach the server from other devices    |
+| `ROOT_DIR`            | `./data`    | Database, images, plugins, logs and secrets                |
+| `APP_PUBLIC_URL`      | —           | Public URL, used for links and sign-in if you use a domain |
+| `SETUP_TOKEN_ENABLED` | `false`     | Require a one-time token for first-run setup               |
 
 The full list is in the [configuration guide](https://reelvault.org/guide/configuration).
 
