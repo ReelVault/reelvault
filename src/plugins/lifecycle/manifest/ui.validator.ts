@@ -298,6 +298,14 @@ function validateUiSlotContribution(
 		});
 	}
 
+	// A dashboard section is an embedded element; the host has no place to show a bare action there.
+	if (hasAction && slot === "dashboard-section") {
+		throw new DomainError("validation", "Plugin ui.json dashboard-section entries must declare an element", {
+			code: "plugin.ui.slot_element_required",
+			params: { slot },
+		});
+	}
+
 	if (hasAction) validateSlotAction(contribution.action, `ui.slots.${slot}.action`, pageIds, dialogIds);
 
 	if (hasElement) validateUiSurface(contribution.element, `ui.slots.${slot}.element`);

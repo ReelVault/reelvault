@@ -2,6 +2,7 @@ import {
 	PLUGIN_SCHEMA_ACTION_TYPES as PLUGIN_SCHEMA_ACTION_TYPE_VALUES,
 	PLUGIN_SCHEMA_CONDITION_OPS as PLUGIN_SCHEMA_CONDITION_OP_VALUES,
 	PLUGIN_SCHEMA_FIELD_INPUTS as PLUGIN_SCHEMA_FIELD_INPUT_VALUES,
+	type PLUGIN_SCHEMA_NODE_TYPES,
 	type PluginUiSchemaSurface,
 } from "@reelvault/sdk/plugin";
 import { KIB } from "@/utils/bytes.utils";
@@ -290,7 +291,9 @@ function validateNoopNode(): void {
 
 type SchemaNodeValidator = (node: Record<string, unknown>, context: SchemaNodeContext) => void;
 
-const schemaNodeValidators: Readonly<Record<string, SchemaNodeValidator>> = {
+// Keyed by the SDK's node list, so a node type the SDK (and the website renderer) supports cannot be
+// missing here: an omission is a type error, not a manifest the host rejects at load.
+const schemaNodeValidators: Readonly<Record<(typeof PLUGIN_SCHEMA_NODE_TYPES)[number], SchemaNodeValidator>> = {
 	field: validateFieldNode,
 	stack: validateContainerNode,
 	card: validateContainerNode,
@@ -300,6 +303,7 @@ const schemaNodeValidators: Readonly<Record<string, SchemaNodeValidator>> = {
 	tabs: validateTabsNode,
 	heading: validateTextNode,
 	text: validateTextNode,
+	code: validateTextNode,
 	badge: validateTextNode,
 	alert: validateAlertNode,
 	button: validateButtonNode,
@@ -312,6 +316,10 @@ const schemaNodeValidators: Readonly<Record<string, SchemaNodeValidator>> = {
 	separator: validateNoopNode,
 	empty: validateNoopNode,
 };
+
+function isSchemaNodeType(type: string): type is keyof typeof schemaNodeValidators {
+	return Object.hasOwn(schemaNodeValidators, type);
+}
 
 function validateSchemaNode(
 	node: unknown,
@@ -333,7 +341,8 @@ function validateSchemaNode(
 			params: { field },
 		});
 
-	const validator = schemaNodeValidators[node.type];
+	const nodeType = node.type;
+	const validator = isSchemaNodeType(nodeType) ? schemaNodeValidators[nodeType] : undefined;
 	if (!validator)
 		throw new DomainError("validation", `Plugin ui.json ${field} has an unsupported node type`, {
 			code: "plugin.ui.field_unsupported",

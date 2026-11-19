@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PluginUiManifest } from "@reelvault/sdk/plugin";
-import { applyUiOverrides, listUiContributions } from "./plugin-ui-contributions.utils";
+import { applyUiOverrides, filterUiManifest, listUiContributions } from "./plugin-ui-contributions.utils";
 
 const manifest: PluginUiManifest = {
 	name: "Requests",
@@ -100,5 +100,13 @@ describe("applyUiOverrides", () => {
 
 		expect(result.searchProvider).toBeUndefined();
 		expect(result.playbackPreRoll).toBeUndefined();
+	});
+});
+
+describe("filterUiManifest", () => {
+	test("a hidden page is no longer the search provider's item page, whoever filters it out", () => {
+		const result = filterUiManifest(manifest, { keepPage: (page) => page.id !== "mine" });
+
+		expect(result.searchProvider).toEqual({ endpoint: "/search" });
 	});
 });

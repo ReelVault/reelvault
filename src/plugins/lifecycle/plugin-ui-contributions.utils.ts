@@ -111,15 +111,13 @@ export interface UiManifestFilter {
 	keepSlot?: ((contribution: PluginSlotContribution, key: string) => boolean) | undefined;
 	dropSearchProvider?: boolean | undefined;
 	dropPlaybackPreRoll?: boolean | undefined;
-	/** Also drops a search provider whose `itemPage` was filtered out. */
-	pruneSearchProviderItemPage?: boolean | undefined;
 }
 
 /**
  * The one walk over the four manifest surfaces shared by admin overrides and
  * role filtering. After applying the caller's predicates it removes everything
  * that would dangle: tabs and slot actions pointing at a hidden page or dialog,
- * and the search provider's `itemPage` when pruning is enabled. Presence of the
+ * and the search provider's `itemPage`. Presence of the
  * `pages`/`dialogs` keys mirrors the input — an absent surface stays absent.
  */
 export function filterUiManifest(manifest: PluginUiManifest, filter: UiManifestFilter): PluginUiManifest {
@@ -164,7 +162,7 @@ export function filterUiManifest(manifest: PluginUiManifest, filter: UiManifestF
 	}
 
 	if (filter.dropSearchProvider) result.searchProvider = undefined;
-	else if (filter.pruneSearchProviderItemPage && result.searchProvider?.itemPage && !pageIds.has(result.searchProvider.itemPage)) {
+	else if (result.searchProvider?.itemPage && !pageIds.has(result.searchProvider.itemPage)) {
 		result.searchProvider = { ...result.searchProvider, itemPage: undefined };
 	}
 
@@ -188,6 +186,5 @@ export function applyUiOverrides(manifest: PluginUiManifest, hiddenKeys: Readonl
 		keepSlot: (_contribution, key) => !hiddenKeys.has(key),
 		dropSearchProvider: hiddenKeys.has("searchProvider"),
 		dropPlaybackPreRoll: hiddenKeys.has("playbackPreRoll"),
-		pruneSearchProviderItemPage: true,
 	});
 }

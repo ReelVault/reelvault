@@ -113,6 +113,15 @@ describe("plugin ui manifest references and slots", () => {
 		);
 	});
 
+	it("rejects a dashboard-section action, which the dashboard has no place to show", () => {
+		expect(() =>
+			validatePluginUiManifest({
+				...validUiManifest,
+				slots: { "dashboard-section": [{ label: "Go", action: { type: "page", page: "submit" } }] },
+			}),
+		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.slot_element_required" }));
+	});
+
 	it("rejects an unsupported tab host", () => {
 		expect(() => validatePluginUiManifest({ ...validUiManifest, tabs: { nowhere: [] } })).toThrow(
 			expect.objectContaining({
@@ -293,6 +302,20 @@ describe("plugin declarative schema", () => {
 				dialogs: [{ id: "report", title: "Report", tag: "rv-x-report", schema: validSchema }],
 			}),
 		).toThrow(expect.objectContaining({ category: "validation", code: "plugin.ui.element_source_invalid" }));
+	});
+
+	it("accepts a read-only code block, the node the bug-reports dialog uses", () => {
+		const rejection = (() => {
+			try {
+				validatePluginSchema({ body: [{ type: "code", text: "{{data.report.log}}" }] }, "ui");
+
+				return null;
+			} catch (error) {
+				return error;
+			}
+		})();
+
+		expect(rejection).toBeNull();
 	});
 
 	it("rejects an unsupported node type", () => {
