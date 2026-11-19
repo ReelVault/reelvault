@@ -2,6 +2,8 @@ import { basename, resolve } from "node:path";
 import { sleep } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { SCAN_YIELD_INTERVAL } from "@/modules/scanner/utils/scanner.utils";
+import { timeoutSignal } from "@/utils/cancellation.utils";
 import { type ScannedFileEntry, scanFiles, scanFilesWithStats } from "@/utils/directory.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
@@ -13,9 +15,6 @@ interface ScanOptions {
 	maxDepth?: number | undefined;
 	signal?: AbortSignal | undefined;
 }
-
-/** Resolve/dedupe is synchronous string work; yield so a 300k-file walk cannot hold the loop. */
-const DEDUPE_YIELD_INTERVAL = 5_000;
 
 /** Applies the defaults shared by `scan` and `scanWithStats`. */
 function resolveScanOptions(options: ScanOptions): {
@@ -97,7 +96,7 @@ export class FileScannerService {
 				const resolvedPath = resolve(pathOf(entry));
 				if (!unique.has(resolvedPath)) unique.set(resolvedPath, withResolvedPath(entry, resolvedPath));
 				processed++;
-				if (processed % DEDUPE_YIELD_INTERVAL === 0) await sleep(0);
+				if (processed % SCAN_YIELD_INTERVAL === 0) await sleep(0);
 			}
 		}
 
@@ -120,8 +119,7 @@ export class FileScannerService {
 				const patterns = serverConfig.media.ignorePatterns;
 				// The timeout signal stops the real glob; the race below guarantees the
 				// scan moves on even if the filesystem call ignores the abort.
-				const timeoutSignal = AbortSignal.timeout(this.pathScanTimeoutMs);
-				const scanSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+				const scanSignal = timeoutSignal(this.pathScanTimeoutMs, signal);
 				const scanPromise = scanRoot(path, extensions, maxDepth, scanSignal);
 
 				try {

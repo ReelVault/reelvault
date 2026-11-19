@@ -1,11 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { removeTree } from "@/utils/directory.utils";
+import { mockModuleWithRealExports, restoreModuleMocks } from "../../../tests/helpers/module-mock.helper";
 import { imageUploadService } from "./image-upload.service";
 
 describe("ImageUploadService", () => {
@@ -94,5 +95,31 @@ describe("ImageUploadService", () => {
 				variant: "poster",
 			}),
 		).rejects.toMatchObject({ category: "validation", code: "images.unsupported_format" });
+	});
+
+	it("leaves no temporary file behind when the optimized image reports no dimensions", async () => {
+		const previousImagesPath = serverConfig.paths.images;
+		const testRoot = join(tmpdir(), `reelvault-image-upload-${crypto.randomUUID()}`);
+		serverConfig.paths.images = testRoot;
+		mockModuleWithRealExports("@/integrations/sharp/sharp.actions", {
+			optimizeImageWithInfo: () => Promise.resolve({ data: Buffer.from("WEBP"), info: { format: "webp", width: 0, height: 0, size: 4 } }),
+		});
+
+		try {
+			const source = await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+				.png()
+				.toBuffer();
+
+			const failure = await imageUploadService
+				.upload(new File([source], "poster.png", { type: "image/png" }), target)
+				.catch((error: unknown) => error);
+
+			expect(failure).toMatchObject({ category: "internal", code: "images.optimized_invalid" });
+			expect(await readdir(join(testRoot, ".tmp")).catch(() => [])).toEqual([]);
+		} finally {
+			restoreModuleMocks();
+			serverConfig.paths.images = previousImagesPath;
+			await removeTree(testRoot);
+		}
 	});
 });

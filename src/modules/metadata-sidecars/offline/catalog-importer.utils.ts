@@ -93,7 +93,7 @@ export function insertMetadataRow(
 			document.tagline ?? null,
 			type,
 			document.status ?? null,
-			document.releaseDate ?? `${document.year ?? 0}-01-01`,
+			document.releaseDate ?? (document.year ? `${document.year}-01-01` : ""),
 			now,
 			now,
 		],

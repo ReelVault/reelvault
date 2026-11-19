@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { Logger } from "@reelvault/sdk";
 import type { Subprocess } from "bun";
 import { serverConfig } from "@/config/server/server.config";
@@ -13,7 +12,7 @@ import { DomainError, errorMessage } from "@/utils/domain.errors";
 import { getFileStats } from "@/utils/file.utils";
 import { clamp } from "@/utils/math.utils";
 import { detachCatching } from "@/utils/promise.utils";
-import { deleteDownloadOutput, downloadDirectory, downloadFileName } from "./download-files.utils";
+import { deleteDownloadOutput, downloadDirectory, downloadFileName, downloadFilePath } from "./download-files.utils";
 import { buildDownloadOutputArgs, ffmpegTimeToSeconds } from "./download-quality.utils";
 
 /** What a run shares with the service: its logger and the kill-switches of in-flight ffmpeg runs, keyed by download id. */
@@ -137,13 +136,12 @@ export async function runClaimedDownload(
 
 async function prepareOutput(downloadId: string, quality: string, sourceFileName: string): Promise<string> {
 	const fileName = downloadFileName(sourceFileName, quality);
-	const outputDir = downloadDirectory(downloadId);
 
 	// awaits: sequential — the output directory exists before the file name is recorded
-	await createDirectory(outputDir);
+	await createDirectory(downloadDirectory(downloadId));
 	await downloadsRepository.update(downloadId, { fileName });
 
-	return join(outputDir, fileName);
+	return downloadFilePath(downloadId, fileName);
 }
 
 /** Progress writes must never reject into ffmpeg's callbacks: a failure is logged and the run goes on. */

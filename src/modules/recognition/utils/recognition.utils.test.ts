@@ -6,6 +6,7 @@ import {
 	extractPathProviderIds,
 	extractSeasonEpisode,
 	parseFileName,
+	readSeasonFolderNumber,
 	resolveEpisodeNumbers,
 	resolveShowTitle,
 } from "./recognition.utils";
@@ -347,5 +348,17 @@ describe("resolveShowTitle", () => {
 			title: "Friends",
 			year: undefined,
 		});
+	});
+});
+
+describe("readSeasonFolderNumber", () => {
+	test.each([
+		["Season 1", 1],
+		["Sezon 1", 1],
+		["S1", 1],
+		["Specials", 0],
+		["Staffel 1", undefined],
+	])("reads the season of folder %p as %p", (folderName, seasonNumber) => {
+		expect(readSeasonFolderNumber(folderName)).toBe(seasonNumber);
 	});
 });

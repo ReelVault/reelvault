@@ -1,6 +1,9 @@
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import type { MetadataStorageMode } from "@reelvault/sdk/common";
+import { readSeasonFolderNumber } from "@/modules/recognition/utils/recognition.utils";
+import { writeFileIfChanged } from "@/utils/file.utils";
 import { isSubpath } from "@/utils/path.utils";
+import { suppressWatcherPath } from "@/utils/watcher-write-suppression.utils";
 import type { SidecarStorageLibrary } from "./sidecar.types";
 
 export interface PreparedStorageRoots {
@@ -46,6 +49,18 @@ export function usesSidecars(mode: MetadataStorageMode): boolean {
 export function resolveSeriesDirectory(roots: PreparedStorageRoots, episodeDirectory: string): string {
 	const index = longestMatchingRootIndex(roots.resolved, episodeDirectory);
 	const bestMatch = index === undefined ? undefined : roots.resolved[index];
+	if (bestMatch === episodeDirectory) return episodeDirectory;
 
-	return bestMatch === episodeDirectory ? episodeDirectory : dirname(episodeDirectory);
+	// Flat layout: a show folder directly under a library path holds its own episodes, so its series document stays in that folder.
+	const isFlatShowFolder =
+		bestMatch !== undefined && dirname(episodeDirectory) === bestMatch && readSeasonFolderNumber(basename(episodeDirectory)) === undefined;
+
+	return isFlatShowFolder ? episodeDirectory : dirname(episodeDirectory);
+}
+
+/** Writes a sidecar file unless it already holds exactly `contents`, suppressing the watcher event for this process's own write. */
+export async function writeSidecarFileIfChanged(path: string, contents: string | Buffer | Uint8Array): Promise<boolean> {
+	suppressWatcherPath(path);
+
+	return await writeFileIfChanged(path, contents);
 }

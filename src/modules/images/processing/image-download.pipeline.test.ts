@@ -3,6 +3,7 @@ import { serverConfig } from "@/config/server/server.config";
 import { ImageDownloadPipeline } from "./image-download.pipeline";
 
 const DATA = Buffer.from([1, 2, 3, 4]);
+const TEMP_WEBP_PATH = /^\/images\/\.tmp\/.+\.webp$/;
 // Derived by hand from the storage algorithm, so a change in the key or path
 // format breaks this test instead of being mirrored by it:
 // sha256([1,2,3,4]) → source hash; the key is "v1:local:" + hex("image") +
@@ -64,7 +65,11 @@ function createPipeline(config: PipelineConfig = {}): { pipeline: ImageDownloadP
 		getImageMetadata: async () => ({ format: config.metadataFormat ?? "png" }),
 		getFileStats: async () => ({ size: config.sourceSize ?? 1024 }),
 		optimizeImageWithInfo: async () => ({ data: DATA, info: { format: "webp", width: 320, height: 240, size: DATA.byteLength } }),
-		writeFile: async () => config.writeSucceeds !== false,
+		writeFileAtomic: () => {
+			if (config.writeSucceeds === false) return Promise.reject(new Error("disk full"));
+
+			return Promise.resolve();
+		},
 		deleteFile: (path) => {
 			spies.deleted.push(path);
 
@@ -106,12 +111,7 @@ describe("ImageDownloadPipeline", () => {
 			stableKey: STABLE_KEY,
 		});
 		expect(spies.createdDirectories).toEqual(["/images/.tmp", "/images/posters"]);
-		expect(spies.renamed).toHaveLength(2);
-		const temporaryPath = spies.renamed[0]?.[1] ?? "";
-		expect(spies.renamed).toEqual([
-			[expect.any(String), temporaryPath],
-			[temporaryPath, STABLE_PATH],
-		]);
+		expect(spies.renamed).toEqual([[expect.stringMatching(TEMP_WEBP_PATH), STABLE_PATH]]);
 	});
 
 	test("discards the temporary file when the stable path already exists", async () => {
@@ -121,9 +121,8 @@ describe("ImageDownloadPipeline", () => {
 		const result = await pipeline.downloadAndPrepare(URL, TARGET, "poster", "poster");
 
 		expect(result.localPath).toBe(STABLE_PATH);
-		expect(spies.renamed).toHaveLength(1);
-		expect(spies.deleted.filter((path) => path.endsWith(".tmp"))).toHaveLength(2);
-		expect(spies.deleted).toContain(spies.renamed[0]?.[1] ?? "");
+		expect(spies.renamed).toEqual([]);
+		expect(spies.deleted.filter((path) => path.endsWith(".webp"))).toEqual([expect.stringMatching(TEMP_WEBP_PATH)]);
 	});
 
 	test("rejects a failed download with its coded validation error and removes the temporary files", async () => {
@@ -133,7 +132,7 @@ describe("ImageDownloadPipeline", () => {
 			category: "validation",
 			code: "images.download_failed",
 		});
-		expect(spies.deleted.filter((path) => path.endsWith(".tmp"))).toHaveLength(2);
+		expect(spies.deleted.filter((path) => path.endsWith(".source.tmp"))).toHaveLength(1);
 	});
 
 	test("rejects a download whose bytes carry no recognized image format", async () => {
@@ -161,7 +160,7 @@ describe("ImageDownloadPipeline", () => {
 			category: "internal",
 			code: "image.write_failed",
 		});
-		expect(spies.deleted.filter((path) => path.endsWith(".tmp"))).toHaveLength(2);
+		expect(spies.deleted.filter((path) => path.endsWith(".source.tmp"))).toHaveLength(1);
 	});
 
 	test("prepareLocalArtwork optimizes a local file through the same persist path", async () => {

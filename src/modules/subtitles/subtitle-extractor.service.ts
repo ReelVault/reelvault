@@ -12,7 +12,6 @@ import { createInFlightCache } from "@/utils/memory.cache";
 import { createSemaphore, withTimeout } from "@/utils/promise.utils";
 import { buildWebVttExtractionArgs } from "./extract/ffmpeg-args.builder";
 import type { SubtitleContent } from "./subtitle-content.resolver";
-import { isBitmapSubtitleFormat } from "./subtitle-formats.utils";
 import { subtitleVttPath } from "./subtitle-path.utils";
 
 interface FfmpegRunResult {
@@ -52,15 +51,9 @@ export class SubtitleExtractorService {
 		subtitleId: string,
 		mediaFilePath: string,
 		streamIndex: number | null | undefined,
-		format?: string | null,
 		signal?: AbortSignal,
 	): Promise<SubtitleContent | null> {
 		throwIfAborted(signal);
-		if (isBitmapSubtitleFormat(format)) {
-			this.logger.warn("Bitmap subtitle extraction to WebVTT text track is not supported", { subtitleId, format });
-
-			return null;
-		}
 
 		if (typeof streamIndex !== "number" || streamIndex < 0) {
 			this.logger.warn("Invalid stream index for embedded subtitle extraction", { subtitleId, streamIndex });

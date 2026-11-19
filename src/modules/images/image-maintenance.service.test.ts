@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, utimes } from "node:fs/promises";
+import { mkdtemp, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -90,7 +90,9 @@ describe("ImageMaintenanceService", () => {
 		const outcome = await imageMaintenanceService.optimizeImageById("img-1");
 		expect(outcome).toBe("reoptimized");
 
-		expect(await sourceVersionCache.read(sourcePath)).not.toBe(versionBefore);
+		const rewritten = await stat(sourcePath);
+		expect(versionBefore).not.toBe(`${rewritten.size}:${Math.floor(rewritten.mtimeMs)}`);
+		expect(await sourceVersionCache.read(sourcePath)).toBe(`${rewritten.size}:${Math.floor(rewritten.mtimeMs)}`);
 	});
 
 	test("keeps an orphan younger than the default minimum age", async () => {

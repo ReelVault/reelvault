@@ -8,13 +8,12 @@ import type {
 	SidecarSnapshotDocument,
 	SidecarWriteResult,
 } from "@/modules/metadata-sidecars/sidecar.types";
+import { SIDECAR_SNAPSHOT_SCHEMA_VERSION } from "@/modules/metadata-sidecars/sidecar-snapshot.builder";
 import { writeXmlDocument, writeXmlIfChanged } from "@/modules/metadata-sidecars/xml/xml.writer";
 import { loadXmlDocumentFile } from "@/modules/metadata-sidecars/xml/xml-document.reader";
 import { readXmlObject, readXmlText } from "@/modules/metadata-sidecars/xml/xml-value.reader";
 import { safeParseJson } from "@/utils/json.utils";
 import { isRecord } from "@/utils/type.utils";
-
-const SNAPSHOT_VERSION = 1;
 
 export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 	readonly id = "reelvault";
@@ -48,7 +47,10 @@ export class ReelVaultFormatAdapter implements SidecarFormatAdapter {
 	async write({ documentPath, document }: SidecarFormatOutput): Promise<SidecarWriteResult> {
 		const contents = await writeXmlDocument({
 			rootName: "reelvault",
-			values: { reelvaultSchemaVersion: document.reelvaultSchemaVersion || SNAPSHOT_VERSION, snapshot: JSON.stringify(document) },
+			values: {
+				reelvaultSchemaVersion: document.reelvaultSchemaVersion || SIDECAR_SNAPSHOT_SCHEMA_VERSION,
+				snapshot: JSON.stringify(document),
+			},
 		});
 		return await writeXmlIfChanged(documentPath, contents);
 	}

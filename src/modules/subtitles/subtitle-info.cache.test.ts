@@ -76,7 +76,7 @@ describe("SubtitleInfoCache", () => {
 		await db.client().update(schema.subtitles).set({ format: "vtt" }).where(eq(schema.subtitles.id, "sub-2"));
 		expect((await cache.getOrSet("sub-2")).format).toBe("srt");
 
-		cache.invalidate("sub-2");
+		await cache.invalidateAndWait("sub-2");
 		expect((await cache.getOrSet("sub-2")).format).toBe("vtt");
 	});
 

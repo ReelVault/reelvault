@@ -1,4 +1,11 @@
+import { join } from "node:path";
+import { serverConfig } from "@/config/server/server.config";
 import { createHash } from "@/utils/crypto.utils";
+
+/** Directory holding the optimized copies, under the images root. */
+export function getOptimizedImageCacheDir(): string {
+	return join(serverConfig.paths.images, ".cache");
+}
 
 /** Prefix marking a cache entry generated from a source path with no registered image row. */
 const SOURCE_ID_PREFIX = "src";

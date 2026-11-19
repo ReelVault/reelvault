@@ -34,19 +34,14 @@ export function episodeSnapshot(episode: EpisodeSnapshotInput): SidecarSnapshotD
 	};
 }
 
-function createLocalSnapshot(
-	title: string,
-	releaseDate?: string | null,
-	overview?: string | null,
-	status?: string | null,
+export const SIDECAR_SNAPSHOT_SCHEMA_VERSION = 1;
+
+/** A snapshot document with empty collections; the caller fills in the fields it knows. */
+export function snapshotDocument(
+	fields: Pick<SidecarSnapshotDocument, "title"> & Partial<SidecarSnapshotDocument>,
 ): SidecarSnapshotDocument {
 	return {
-		reelvaultSchemaVersion: 1,
-		title,
-		releaseDate: releaseDate ?? undefined,
-		year: releaseDate ? extractYear(releaseDate.slice(0, 4)) : undefined,
-		overview: overview ?? undefined,
-		status: status ?? undefined,
+		reelvaultSchemaVersion: SIDECAR_SNAPSHOT_SCHEMA_VERSION,
 		identifiers: {},
 		genres: [],
 		keywords: [],
@@ -54,5 +49,26 @@ function createLocalSnapshot(
 		cast: [],
 		crew: [],
 		ratings: [],
+		...fields,
 	};
+}
+
+/** Release year of an ISO release date (`2024-05-01` → 2024); `undefined` when there is no date. */
+export function releaseYear(releaseDate: string | null | undefined): number | undefined {
+	return releaseDate ? extractYear(releaseDate.slice(0, 4)) : undefined;
+}
+
+function createLocalSnapshot(
+	title: string,
+	releaseDate?: string | null,
+	overview?: string | null,
+	status?: string | null,
+): SidecarSnapshotDocument {
+	return snapshotDocument({
+		title,
+		releaseDate: releaseDate ?? undefined,
+		year: releaseYear(releaseDate),
+		overview: overview ?? undefined,
+		status: status ?? undefined,
+	});
 }

@@ -105,6 +105,11 @@ export class ImageCacheEviction {
 		// Seed oldest-first so later FIFO eviction keeps the same recency order.
 		const tracked = new Set<string>();
 		for (const entry of sorted.slice(excessLength)) tracked.add(entry.name);
+		// Writes recorded while the listing ran are newer than what it returned, so they go last.
+		for (const name of this.tracked.get(cacheDir) ?? []) {
+			tracked.delete(name);
+			tracked.add(name);
+		}
 		this.tracked.set(cacheDir, tracked);
 	}
 

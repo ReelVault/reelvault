@@ -1,7 +1,8 @@
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import { detectImageFormat } from "@/modules/images/image-format.utils";
+import { createImageTemporaryPath } from "@/modules/images/image-temp-path.utils";
 import { MIB } from "@/utils/bytes.utils";
 import { createDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
@@ -35,27 +36,20 @@ class ImageUploadService {
 		if (!detectImageFormat(source))
 			throw new DomainError("validation", "Uploaded file is not a supported raster image", { code: "images.unsupported_format" });
 
-		const localPath = this.createTemporaryImagePath();
-		// awaits: sequential — the target directory exists before the image is written there
-		await createDirectory(dirname(localPath));
-
 		const { data, info } = await optimizeImageWithInfo(source, serverConfig.images.variants[target.variant]);
+		if (!(info.width && info.height)) {
+			throw new DomainError("internal", "Optimized image is invalid", { code: "images.optimized_invalid" });
+		}
 
+		const localPath = createImageTemporaryPath(serverConfig.paths.imageTmp);
+		await createDirectory(dirname(localPath));
 		try {
 			await writeFileAtomic(localPath, data);
 		} catch (error) {
 			throw new DomainError("internal", "Cannot write optimized image", { cause: error, code: "image.write_failed" });
 		}
 
-		if (!(info.width && info.height)) {
-			throw new DomainError("internal", "Optimized image is invalid", { code: "images.optimized_invalid" });
-		}
-
 		return { localPath, ...toOptimizedImageFields({ data, info }) };
-	}
-
-	private createTemporaryImagePath(): string {
-		return join(serverConfig.paths.imageTmp, `${crypto.randomUUID()}.webp`);
 	}
 }
 

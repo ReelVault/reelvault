@@ -9,6 +9,7 @@ import {
 	LEADING_YEAR_PATTERN,
 	PROVIDER_ID_TAG_CAPTURE_PATTERN,
 	PROVIDER_ID_TAG_PATTERN,
+	SEASON_FOLDER_PATTERN,
 	TMDB_ID_PATTERN,
 	YEAR_FOLDER_PATTERN,
 	YEAR_TITLE_PATTERN,
@@ -134,7 +135,7 @@ export function extractSeasonEpisode(fileName: string): { season?: number; episo
 	const result = extractSeasonEpisodeUncached(fileName);
 	extractCache.set(fileName, result);
 
-	return result;
+	return { ...result };
 }
 
 function extractSeasonEpisodeUncached(fileName: string): { season?: number; episode?: number; episodeEnd?: number } {
@@ -177,6 +178,29 @@ export function resolveEpisodeNumbers(
 	}
 
 	return { season, episode, episodeEnd };
+}
+
+/**
+ * The episode a series file names, with its parsed identity for the title step. `null` when the file names no
+ * season and episode, so the strategy does not claim it.
+ */
+export function resolveFileEpisode(
+	fileName: string,
+	folderSeason?: number,
+): { fileIdentity: MediaIdentity | null; season: number; episode: number; episodeEnd: number | undefined } | null {
+	const fileIdentity = parseFileName(fileName);
+	const { season, episode, episodeEnd } = resolveEpisodeNumbers(fileName, fileIdentity, folderSeason);
+	if (season === undefined || episode === undefined) return null;
+
+	return { fileIdentity, season, episode, episodeEnd };
+}
+
+/** Season number of a season folder name (`Season 3`, `Sezon 3`, `S3`); `Specials` is season 0. `undefined` for any other name. */
+export function readSeasonFolderNumber(folderName: string): number | undefined {
+	const match = SEASON_FOLDER_PATTERN.exec(folderName);
+	if (!match) return undefined;
+
+	return match[1] === undefined ? 0 : Number.parseInt(match[1], 10);
 }
 
 /** Upper bound on episodes a single file may claim — longer "ranges" are scene noise. */

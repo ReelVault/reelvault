@@ -1,14 +1,15 @@
 import { copyFile, rename } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { serverConfig } from "@/config/server/server.config";
 import { getImageMetadata, type OptimizedImageResult, optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
+import { createImageTemporaryPath } from "@/modules/images/image-temp-path.utils";
 import { toOptimizedImageFields } from "@/modules/images/optimized-image.utils";
 import type { ImageOwnerTarget, PersistedImageInput } from "@/repositories/images.repository";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { createDirectory } from "@/utils/directory.utils";
 import { DomainError, errorMessage } from "@/utils/domain.errors";
-import { createTempPath, deleteFile, downloadFile, fileExists, getFileStats, writeFile } from "@/utils/file.utils";
+import { createTempPath, deleteFile, downloadFile, fileExists, getFileStats, writeFileAtomic } from "@/utils/file.utils";
 import { createImageStableKey, createImageStoragePath } from "@/utils/image-storage.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { getContentType } from "./content-types.utils";
@@ -19,7 +20,7 @@ interface ServiceDependencies {
 	getImageMetadata: (filePath: string) => Promise<{ format: string }>;
 	getFileStats: (filePath: string) => Promise<{ size: number } | null>;
 	optimizeImageWithInfo: (input: string, options: SharpImageOptions, signal?: AbortSignal) => Promise<OptimizedImageResult>;
-	writeFile: (path: string, content: Buffer) => Promise<boolean>;
+	writeFileAtomic: (path: string, content: Buffer) => Promise<void>;
 	deleteFile: (path: string) => Promise<boolean>;
 	fileExists: (path: string) => Promise<boolean>;
 	renameFile: (from: string, to: string) => Promise<void>;
@@ -35,7 +36,7 @@ const defaultDependencies: ServiceDependencies = {
 	getImageMetadata: (filePath) => getImageMetadata(filePath),
 	getFileStats: (filePath) => getFileStats(filePath),
 	optimizeImageWithInfo: (input, options, signal) => optimizeImageWithInfo(input, options, signal),
-	writeFile: (path, content) => writeFile(path, content),
+	writeFileAtomic: (path, content) => writeFileAtomic(path, content),
 	deleteFile: (path) => deleteFile(path),
 	fileExists: (path) => fileExists(path),
 	renameFile: (from, to) => rename(from, to),
@@ -85,10 +86,6 @@ export class ImageDownloadPipeline {
 		return { localPath: await this.moveToStablePath(localPath, stableKey, source.imageType), stableKey };
 	}
 
-	private createTemporaryImagePath(): string {
-		return join(this.dependencies.imageTmpPath(), `${crypto.randomUUID()}.webp`);
-	}
-
 	private async moveToStablePath(localPath: string, stableKey: string, imageType?: string): Promise<string> {
 		const stablePath = createImageStoragePath({ root: this.dependencies.imagesRoot(), stableKey, imageType });
 		if (localPath === stablePath) return stablePath;
@@ -117,7 +114,7 @@ export class ImageDownloadPipeline {
 		signal: AbortSignal | undefined,
 		acquire: (sourcePath: string) => Promise<void>,
 	): Promise<PersistedImageInput> {
-		const temporaryPath = this.createTemporaryImagePath();
+		const temporaryPath = createImageTemporaryPath(this.dependencies.imageTmpPath());
 		const source = await this.optimizeSource(temporaryPath, variant, signal, acquire);
 		const placed = await this.placeAtStablePath(temporaryPath, {
 			ownerStableKey: target.ownerStableKey,
@@ -191,20 +188,20 @@ export class ImageDownloadPipeline {
 		await this.dependencies.createDirectory(dirname(localPath));
 
 		const sourcePath = createTempPath(localPath, ".source.tmp");
-		const optimizedPath = createTempPath(localPath, ".optimized.tmp");
 		try {
 			await acquire(sourcePath);
 
 			throwIfAborted(signal);
 			const { data, info } = await this.dependencies.optimizeImageWithInfo(sourcePath, this.dependencies.resolveVariant(variant), signal);
-			if (!(await this.dependencies.writeFile(optimizedPath, data)))
-				throw new DomainError("internal", `Cannot write optimized image: ${localPath}`, { code: "image.write_failed" });
-
-			await this.dependencies.renameFile(optimizedPath, localPath);
+			try {
+				await this.dependencies.writeFileAtomic(localPath, data);
+			} catch (error) {
+				throw new DomainError("internal", `Cannot write optimized image: ${localPath}`, { cause: error, code: "image.write_failed" });
+			}
 
 			return toOptimizedImageFields({ data, info });
 		} finally {
-			await Promise.all([this.dependencies.deleteFile(sourcePath), this.dependencies.deleteFile(optimizedPath)]);
+			await this.dependencies.deleteFile(sourcePath);
 		}
 	}
 }

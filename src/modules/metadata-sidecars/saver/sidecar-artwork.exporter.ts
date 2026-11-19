@@ -7,12 +7,12 @@ import {
 	episodeThumbFileName,
 	SEASON_POSTER_SUFFIX,
 } from "@/modules/metadata-sidecars/files/artwork.constants";
+import { writeSidecarFileIfChanged } from "@/modules/metadata-sidecars/sidecar-storage.utils";
 import { imageRepository } from "@/repositories/images.repository";
 import { errorMessage } from "@/utils/domain.errors";
-import { fileStatSignature, fileVersionSignature, getFileStats, writeFileIfChanged } from "@/utils/file.utils";
+import { fileStatSignature, fileVersionSignature, getFileStats } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { suppressWatcherPath } from "@/utils/watcher-write-suppression.utils";
 import { assertEpisodeBaseName, seasonFileName } from "./sidecar-path.policy";
 
 const JPEG_QUALITY: ImageQuality = 85;
@@ -145,8 +145,7 @@ export class SidecarArtworkExporter implements SidecarArtworkWriter {
 		// Metadata mutations re-save constantly — skip the tmp+rename when the
 		// exported bytes are already on disk, and remember the signatures so the
 		// next save skips the re-encode too.
-		suppressWatcherPath(targetPath);
-		const written = await writeFileIfChanged(targetPath, contents);
+		const written = await writeSidecarFileIfChanged(targetPath, contents);
 		if (!written) {
 			exportStamps.set(targetPath, { sourceSignature, targetSignature });
 

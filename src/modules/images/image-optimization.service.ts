@@ -14,9 +14,10 @@ import { detachCatching } from "@/utils/promise.utils";
 import { imageCacheEviction } from "./cache/image-cache.eviction";
 import { parseImageRequest } from "./cache/image-request.parser";
 import { sourceVersionCache } from "./cache/source-version.cache";
-import { buildImageCacheKey } from "./image-cache-key.utils";
+import { buildImageCacheKey, getOptimizedImageCacheDir } from "./image-cache-key.utils";
+import { OPTIMIZED_IMAGE_CONTENT_TYPE } from "./optimized-image.utils";
 
-const CONTENT_TYPE = "image/webp";
+const CONTENT_TYPE = OPTIMIZED_IMAGE_CONTENT_TYPE;
 
 export interface OptimizedImage {
 	file: ReturnType<typeof bunFile> | Blob;
@@ -34,7 +35,7 @@ class ImageOptimizationService {
 
 	async getOptimizedImage(sourcePath: string, request: ImageQuery, imageId?: string, signal?: AbortSignal): Promise<OptimizedImage> {
 		const options = parseImageRequest(request, serverConfig.images);
-		const cacheDir = join(serverConfig.paths.images, ".cache");
+		const cacheDir = getOptimizedImageCacheDir();
 		const sourceVersion = (await sourceVersionCache.read(sourcePath)).replaceAll(":", "-");
 		const cacheKey = buildImageCacheKey(imageId, sourcePath, options, sourceVersion);
 		const cachePath = join(cacheDir, cacheKey);

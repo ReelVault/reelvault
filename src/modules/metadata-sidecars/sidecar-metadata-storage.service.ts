@@ -172,20 +172,24 @@ export class SidecarMetadataStorageService {
 		await this.saveSeriesOnce(mediaFile, seriesDirectory, scope);
 		await this.saveSeasonOnce(season, episodeDirectory, scope);
 
-		await scope.writes.runExclusive(`episode:${episode.id}:${episodeDirectory}`, () =>
-			this.writer.saveEpisode({
-				episodeId: episode.id,
-				episodeDirectory,
-				videoBaseName: getFileNameWithoutExt(mediaFile.filePath),
-				snapshot: episodeSnapshot(episode),
-				flavor: scope.flavor,
-			}),
+		await this.writeAndExport(
+			scope,
+			`episode:${episode.id}:${episodeDirectory}`,
+			async () =>
+				await this.writer.saveEpisode({
+					episodeId: episode.id,
+					episodeDirectory,
+					videoBaseName: getFileNameWithoutExt(mediaFile.filePath),
+					snapshot: episodeSnapshot(episode),
+					flavor: scope.flavor,
+				}),
+			async () =>
+				await this.artwork.saveEpisodeArtwork({
+					imageId: episode.imageId,
+					directory: episodeDirectory,
+					videoBaseName: getFileNameWithoutExt(mediaFile.filePath),
+				}),
 		);
-		await this.artwork.saveEpisodeArtwork({
-			imageId: episode.imageId,
-			directory: episodeDirectory,
-			videoBaseName: getFileNameWithoutExt(mediaFile.filePath),
-		});
 	}
 
 	private async saveSeriesOnce(mediaFile: SidecarStorageMediaFile, seriesDirectory: string, scope: SaveScope): Promise<void> {
@@ -220,20 +224,23 @@ export class SidecarMetadataStorageService {
 		if (scope.savedSeasons.has(seasonKey)) return;
 
 		scope.savedSeasons.add(seasonKey);
-		// awaits: sequential — the season record is saved before its artwork
-		await scope.writes.runExclusive(`season:${seasonKey}`, () =>
-			this.writer.saveSeason({
-				seasonId: season.id,
-				seasonDirectory: episodeDirectory,
-				seasonNumber: season.seasonNumber,
-				snapshot: seasonSnapshot(season),
-				flavor: scope.flavor,
-			}),
+		await this.writeAndExport(
+			scope,
+			`season:${seasonKey}`,
+			async () =>
+				await this.writer.saveSeason({
+					seasonId: season.id,
+					seasonDirectory: episodeDirectory,
+					seasonNumber: season.seasonNumber,
+					snapshot: seasonSnapshot(season),
+					flavor: scope.flavor,
+				}),
+			async () =>
+				await this.artwork.saveSeasonArtwork({
+					imageId: season.imageId,
+					directory: episodeDirectory,
+					seasonNumber: season.seasonNumber,
+				}),
 		);
-		await this.artwork.saveSeasonArtwork({
-			imageId: season.imageId,
-			directory: episodeDirectory,
-			seasonNumber: season.seasonNumber,
-		});
 	}
 }

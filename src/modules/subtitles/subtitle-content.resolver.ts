@@ -18,15 +18,14 @@ interface ServiceDependencies {
 		id: string,
 		mediaFilePath: string,
 		streamIndex: number | null,
-		format: string,
 		signal?: AbortSignal,
 	) => Promise<SubtitleContent | null>;
 }
 
 const defaultDependencies: ServiceDependencies = {
 	readExternalContent: (info) => readExternalSubtitle(info, serverConfig.paths.subtitles),
-	extractEmbeddedContent: (id, mediaFilePath, streamIndex, format, signal) =>
-		subtitleExtractorService.extractToVtt(id, mediaFilePath, streamIndex, format, signal),
+	extractEmbeddedContent: (id, mediaFilePath, streamIndex, signal) =>
+		subtitleExtractorService.extractToVtt(id, mediaFilePath, streamIndex, signal),
 };
 
 /**
@@ -76,7 +75,7 @@ export class SubtitleContentResolver {
 		}
 
 		if (info.type === "embedded" && info.mediaFilePath) {
-			const content = await this.dependencies.extractEmbeddedContent(id, info.mediaFilePath, info.streamIndex, info.format, signal);
+			const content = await this.dependencies.extractEmbeddedContent(id, info.mediaFilePath, info.streamIndex, signal);
 			assertFound(content, "Subtitle content", id);
 
 			return content;

@@ -21,9 +21,9 @@ beforeEach(() => {
 	clearCountCache();
 });
 
-afterEach(() => {
+afterEach(async () => {
 	for (const stub of stubs.splice(0)) stub.restore();
-	subtitleInfoCache.invalidate("sub-1");
+	await subtitleInfoCache.invalidateAndWait("sub-1");
 });
 
 async function seedMovie(): Promise<string> {
@@ -33,11 +33,8 @@ async function seedMovie(): Promise<string> {
 /** ffmpeg is the process boundary: the fake names the track it was asked to extract. */
 function stubExtraction(): void {
 	stubs.push(
-		stubMethod(
-			subtitleExtractorService,
-			"extractToVtt",
-			(id: string, mediaFilePath: string, streamIndex: number | null | undefined, format: string | null | undefined) =>
-				Promise.resolve({ contentType: "text/vtt", file: new Blob([`extracted:${id}:${mediaFilePath}:${streamIndex}:${format}`]) }),
+		stubMethod(subtitleExtractorService, "extractToVtt", (id: string, mediaFilePath: string, streamIndex: number | null | undefined) =>
+			Promise.resolve({ contentType: "text/vtt", file: new Blob([`extracted:${id}:${mediaFilePath}:${streamIndex}`]) }),
 		),
 	);
 }
@@ -135,7 +132,7 @@ test("getContent resolves an embedded track through the info cache and extractio
 	const content = await subtitlesService.getContent("sub-1");
 
 	expect(content.contentType).toBe("text/vtt");
-	expect(await content.file.text()).toBe("extracted:sub-1:/media/movie.mkv:2:subrip");
+	expect(await content.file.text()).toBe("extracted:sub-1:/media/movie.mkv:2");
 });
 
 test("delete removes the row and its extracted VTT cache", async () => {

@@ -13,14 +13,13 @@ export interface DownloadQualitySpec {
 	height: number;
 	/** Video bitrate in kbps; 0 = stream copy (original only). */
 	videoBitrateKbps: number;
-	label: string;
 }
 
 const SPECS: Record<DownloadQuality, DownloadQualitySpec> = {
-	original: { width: 0, height: 0, videoBitrateKbps: 0, label: "Original (FastStart)" },
-	"1080p-high": { width: 1920, height: 1080, videoBitrateKbps: 6000, label: "1080p" },
-	"720p-mobile": { width: 1280, height: 720, videoBitrateKbps: 2500, label: "720p" },
-	"480p-low": { width: 854, height: 480, videoBitrateKbps: 1200, label: "480p" },
+	original: { width: 0, height: 0, videoBitrateKbps: 0 },
+	"1080p-high": { width: 1920, height: 1080, videoBitrateKbps: 6000 },
+	"720p-mobile": { width: 1280, height: 720, videoBitrateKbps: 2500 },
+	"480p-low": { width: 854, height: 480, videoBitrateKbps: 1200 },
 };
 
 export function isDownloadQuality(value: string): value is DownloadQuality {

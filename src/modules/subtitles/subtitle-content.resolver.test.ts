@@ -20,12 +20,12 @@ function createResolver(overrides: { externalContent?: SubtitleContent | null; e
 					? { contentType: "text/plain", file: new Blob([`external:${info.filePath}`]) }
 					: overrides.externalContent,
 			),
-		extractEmbeddedContent: (id, mediaFilePath, streamIndex, format, signal) => {
+		extractEmbeddedContent: (id, mediaFilePath, streamIndex, signal) => {
 			capturedSignal = signal;
 
 			return Promise.resolve(
 				overrides.embeddedContent === undefined
-					? { contentType: "text/vtt", file: new Blob([`embedded:${id}:${mediaFilePath}:${streamIndex}:${format}`]) }
+					? { contentType: "text/vtt", file: new Blob([`embedded:${id}:${mediaFilePath}:${streamIndex}`]) }
 					: overrides.embeddedContent,
 			);
 		},
@@ -60,7 +60,7 @@ describe("SubtitleContentResolver", () => {
 		);
 
 		expect(content.contentType).toBe("text/vtt");
-		expect(await content.file.text()).toBe("embedded:sub-2:/media/movie.mkv:3:subrip");
+		expect(await content.file.text()).toBe("embedded:sub-2:/media/movie.mkv:3");
 		expect(capturedSignal()).toBe(CONTROLLER.signal);
 	});
 

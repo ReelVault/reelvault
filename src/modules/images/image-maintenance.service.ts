@@ -7,7 +7,7 @@ import { optimizeImageWithInfo } from "@/integrations/sharp/sharp.actions";
 import type { SharpImageOptions } from "@/integrations/sharp/sharp.types";
 import { imageCacheEviction } from "@/modules/images/cache/image-cache.eviction";
 import { sourceVersionCache } from "@/modules/images/cache/source-version.cache";
-import { getRegisteredImageIdFromCacheKey } from "@/modules/images/image-cache-key.utils";
+import { getOptimizedImageCacheDir, getRegisteredImageIdFromCacheKey } from "@/modules/images/image-cache-key.utils";
 import { imageRepository } from "@/repositories/images.repository";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { directoryExists, scanFilesWithStats } from "@/utils/directory.utils";
@@ -44,7 +44,7 @@ class ImageMaintenanceService {
 	 */
 	async purgeOptimizedCache(): Promise<PurgeOptimizedCacheResult> {
 		return await runSafely(this, "purgeOptimizedCache", async () => {
-			const cacheDir = join(serverConfig.paths.images, ".cache");
+			const cacheDir = getOptimizedImageCacheDir();
 			let names: string[] = [];
 			if (await directoryExists(cacheDir)) {
 				names = await readdir(cacheDir);
@@ -86,7 +86,7 @@ class ImageMaintenanceService {
 
 				// dot: true — the images root owns dot-dirs (.tmp/.cache) whose stale
 				// files this sweep is responsible for.
-				const scannedFiles = await scanFilesWithStats(imagesDir, ["webp", "jpeg", "jpg", "png", "tmp", "source"], 10, signal, {
+				const scannedFiles = await scanFilesWithStats(imagesDir, ["webp", "jpeg", "jpg", "png", "tmp"], 10, signal, {
 					dot: true,
 				});
 

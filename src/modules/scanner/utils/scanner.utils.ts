@@ -1,6 +1,9 @@
 import { resolve } from "node:path";
 import { normalizePath } from "@/utils/path.utils";
 
+/** Items a scan loop handles between `sleep(0)` yields, so a large library walk cannot hold the event loop. */
+export const SCAN_YIELD_INTERVAL = 5_000;
+
 /** Normalized `root/` prefixes shared by the path filters and the per-root removal baseline. */
 export function rootPathPrefixes(roots: readonly string[]): string[] {
 	return roots.map((root) => {

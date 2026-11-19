@@ -3,9 +3,8 @@ import { episodesRepository } from "@/repositories/episodes.repository";
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { seasonsRepository } from "@/repositories/seasons.repository";
 import { DomainError } from "@/utils/domain.errors";
-import { extractYear } from "@/utils/media-match/normalize.utils";
 import type { SidecarSnapshotDocument, SidecarSnapshotResolver } from "./sidecar.types";
-import { episodeSnapshot, seasonSnapshot } from "./sidecar-snapshot.builder";
+import { episodeSnapshot, releaseYear, seasonSnapshot, snapshotDocument } from "./sidecar-snapshot.builder";
 
 export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver {
 	async metadata(metadataId: string): Promise<SidecarSnapshotDocument> {
@@ -19,12 +18,11 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 
 		const identifiers = Object.fromEntries(metadata.providers.map((provider) => [provider.name, provider.externalId]));
 
-		return {
-			reelvaultSchemaVersion: 1,
+		return snapshotDocument({
 			title: metadata.title,
 			originalTitle: metadata.originalTitle ?? undefined,
 			releaseDate: metadata.releaseDate,
-			year: extractYear(metadata.releaseDate.slice(0, 4)),
+			year: releaseYear(metadata.releaseDate),
 			overview: metadata.overview ?? undefined,
 			tagline: metadata.tagline ?? undefined,
 			status: metadata.status ?? undefined,
@@ -46,7 +44,7 @@ export class DatabaseSidecarSnapshotResolver implements SidecarSnapshotResolver 
 			),
 			crew: metadata.crew.flatMap((member) => (member.data ? [{ name: member.data.name, job: member.job }] : [])),
 			ratings: metadata.rating.scores.map((rating) => ({ source: rating.source, value: rating.value, voteCount: rating.votes })),
-		};
+		});
 	}
 
 	async season(seasonId: string): Promise<SidecarSnapshotDocument> {

@@ -70,6 +70,13 @@ function assertDownloadsAvailable(profileId: string | undefined): asserts profil
 		throw new DomainError("forbidden", "Downloads are disabled on this server", { code: "downloads.disabled" });
 }
 
+/** The file goes before its row, so a failed removal keeps the row to retry. */
+async function removeDownload(row: DownloadRow): Promise<void> {
+	// awaits: sequential — the file is removed before its row, so a failed removal keeps the row to retry
+	await deleteDownloadFile(row);
+	await downloadsRepository.delete(row.id);
+}
+
 function downloadNotFound(): DomainError {
 	return new DomainError("not_found", "Download not found", { code: "download_not_found" });
 }
@@ -149,7 +156,10 @@ class DownloadsService {
 	private readonly runContext: DownloadRunContext = { logger: this.logger, abortHandles: new Map() };
 	private retentionTimers: { first: Timer; interval: Timer } | undefined;
 
-	constructor() {
+	/** Arms the retention sweeps. Boot calls this once; importing the module arms nothing. */
+	start(): void {
+		if (this.retentionTimers) return;
+
 		const sweep = () => detach(this.sweepRetention());
 		const first = setTimeout(sweep, RETENTION_SWEEP_FIRST_DELAY_MS);
 		const interval = setInterval(sweep, RETENTION_SWEEP_INTERVAL_MS);
@@ -348,9 +358,7 @@ class DownloadsService {
 		const row = await downloadsRepository.findById(downloadId);
 		if (row) {
 			this.killInFlight(downloadId);
-			// awaits: sequential — the file is removed before its row, so a failed removal keeps the row to retry
-			await deleteDownloadFile(row);
-			await downloadsRepository.delete(downloadId);
+			await removeDownload(row);
 		}
 
 		return { success: true };
@@ -426,9 +434,7 @@ class DownloadsService {
 			for (const row of expired) {
 				// One EBUSY/EACCES must not abort the whole sweep.
 				try {
-					// awaits: sequential — the file is removed before its row, so a failed removal keeps the row to retry
-					await deleteDownloadFile(row);
-					await downloadsRepository.delete(row.id);
+					await removeDownload(row);
 					removed++;
 					progressed = true;
 				} catch (error) {

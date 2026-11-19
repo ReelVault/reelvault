@@ -1,5 +1,5 @@
 import type { PathContext, RecognitionResult, RecognitionStrategy } from "@/modules/recognition/recognition.types";
-import { createEpisodeResult, parseFileName, resolveEpisodeNumbers, resolveShowTitle } from "@/modules/recognition/utils/recognition.utils";
+import { createEpisodeResult, parseFileName, resolveFileEpisode, resolveShowTitle } from "@/modules/recognition/utils/recognition.utils";
 import { GENERIC_FOLDER_NAMES } from "@/utils/release-tags.constants";
 
 export const seriesBasicStrategy: RecognitionStrategy = {
@@ -9,13 +9,13 @@ export const seriesBasicStrategy: RecognitionStrategy = {
 
 		// Resolve the file's episode numbers first: a movie file bails out here
 		// without paying for the show-folder parse.
-		const fileIdentity = parseFileName(fileName);
-		const { season, episode, episodeEnd } = resolveEpisodeNumbers(fileName, fileIdentity);
-		if (season === undefined || episode === undefined) return null;
+		const episodeFile = resolveFileEpisode(fileName);
+		if (!episodeFile) return null;
 
 		const showIdentity = parseFileName(parentFolder);
 		if (!showIdentity) return null;
 
+		const { fileIdentity, season, episode, episodeEnd } = episodeFile;
 		// A generic folder ("movies", "downloads", "tv") is a library root, not the
 		// show name — the episode file carries the title (mirrors movies-categorized).
 		const { title, year } = GENERIC_FOLDER_NAMES.test(parentFolder.trim())

@@ -58,6 +58,17 @@ describe("recognition service", () => {
 	});
 });
 
+describe("recognition service: categorized episode under a generic grandparent", () => {
+	test("takes the show title from the episode file when the grandparent is a generic library folder", () => {
+		const result = recognitionService.recognize("/library/tv/Season 1/Show.S01E01.mkv");
+
+		expect(result?.type).toBe("tv_show");
+		expect(result?.identity.title).toBe("Show");
+		expect(result?.identity.season).toBe(1);
+		expect(result?.identity.episode).toBe(1);
+	});
+});
+
 describe("recognition service: movie in a year-bucket folder", () => {
 	test("recognizes movie in year-bucket folder (/mnt/movies/2010/Inception.2010.mkv)", () => {
 		const result = recognitionService.recognize("/mnt/movies/2010/Inception.2010.mkv");

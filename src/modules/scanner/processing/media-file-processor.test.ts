@@ -155,6 +155,19 @@ describe("mediaFileProcessor.process processed movies", () => {
 		expect(checkMetadataCalls[0]).toMatchObject({ type: "movie", parsed: { title: "Movie", year: 2020 } });
 	});
 
+	test("a lookup that skips the duplicate check does not share a run that performs it", async () => {
+		stubPhysicalFile();
+		await insertMovieMediaFile(db.client(), "/media/Movie (2020)/movie.mkv");
+
+		const [withLookup, withoutLookup] = await Promise.all([
+			mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv"),
+			mediaFileProcessor.process("movie", "/media/Movie (2020)/movie.mkv", true),
+		]);
+
+		expect(withLookup).toBeNull();
+		expect(withoutLookup).toMatchObject({ metadataId: "meta-1", filePath: "/media/Movie (2020)/movie.mkv" });
+	});
+
 	test("concurrent calls for the same file share one processing run", async () => {
 		stubPhysicalFile();
 		let releaseProbe: ((value: FFProbeResult | null) => void) | undefined;

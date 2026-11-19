@@ -588,11 +588,12 @@ describe("DownloadsService retry and quota", () => {
 	});
 
 	test("the list reports the storage the profile uses", async () => {
+		systemSettingsStore.setRuntimeValue("downloads.maxStorageBytesPerProfile", 1000);
 		await insertDownload({ id: "dl-1", status: "completed", sizeBytes: 42, fileName: "movie.mp4" });
 
 		const listing = await downloadsService.list("profile-1");
 
-		expect(listing.quota).toEqual({ usedBytes: 42, maxBytes: serverConfig.downloads.maxStorageBytesPerProfile });
+		expect(listing.quota).toEqual({ usedBytes: 42, maxBytes: 1000 });
 	});
 });
 

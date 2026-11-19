@@ -2,11 +2,19 @@ export const YEAR_FOLDER_PATTERN = /^(?:19|20)\d{2}(?:-(?:19|20)?\d{2})?$/;
 
 export const YEAR_TITLE_PATTERN = /^(?:19|20)\d{2}$/;
 
-/** Provider id tags media managers append to names, e.g. `[tmdbid-329]`, `{imdb-tt0107290}`, `(tvdbid=121361)`. */
-export const PROVIDER_ID_TAG_PATTERN = /\s*[[{(]\s*(?:tmdb|tvdb|imdb|anidb)(?:id)?[\s:=-]*[a-z0-9]+\s*[\]})]/gi;
+/** A season folder: `Season 3`, `Sezon 3`, `S3` (the number captured) or `Specials` (season 0, no capture). */
+export const SEASON_FOLDER_PATTERN = /^(?:(?:Season|Sezon|S)\s*(\d+)|Specials$)/i;
+
+/**
+ * Provider id tags media managers append to names, e.g. `[tmdbid-329]`, `{imdb-tt0107290}`, `(tvdbid=121361)`.
+ * One source for both patterns: the strip pattern removes every tag, the capture pattern reads its `provider` and `id`.
+ */
+const PROVIDER_ID_TAG_SOURCE = String.raw`\s*[[{(]\s*(?<provider>tmdb|tvdb|imdb|anidb)(?:id)?[\s:=-]*(?<id>[a-z0-9]+)\s*[\]})]`;
+
+export const PROVIDER_ID_TAG_PATTERN = new RegExp(PROVIDER_ID_TAG_SOURCE, "gi");
 
 /** The provider and id a tag carries: `[tmdbid-329]` → tmdb / 329, `{imdb-tt0107290}` → imdb / tt0107290. */
-export const PROVIDER_ID_TAG_CAPTURE_PATTERN = /[[{(]\s*(?<provider>tmdb|imdb)(?:id)?[\s:=-]*(?<id>[a-z0-9]+)\s*[\]})]/gi;
+export const PROVIDER_ID_TAG_CAPTURE_PATTERN = new RegExp(PROVIDER_ID_TAG_SOURCE, "gi");
 
 export const TMDB_ID_PATTERN = /^\d+$/;
 

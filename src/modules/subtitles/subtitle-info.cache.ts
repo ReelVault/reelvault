@@ -48,10 +48,6 @@ export class SubtitleInfoCache {
 		return this.cache.getOrSet(id, () => this.load(id));
 	}
 
-	invalidate(id: string): void {
-		this.cache.delete(id);
-	}
-
 	/** Drops the value and any load that started before the drop, so a stale row cannot be cached again. */
 	async invalidateAndWait(id: string): Promise<void> {
 		this.cache.delete(id);

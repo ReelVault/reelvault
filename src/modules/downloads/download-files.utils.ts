@@ -20,11 +20,16 @@ export function downloadFileName(sourceFileName: string, quality: string): strin
 	return `${baseName}.${quality === "original" ? "mp4" : `${quality}.mp4`}`;
 }
 
+/** The MP4 of a download inside its directory. */
+export function downloadFilePath(downloadId: string, fileName: string): string {
+	return join(downloadDirectory(downloadId), fileName);
+}
+
 /** Completed download as a file handle — never exposes the storage path. */
 export async function resolveDownloadFile(row: DownloadRow | null | undefined): Promise<{ fileName: string; blob: Blob } | null> {
 	if (row?.status !== "completed" || !row.fileName) return null;
 
-	const handle = file(join(downloadDirectory(row.id), row.fileName));
+	const handle = file(downloadFilePath(row.id, row.fileName));
 	if (!(await handle.exists())) return null;
 
 	return { fileName: row.fileName, blob: handle };
@@ -33,7 +38,7 @@ export async function resolveDownloadFile(row: DownloadRow | null | undefined): 
 export async function deleteDownloadFile(row: DownloadRow): Promise<void> {
 	if (!row.fileName) return;
 
-	await deleteDownloadOutput(join(downloadDirectory(row.id), row.fileName));
+	await deleteDownloadOutput(downloadFilePath(row.id, row.fileName));
 }
 
 /**

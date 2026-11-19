@@ -99,7 +99,10 @@ class MediaFileProcessor {
 		skipExistingLookup = false,
 		options: ProcessRunOptions = {},
 	): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
-		return await this.processingFiles.getOrRun(filePath, () => this.processOnce(libraryType, filePath, skipExistingLookup, options));
+		// The flags change the result, so a call only shares a run started with the same ones.
+		const key = JSON.stringify([filePath, libraryType, skipExistingLookup, options.libraryId ?? null]);
+
+		return await this.processingFiles.getOrRun(key, () => this.processOnce(libraryType, filePath, skipExistingLookup, options));
 	}
 
 	/**
@@ -216,7 +219,7 @@ class MediaFileProcessor {
 					episodeTargets,
 					signal,
 					scheduling,
-					options,
+					libraryId: options.libraryId,
 				});
 
 			const sidecar = await this.readSidecarHint(filePath, recognition.type);
@@ -279,7 +282,7 @@ class MediaFileProcessor {
 		episodeTargets,
 		signal,
 		scheduling,
-		options,
+		libraryId,
 	}: {
 		filePath: string;
 		fileName: string;
@@ -287,7 +290,7 @@ class MediaFileProcessor {
 		episodeTargets: number[];
 		signal?: AbortSignal | undefined;
 		scheduling?: TaskSchedulingOptions | undefined;
-		options?: { libraryId?: string | undefined } | undefined;
+		libraryId?: string | undefined;
 	}): Promise<ProcessedMediaFileWithMarkers | SkippedMediaFile | null> {
 		const [sidecar, probe] = await Promise.all([
 			this.readSidecarHint(filePath, recognition.type),
@@ -305,7 +308,7 @@ class MediaFileProcessor {
 					sidecar,
 					signal,
 					scheduling,
-					libraryId: options?.libraryId,
+					libraryId,
 				});
 				if (meta?.episodeId) {
 					targets.push({ metadataId: meta.metadataId, movieId: meta.movieId ?? null, episodeId: meta.episodeId });

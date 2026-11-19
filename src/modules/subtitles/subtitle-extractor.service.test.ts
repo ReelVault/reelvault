@@ -62,24 +62,15 @@ describe("SubtitleExtractorService requests that never reach FFmpeg", () => {
 	test("returns null for invalid stream indexes without spawning FFmpeg", async () => {
 		const { extractor, ffmpegCalls } = createExtractor();
 
-		expect(await extractor.extractToVtt("sub-idx", "/media/movie.mkv", -1, "subrip")).toBeNull();
-		expect(await extractor.extractToVtt("sub-idx", "/media/movie.mkv", null, "subrip")).toBeNull();
-		expect(ffmpegCalls).toHaveLength(0);
-	});
-
-	test("returns null for bitmap subtitle formats without spawning FFmpeg", async () => {
-		const { extractor, ffmpegCalls } = createExtractor();
-
-		expect(await extractor.extractToVtt("sub-pgs", "/media/movie.mkv", 2, "hdmv_pgs_subtitle")).toBeNull();
-		expect(await extractor.extractToVtt("sub-pgs", "/media/movie.mkv", 2, ".pgs")).toBeNull();
-		expect(await extractor.extractToVtt("sub-pgs", "/media/movie.mkv", 2, "PGSSUB")).toBeNull();
+		expect(await extractor.extractToVtt("sub-idx", "/media/movie.mkv", -1)).toBeNull();
+		expect(await extractor.extractToVtt("sub-idx", "/media/movie.mkv", null)).toBeNull();
 		expect(ffmpegCalls).toHaveLength(0);
 	});
 
 	test("returns null when the media file does not exist", async () => {
 		const { extractor, ffmpegCalls } = createExtractor({ mediaFileExists: async () => false });
 
-		expect(await extractor.extractToVtt("sub-media", "/media/gone.mkv", 2, "subrip")).toBeNull();
+		expect(await extractor.extractToVtt("sub-media", "/media/gone.mkv", 2)).toBeNull();
 		expect(ffmpegCalls).toHaveLength(0);
 	});
 
@@ -88,9 +79,7 @@ describe("SubtitleExtractorService requests that never reach FFmpeg", () => {
 		const controller = new AbortController();
 		controller.abort();
 
-		await expect(extractor.extractToVtt("sub-abort", "/media/movie.mkv", 2, "subrip", controller.signal)).rejects.toBeInstanceOf(
-			CancellationError,
-		);
+		await expect(extractor.extractToVtt("sub-abort", "/media/movie.mkv", 2, controller.signal)).rejects.toBeInstanceOf(CancellationError);
 		expect(ffmpegCalls).toHaveLength(0);
 	});
 
@@ -98,7 +87,7 @@ describe("SubtitleExtractorService requests that never reach FFmpeg", () => {
 		await writeFile(join(subtitlesDir, "sub-cached.vtt"), WEBVTT_BODY, "utf8");
 		const { extractor, ffmpegCalls } = createExtractor();
 
-		const result = await extractor.extractToVtt("sub-cached", "/media/movie.mkv", 2, "subrip");
+		const result = await extractor.extractToVtt("sub-cached", "/media/movie.mkv", 2);
 		if (!result) throw new Error("Cached VTT should be served");
 
 		expect(result.contentType).toBe("text/vtt");
@@ -111,7 +100,7 @@ describe("SubtitleExtractorService FFmpeg extraction", () => {
 	test("extracts through FFmpeg, atomically caches the VTT and cleans the temp file", async () => {
 		const { extractor, ffmpegCalls } = createExtractor();
 
-		const result = await extractor.extractToVtt("sub-ok", "/media/movie.mkv", 2, "subrip");
+		const result = await extractor.extractToVtt("sub-ok", "/media/movie.mkv", 2);
 		if (!result) throw new Error("Extraction should have succeeded");
 
 		expect(result.contentType).toBe("text/vtt");
@@ -148,7 +137,7 @@ describe("SubtitleExtractorService FFmpeg extraction", () => {
 			runFfmpeg: async () => ({ exitCode: 1, stderr: "mock ffmpeg failure" }),
 		});
 
-		const result = await extractor.extractToVtt("sub-fail", "/media/movie.mkv", 2, "subrip");
+		const result = await extractor.extractToVtt("sub-fail", "/media/movie.mkv", 2);
 
 		expect(result).toBeNull();
 		expect(ffmpegCalls).toHaveLength(1);
@@ -158,7 +147,7 @@ describe("SubtitleExtractorService FFmpeg extraction", () => {
 	test("returns null when FFmpeg succeeds but produces no output file", async () => {
 		const { extractor } = createExtractor({ runFfmpeg: async () => ({ exitCode: 0, stderr: "" }) });
 
-		expect(await extractor.extractToVtt("sub-empty", "/media/movie.mkv", 2, "subrip")).toBeNull();
+		expect(await extractor.extractToVtt("sub-empty", "/media/movie.mkv", 2)).toBeNull();
 		expect(await tmpLeftovers()).toEqual([]);
 	});
 });
@@ -178,9 +167,9 @@ describe("SubtitleExtractorService in-flight sharing", () => {
 			},
 		});
 
-		const first = extractor.extractToVtt("sub-dedupe", "/media/movie.mkv", 2, "subrip");
+		const first = extractor.extractToVtt("sub-dedupe", "/media/movie.mkv", 2);
 		await waitFor(() => ffmpegCalls.length > 0);
-		const second = extractor.extractToVtt("sub-dedupe", "/media/movie.mkv", 2, "subrip");
+		const second = extractor.extractToVtt("sub-dedupe", "/media/movie.mkv", 2);
 		release();
 
 		const firstResult = await first;
@@ -206,7 +195,7 @@ describe("SubtitleExtractorService in-flight sharing", () => {
 			},
 		});
 
-		const extraction = extractor.extractToVtt("sub-wait", "/media/movie.mkv", 2, "subrip");
+		const extraction = extractor.extractToVtt("sub-wait", "/media/movie.mkv", 2);
 		await waitFor(() => ffmpegCalls.length > 0);
 
 		let settled = false;
@@ -238,7 +227,7 @@ describe("SubtitleExtractorService in-flight sharing", () => {
 			},
 		});
 
-		const extraction = extractor.extractToVtt("sub-wait-fail", "/media/movie.mkv", 2, "subrip");
+		const extraction = extractor.extractToVtt("sub-wait-fail", "/media/movie.mkv", 2);
 		await waitFor(() => ffmpegCalls.length > 0);
 		const waiting = extractor.waitForInFlight("sub-wait-fail");
 		release();
@@ -263,7 +252,7 @@ describe("SubtitleExtractorService in-flight sharing", () => {
 
 		// The extraction is left pending on purpose: the deadline, not the FFmpeg
 		// process, is the behavior under test.
-		extractor.extractToVtt("sub-hung", "/media/movie.mkv", 2, "subrip").catch(() => {
+		extractor.extractToVtt("sub-hung", "/media/movie.mkv", 2).catch(() => {
 			// The extraction is intentionally left pending; this only prevents an
 			// unhandled rejection if the service ever settles it.
 		});

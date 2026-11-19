@@ -41,6 +41,10 @@ describe("resolveSeriesDirectory", () => {
 		expect(resolveSeriesDirectory(roots, "/media")).toBe("/media");
 	});
 
+	test("a show folder directly under a library path is its own series directory (flat layout)", () => {
+		expect(resolveSeriesDirectory(roots, "/media/show")).toBe("/media/show");
+	});
+
 	test("a directory outside every path yields the parent directory", () => {
 		expect(resolveSeriesDirectory(roots, "/elsewhere/show/Season 01")).toBe("/elsewhere/show");
 	});

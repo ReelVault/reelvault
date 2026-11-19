@@ -10,9 +10,9 @@ import {
 	seasonFileName,
 	UNPADDED_SEASON_NFO,
 } from "@/modules/metadata-sidecars/saver/sidecar-path.policy";
+import { readSeasonFolderNumber } from "@/modules/recognition/utils/recognition.utils";
 import { fileExists } from "@/utils/file.utils";
 import { getFileNameWithoutExt } from "@/utils/path.utils";
-import { readSeasonNumber } from "./local-season.utils";
 
 export interface LocalNfoChain {
 	readonly movieDocument?: string | undefined;
@@ -49,7 +49,7 @@ export async function locateLocalNfoChain(videoPath: string, kind: "movie" | "tv
 		};
 	}
 
-	const seasonNumber = readSeasonNumber(basename(directory));
+	const seasonNumber = readSeasonFolderNumber(basename(directory));
 	const paddedSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, KODI_SEASON_SUFFIX);
 	const paddedReelvaultSeasonName = seasonNumber === undefined ? undefined : seasonFileName(seasonNumber, REELVAULT_SEASON_SUFFIX);
 

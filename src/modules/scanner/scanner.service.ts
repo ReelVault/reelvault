@@ -13,13 +13,10 @@ import { fileScannerService } from "./disk/file.scanner";
 import { type RemovalGuard, removalGuard } from "./disk/removal.guard";
 import { type StaleArtifactCleaner, staleArtifactCleaner } from "./processing/stale-artifact.cleaner";
 import type { LibraryScanResult, LibraryType } from "./scanner.types";
-import { filterPathsWithinRoots, isPathWithinRoots, rootPathPrefixes } from "./utils/scanner.utils";
+import { filterPathsWithinRoots, isPathWithinRoots, rootPathPrefixes, SCAN_YIELD_INTERVAL } from "./utils/scanner.utils";
 
 /** Rows read per keyset page while diffing a library against disk. */
 const SCAN_DB_PAGE_SIZE = 5000;
-
-/** The new-file pass touches every discovered path; yield so it cannot hold the loop. */
-const SCAN_YIELD_INTERVAL = 5000;
 
 /**
  * One pass over the on-disk list: unknown paths are new, and a TV range file

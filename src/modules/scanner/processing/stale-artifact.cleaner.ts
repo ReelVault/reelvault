@@ -1,7 +1,7 @@
-import { join } from "node:path";
 import type { PluginEventInput } from "@reelvault/sdk/plugin";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
+import { subtitleVttPath } from "@/modules/subtitles/subtitle-path.utils";
 import { librariesRepository } from "@/repositories/libraries.repository";
 import { mediaRepository } from "@/repositories/media-files.repository";
 import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
@@ -64,7 +64,7 @@ export class StaleArtifactCleaner {
 		}
 
 		for (const id of cleanup.subtitleIds) {
-			removals.push(() => deleteFile(join(subtitlesRoot, `${id}.vtt`)));
+			removals.push(() => deleteFile(subtitleVttPath(subtitlesRoot, id)));
 		}
 
 		await mapConcurrent(removals, getIoConcurrency(), (removal) => removal(), signal);

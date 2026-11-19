@@ -175,3 +175,42 @@ describe("ImageCacheEviction steady-state eviction", () => {
 		expect(entries.size).toBe(5_000);
 	});
 });
+
+describe("ImageCacheEviction first sweep", () => {
+	test("evicts a file written while the first sweep was listing the directory", async () => {
+		const entries = new Map<string, { mtimeMs: number }>();
+		fillEntries(entries, 5_000, 1);
+		const lateWrite = `${CACHE_DIR}/late.webp`;
+		const deleted: string[] = [];
+		const eviction = new ImageCacheEviction({
+			listDirectory: () => {
+				const names = [...entries.keys()].map((path) => basename(path));
+				// The write lands after the listing has run, so the first sweep does not see it on disk.
+				eviction.recordWrite(CACHE_DIR, "late.webp");
+				entries.set(lateWrite, { mtimeMs: 10_000_000 });
+
+				return Promise.resolve(names);
+			},
+			getStats: (path) => Promise.resolve(entries.get(path) ?? null),
+			deleteFile: (path) => {
+				deleted.push(path);
+				entries.delete(path);
+
+				return Promise.resolve(true);
+			},
+			getIoConcurrency: () => 4,
+		});
+
+		for (let batch = 0; batch < 30 && !deleted.includes(lateWrite); batch++) {
+			for (let writes = 0; writes < 500; writes++) {
+				const name = `new-${batch}-${writes}.webp`;
+				eviction.recordWrite(CACHE_DIR, name);
+				entries.set(`${CACHE_DIR}/${name}`, { mtimeMs: 20_000_000 + batch * 500 + writes });
+				await eviction.evictIfDue(CACHE_DIR);
+			}
+		}
+
+		expect(deleted).toContain(lateWrite);
+		expect(entries.size).toBe(5_000);
+	});
+});
