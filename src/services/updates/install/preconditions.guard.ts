@@ -34,6 +34,11 @@ export async function assertDiskSpace(state: UpdateInstallState, target: UpdateC
 	}
 }
 
+/** One install or rollback at a time: refuses while a job is still on the state. */
+export function assertNoJobRunning(state: UpdateInstallState): void {
+	if (state.job) throw new DomainError("conflict", "An update is already in progress", { code: "update.install_already_running" });
+}
+
 export function assertInstallPreconditions(state: UpdateInstallState, target: UpdateComponent): Promise<AdminUpdateRelease> {
 	if (state.installType !== "archive") {
 		throw new DomainError(
@@ -44,9 +49,7 @@ export function assertInstallPreconditions(state: UpdateInstallState, target: Up
 			{ code: "update.install_unsupported_install_type" },
 		);
 	}
-	if (state.job) {
-		throw new DomainError("conflict", "An update is already in progress", { code: "update.install_already_running" });
-	}
+	assertNoJobRunning(state);
 
 	return assertNewerReleaseAvailable(state, target);
 }
@@ -57,9 +60,7 @@ export function assertRollbackPreconditions(state: UpdateInstallState, target: U
 			code: "update.install_unsupported_install_type",
 		});
 	}
-	if (state.job) {
-		throw new DomainError("conflict", "An update is already in progress", { code: "update.install_already_running" });
-	}
+	assertNoJobRunning(state);
 	if (!isPreviousVersionPresent(target, state.root)) {
 		throw new DomainError("validation", `No previous ${target} version is available to roll back to`, {
 			code: "update.no_previous_version",

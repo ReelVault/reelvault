@@ -58,6 +58,12 @@ function armScanTimer(state: LibraryWatcherState, scanKey: string, target: Watch
 	return armTimer(state.clock, () => fireScan(state, scanKey, target), delayMs);
 }
 
+/** Holds a pending scan for another `delayMs`, replacing its timer. */
+function rearmScan(state: LibraryWatcherState, scanKey: string, target: WatchedTarget, pending: { timer: unknown }, delayMs: number): void {
+	state.clock.clearTimeout(pending.timer);
+	pending.timer = armScanTimer(state, scanKey, target, delayMs);
+}
+
 async function fireScan(state: LibraryWatcherState, scanKey: string, target: WatchedTarget): Promise<void> {
 	const pending = state.pendingScans.get(scanKey);
 	if (!pending) return;
@@ -76,8 +82,7 @@ async function fireScan(state: LibraryWatcherState, scanKey: string, target: Wat
 	// Server rescue active: background work is paused, so hold the scan (the pending
 	// entry stays alive) and re-check until the system recovers.
 	if (serverRescueService.isThrottling()) {
-		state.clock.clearTimeout(pending.timer);
-		pending.timer = armScanTimer(state, scanKey, target, RESCUE_RECHECK_MS);
+		rearmScan(state, scanKey, target, pending, RESCUE_RECHECK_MS);
 		state.logger.debug("Filesystem changes held: server rescue is active, scan postponed", { libraryId, pathId });
 
 		return;
@@ -90,8 +95,7 @@ async function fireScan(state: LibraryWatcherState, scanKey: string, target: Wat
 	const cooldownUntil = state.cooldowns.get(scanKey) ?? 0;
 	const remainingMs = cooldownUntil - state.clock.now();
 	if (remainingMs > 0) {
-		state.clock.clearTimeout(pending.timer);
-		pending.timer = armScanTimer(state, scanKey, target, remainingMs);
+		rearmScan(state, scanKey, target, pending, remainingMs);
 		state.logger.debug("Filesystem changes held: scan cooldown active", {
 			libraryId,
 			pathId,

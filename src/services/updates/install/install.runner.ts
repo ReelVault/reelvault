@@ -1,6 +1,5 @@
 import type { AdminUpdateRelease } from "@reelvault/sdk/common";
 import { downloadArchive } from "@/plugins/catalog/plugin-package/download.fetcher";
-import { adminFailureNotificationService } from "@/services/admin/admin-failure-notification.service";
 import { databaseBackupService } from "@/services/admin/database-backup.service";
 import { databaseMaintenanceService } from "@/services/admin/database-maintenance.service";
 import { PENDING_DIR, STAGING_DIR, type UpdateComponent } from "@/services/updates/update-environment.utils";
@@ -11,7 +10,7 @@ import { assertChecksumMatches } from "@/utils/crypto.utils";
 import { DomainError, errorCodeOf } from "@/utils/domain.errors";
 import { guardedFetch } from "@/utils/url-guard.utils";
 import { applyServerUpdate, applyWebUpdate } from "./apply.service";
-import { assertNotCancelled, removeScratchDirectories, setJob, setLastError, type UpdateInstallState } from "./shared.types";
+import { assertNotCancelled, recordComponentFailure, removeScratchDirectories, setJob, type UpdateInstallState } from "./shared.types";
 
 /** Release archives reach ~250 MB compressed (~1 GB uncompressed with ffmpeg). */
 const MAX_ARCHIVE_BYTES = 1024 * MIB;
@@ -99,12 +98,14 @@ export async function runInstall(
 		}
 
 		const errorCode = errorCodeOf(error, "update.install_failed");
-		setLastError(state, target, errorCode);
-		state.job = null;
-		state.logger.error(`Update install for ${target} failed`, error);
+		recordComponentFailure(state, target, {
+			errorCode,
+			error,
+			logMessage: `Update install for ${target} failed`,
+			notifiedVersion: release.version,
+		});
 		// staging cleanup must never mask the original failure
 		removeScratchDirectories(state, [STAGING_DIR, PENDING_DIR]);
-		adminFailureNotificationService.notifyUpdateFailed(target, release.version);
 		try {
 			await updateHistoryService.fail(historyId, errorCode);
 		} catch (historyError) {

@@ -12,6 +12,8 @@ const SERVER_RELEASES_URL = "https://api.github.com/repos/ReelVault/reelvault/re
 const WEB_RELEASES_URL = "https://api.github.com/repos/ReelVault/website/releases/latest";
 /** Unauthenticated GitHub allows 60 requests/h per IP — a TTL keeps us far below. */
 const CHECK_TTL_MS = 6 * 60 * 60_000;
+/** A failed check is retried after this delay, not after the full TTL, so a transient GitHub outage does not show "unknown" for hours. */
+const FAILED_CHECK_RETRY_MS = 15 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const TAG_V_PREFIX_REGEX = /^v/;
 
@@ -110,6 +112,7 @@ export class UpdateCheckService {
 	private cachedServer: AdminUpdateRelease | null = null;
 	private cachedWeb: AdminUpdateRelease | null = null;
 	private cachedAt = 0;
+	private nextCheckAt = 0;
 	private serverLastError: string | null = null;
 	private webLastError: string | null = null;
 	private inFlight: Promise<void> | null = null;
@@ -135,7 +138,7 @@ export class UpdateCheckService {
 			return;
 		}
 
-		if (this.cachedAt > 0 && Date.now() - this.cachedAt < CHECK_TTL_MS) return;
+		if (Date.now() < this.nextCheckAt) return;
 
 		// A stale status read must never wait on GitHub — a hung fetch once kept
 		// the dashboard update card spinning for the full request timeout. Kick
@@ -193,6 +196,8 @@ export class UpdateCheckService {
 		}
 
 		this.cachedAt = Date.now();
+		const anyFailed = serverResult.status === "rejected" || webResult.status === "rejected";
+		this.nextCheckAt = this.cachedAt + (anyFailed ? FAILED_CHECK_RETRY_MS : CHECK_TTL_MS);
 		this.logger.info("Update check completed", {
 			serverVersion: SERVER_VERSION,
 			serverLatest: this.cachedServer?.version ?? null,

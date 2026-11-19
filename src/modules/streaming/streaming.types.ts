@@ -120,7 +120,7 @@ export interface ContinueWatchingData {
 		updatedAt: Date;
 		dismissedAt?: Date | null | undefined;
 	}>;
-	metadataList: Array<{ id: string; title: string; type: MetadataType }>;
+	metadataList: Array<{ id: string; title: string; type: MetadataType; numberingMode: "seasonal" | "absolute" | null }>;
 	mediaFiles: Array<{
 		id: string;
 		metadataId: string;

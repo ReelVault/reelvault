@@ -33,9 +33,10 @@ class CollectionsService extends DictionaryCrudService<
 		context?: AdminAuditContext,
 	): Promise<SelectFields<CollectionWithRelations, F>> {
 		return await runSafely(this, "create", async () => {
+			const name = this.normalizeName(body.name);
 			// awaits: sequential — the name is checked before the collection is created
-			await this.assertNameAvailable(body.name);
-			const result = await collectionRepository.createAndRead(body, query);
+			await this.assertNameAvailable(name);
+			const result = await collectionRepository.createAndRead({ ...body, name }, query);
 			assertFound(result, "Collection", body.name);
 			invalidateCatalogLists();
 
@@ -75,10 +76,7 @@ class CollectionsService extends DictionaryCrudService<
 				update: async () => {
 					let updatedBody = body;
 					if (body.name !== undefined) {
-						const normalizedName = body.name.trim();
-						if (!normalizedName)
-							throw new DomainError("validation", "Collection name cannot be empty", { code: "collections.name_required" });
-
+						const normalizedName = this.normalizeName(body.name);
 						updatedBody = { ...body, name: normalizedName };
 						await this.assertNameAvailable(normalizedName, collectionId);
 					}
@@ -136,6 +134,14 @@ class CollectionsService extends DictionaryCrudService<
 
 			return { success: true };
 		});
+	}
+
+	/** Names are stored trimmed; a blank name is refused. */
+	private normalizeName(name: string): string {
+		const normalized = name.trim();
+		if (!normalized) throw new DomainError("validation", "Collection name cannot be empty", { code: "collections.name_required" });
+
+		return normalized;
 	}
 
 	private async assertNameAvailable(name: string, excludeId?: string): Promise<void> {

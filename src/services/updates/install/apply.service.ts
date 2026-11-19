@@ -7,6 +7,7 @@ import { swapIntoPlace, swapWebDirectory } from "@/services/updates/update-swap.
 import { GIB } from "@/utils/bytes.utils";
 import { removeTreeSync } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
+import { safeParseJson } from "@/utils/json.utils";
 import { isRecord } from "@/utils/type.utils";
 import { assertNotCancelled, setJob, type UpdateInstallState } from "./shared.types";
 
@@ -21,10 +22,9 @@ const UPDATE_EXTRACT_TIMEOUT_MS = 2 * 60 * 60_000;
 export async function applyWebUpdate(state: UpdateInstallState, archivePath: string, version: string): Promise<void> {
 	const stagingRoot = join(state.root, STAGING_DIR);
 	setJob(state, "extracting", 75, null);
-	resetDirectory(stagingRoot);
 	// The web zip carries the dist contents at its root — the extraction
 	// directory itself becomes the new `web/`.
-	await extractArchiveInWorker(archivePath, stagingRoot, MAX_UNCOMPRESSED_BYTES, UPDATE_EXTRACT_TIMEOUT_MS);
+	await extractArchive(archivePath, stagingRoot);
 	if (!existsSync(join(stagingRoot, "index.html"))) {
 		throw new DomainError("validation", "The extracted web release has an unexpected layout", { code: "update.unexpected_layout" });
 	}
@@ -44,8 +44,7 @@ export async function applyServerUpdate(state: UpdateInstallState, archivePath: 
 		const pendingRoot = join(state.root, PENDING_DIR);
 		assertNotCancelled(state);
 		setJob(state, "swapping", 85, null);
-		resetDirectory(pendingRoot);
-		await extractArchiveInWorker(archivePath, pendingRoot, MAX_UNCOMPRESSED_BYTES, UPDATE_EXTRACT_TIMEOUT_MS);
+		await extractArchive(archivePath, pendingRoot);
 		assertServerStagedLayout(join(pendingRoot, "ReelVault"));
 
 		setJob(state, "restarting", 97, null);
@@ -53,8 +52,7 @@ export async function applyServerUpdate(state: UpdateInstallState, archivePath: 
 	} else {
 		const stagingRoot = join(state.root, STAGING_DIR);
 		setJob(state, "extracting", 75, null);
-		resetDirectory(stagingRoot);
-		await extractArchiveInWorker(archivePath, stagingRoot, MAX_UNCOMPRESSED_BYTES, UPDATE_EXTRACT_TIMEOUT_MS);
+		await extractArchive(archivePath, stagingRoot);
 		const stagedApp = join(stagingRoot, "ReelVault");
 		assertServerStagedLayout(stagedApp);
 
@@ -85,7 +83,7 @@ export function assertServerStagedLayout(stagedApp: string): void {
  */
 export function installedServerVersion(state: UpdateInstallState): string {
 	try {
-		const manifest: unknown = JSON.parse(readFileSync(join(state.root, "server", "package.json"), "utf8"));
+		const manifest = safeParseJson(readFileSync(join(state.root, "server", "package.json"), "utf8"));
 		if (isRecord(manifest) && typeof manifest.version === "string" && manifest.version.length > 0) return manifest.version;
 	} catch {
 		// Missing/unreadable layout — fall back to the running version below.
@@ -94,7 +92,9 @@ export function installedServerVersion(state: UpdateInstallState): string {
 	return SERVER_VERSION;
 }
 
-function resetDirectory(path: string): void {
-	removeTreeSync(path);
-	mkdirSync(path, { recursive: true });
+/** Extracts a release archive into an emptied directory, within the update's size and time limits. */
+async function extractArchive(archivePath: string, destination: string): Promise<void> {
+	removeTreeSync(destination);
+	mkdirSync(destination, { recursive: true });
+	await extractArchiveInWorker(archivePath, destination, MAX_UNCOMPRESSED_BYTES, UPDATE_EXTRACT_TIMEOUT_MS);
 }

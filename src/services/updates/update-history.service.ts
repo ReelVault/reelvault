@@ -71,7 +71,8 @@ export class UpdateHistoryService {
 			const finishedAt = new Date();
 			for (const run of await updateHistoryRepository.findRunning()) {
 				const succeeded = run.target === "server" && run.toVersion === runningServerVersion;
-				await updateHistoryRepository.finish(run.id, {
+				// Each run is closed on its own: one failed write must not leave the runs after it open.
+				await this.finish(run.id, {
 					status: succeeded ? "succeeded" : "failed",
 					errorMessage: succeeded ? null : INTERRUPTED_MESSAGE,
 					finishedAt,

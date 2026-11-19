@@ -2,11 +2,10 @@ import type { FieldsQuery, MediaFileWithRelation, SelectFields, UpdateMediaFile 
 import { mediaRepository } from "@/repositories/media-files.repository";
 import { auditBeforeFields, auditedUpdate, recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
-import { runBulkItems } from "@/services/catalog/catalog.utils";
+import { invalidateCatalogLists, runBulkItems } from "@/services/catalog/catalog.utils";
 import { mediaFilesLog } from "@/services/media/media-files/media-files.logger";
 import { mediaFileRefreshService } from "@/services/media/media-files/refresh-media-file.operation";
 import { assertFound } from "@/utils/domain.errors";
-import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { enqueueAllMediaFilesRefresh } from "@/workers/definitions/media/media-files-refresh-all.worker";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped.utils";
@@ -28,7 +27,7 @@ export async function update<F extends string>(
 			context,
 		});
 
-		invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
+		invalidateCatalogLists();
 
 		return result;
 	});

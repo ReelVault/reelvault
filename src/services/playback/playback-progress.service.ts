@@ -18,7 +18,7 @@ import { watchedHistoryRepository as defaultWatchedHistoryRepository } from "@/r
 import { watchlistRepository as defaultWatchlistRepository } from "@/repositories/watchlist.repository";
 import { invalidateProfileCaches } from "@/services/users/cache-invalidation.cache";
 import { trimAndFilter, unique } from "@/utils/array.utils";
-import { assertFound, assertProfileId, DomainError } from "@/utils/domain.errors";
+import { assertFound, assertProfileId, DomainError, errorMessage } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { invalidateProfileResponseBodies } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
@@ -166,11 +166,7 @@ class PlaybackProgressService {
 				}
 			});
 
-			if (completesTitle) {
-				await this.removeWatchedTitleFromWatchlist(profileId, mediaFile.metadataId);
-				// A finished title changes recommendations, insights and "wrapped" — their caches are per profile.
-				invalidateProfileCaches(profileId);
-			}
+			if (completesTitle) await this.removeWatchedTitleFromWatchlist(profileId, mediaFile.metadataId);
 
 			// Language-level choices carry over to the whole title/series (movies and
 			// episodes share the same metadataId); undefined = not touched this update.
@@ -193,8 +189,10 @@ class PlaybackProgressService {
 				subtitleId,
 			});
 
-			// Continue-watching / detail user-state bodies for this profile are now stale.
-			invalidateProfileResponseBodies(profileId);
+			// A finished title changes recommendations, insights and "wrapped" — their caches are per profile, and
+			// that invalidation also drops the profile's response bodies. Otherwise only the bodies go stale.
+			if (completesTitle) invalidateProfileCaches(profileId);
+			else invalidateProfileResponseBodies(profileId);
 
 			return { success: true };
 		});
@@ -389,7 +387,13 @@ class PlaybackProgressService {
 
 			let nextEpisodeFileId: string | null = null;
 			if (currentEpisode) {
-				nextEpisodeFileId = selectNextEpisodeFileInSeries(data.episodes, data.seasons, data.mediaFiles, currentEpisode);
+				nextEpisodeFileId = selectNextEpisodeFileInSeries(
+					data.episodes,
+					data.seasons,
+					data.mediaFiles,
+					currentEpisode,
+					data.metadata.numberingMode,
+				);
 			}
 
 			return {
@@ -467,12 +471,20 @@ class PlaybackProgressService {
 			// The batch statement carries the watchlist flags for the same id list.
 			// Only a failed batch falls back to the separate watchlist read, so an
 			// outage still reports flags for suggestion-less cards (previous behavior).
-			const batch = await this.dependencies.playbackRepository.findSmartPlayBatchData(ids, profileId).catch(() => null);
+			const batch = await this.dependencies.playbackRepository.findSmartPlayBatchData(ids, profileId).catch((error: unknown) => {
+				this.logger.warn("Smart-play batch read failed — reading the watchlist flags separately", { error: errorMessage(error) });
+
+				return null;
+			});
 			let watchlisted: Set<string>;
 			if (batch) {
 				watchlisted = new Set(batch.filter((entry) => entry.inWatchlist).map((entry) => entry.metadataId));
 			} else {
-				watchlisted = await this.dependencies.watchlistRepository.findWatchlistedIds(profileId, ids).catch(() => new Set<string>());
+				watchlisted = await this.dependencies.watchlistRepository.findWatchlistedIds(profileId, ids).catch((error: unknown) => {
+					this.logger.warn("Watchlist flags read failed — reporting no card as watchlisted", { error: errorMessage(error) });
+
+					return new Set<string>();
+				});
 			}
 			const suggestionByMetadataId = new Map(
 				(batch ?? []).map((entry) => [entry.metadataId, entry.data ? computeSmartPlay(entry.data).suggestion : null]),

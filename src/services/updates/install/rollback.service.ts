@@ -1,10 +1,9 @@
 import { SERVER_VERSION } from "@/config/version.constants";
-import { adminFailureNotificationService } from "@/services/admin/admin-failure-notification.service";
 import type { UpdateComponent } from "@/services/updates/update-environment.utils";
 import { updateHistoryService } from "@/services/updates/update-history.service";
 import { swapBackFromPrevious } from "@/services/updates/update-swap.utils";
 import { errorCodeOf } from "@/utils/domain.errors";
-import { setJob, setLastError, type UpdateInstallState } from "./shared.types";
+import { recordComponentFailure, setJob, type UpdateInstallState } from "./shared.types";
 
 /**
  * Swaps the previous version back into place. Returns the failure code, or null when the swap went through.
@@ -29,10 +28,7 @@ export function runRollback(state: UpdateInstallState, target: UpdateComponent):
 		return null;
 	} catch (error) {
 		const errorCode = errorCodeOf(error, "update.rollback_failed");
-		setLastError(state, target, errorCode);
-		state.job = null;
-		state.logger.error(`Rollback for ${target} failed`, error);
-		adminFailureNotificationService.notifyUpdateFailed(target, null);
+		recordComponentFailure(state, target, { errorCode, error, logMessage: `Rollback for ${target} failed`, notifiedVersion: null });
 
 		return errorCode;
 	}

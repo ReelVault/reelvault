@@ -23,14 +23,9 @@ const MAX_ORPHAN_AUDIT_IDS = 50;
 export async function deleteMany(metadataIds: string[], options: { force?: boolean | undefined } = {}, context?: AdminAuditContext) {
 	return await runSafely(metadataLog, "deleteMany", async () => {
 		const ids = [...new Set(metadataIds)];
-		const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds(ids));
-		assertNoActiveStreamsForMediaFileIds(linkedFileIds, {
-			force: options.force,
-			message: "Delete is blocked while streams are playing these titles",
-			code: "metadata.delete_blocked_active_streams",
-		});
+		await assertNoStreamsOnTitles(ids, options.force, "Delete is blocked while streams are playing these titles");
 
-		return await runBulkItems(ids, (id) => deleteOne(id, context, { force: options.force === true }), "metadata.delete_failed");
+		return await runBulkItems(ids, (id) => removeTitle(id, context), "metadata.delete_failed");
 	});
 }
 
@@ -40,29 +35,34 @@ export async function deleteOne(
 	options: { force?: boolean | undefined } = {},
 ): Promise<{ success: boolean }> {
 	return await runSafely(metadataLog, "delete", async () => {
-		const metadata = await metadataRepository.findByIdForRead(metadataId);
-		assertFound(metadata, "Metadata", metadataId);
-		// The same protection the bulk path enforces: deleting the title ends its streams.
-		const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds([metadataId]));
-		assertNoActiveStreamsForMediaFileIds(linkedFileIds, {
-			force: options.force,
-			message: "Delete is blocked while a stream is playing this title",
-			code: "metadata.delete_blocked_active_streams",
-		});
+		await assertNoStreamsOnTitles([metadataId], options.force, "Delete is blocked while a stream is playing this title");
 
-		const cleanup = await metadataRepository.deleteAndGetCleanup(metadataId);
-		await deleteWithArtifacts({
-			cleanup,
-			resourceType: "metadata",
-			resourceId: metadataId,
-			before: metadata,
-			invalidate: invalidateReadCaches,
-			context,
-			logger: metadataLog.logger,
-		});
-
-		return { success: true };
+		return await removeTitle(metadataId, context);
 	});
+}
+
+/** Deleting a title ends its streams, so it is held back while any of its files plays, unless forced. */
+async function assertNoStreamsOnTitles(metadataIds: string[], force: boolean | undefined, message: string): Promise<void> {
+	const linkedFileIds = new Set(await mediaRepository.findIdsByMetadataIds(metadataIds));
+	assertNoActiveStreamsForMediaFileIds(linkedFileIds, { force, message, code: "metadata.delete_blocked_active_streams" });
+}
+
+async function removeTitle(metadataId: string, context?: AdminAuditContext): Promise<{ success: boolean }> {
+	const metadata = await metadataRepository.findByIdForRead(metadataId);
+	assertFound(metadata, "Metadata", metadataId);
+
+	const cleanup = await metadataRepository.deleteAndGetCleanup(metadataId);
+	await deleteWithArtifacts({
+		cleanup,
+		resourceType: "metadata",
+		resourceId: metadataId,
+		before: metadata,
+		invalidate: invalidateReadCaches,
+		context,
+		logger: metadataLog.logger,
+	});
+
+	return { success: true };
 }
 
 export async function deleteOrphans(context?: AdminAuditContext): Promise<{ count: number }> {

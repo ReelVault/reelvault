@@ -12,7 +12,13 @@ import { readPreviousVersion } from "@/services/updates/update-swap.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { detach, detachCatching } from "@/utils/promise.utils";
 import { runInstall } from "./install.runner";
-import { assertDiskSpace, assertInstallPreconditions, assertNoActiveStreams, assertRollbackPreconditions } from "./preconditions.guard";
+import {
+	assertDiskSpace,
+	assertInstallPreconditions,
+	assertNoActiveStreams,
+	assertNoJobRunning,
+	assertRollbackPreconditions,
+} from "./preconditions.guard";
 import { recordRollback, runRollback } from "./rollback.service";
 import {
 	beginJob,
@@ -35,7 +41,7 @@ export async function startInstall(
 	const release = await assertInstallPreconditions(state, target);
 	await assertDiskSpace(state, target, release);
 	assertNoActiveStreams(state, target, options.force === true);
-	if (state.job) throw new DomainError("conflict", "An update is already in progress", { code: "update.install_already_running" });
+	assertNoJobRunning(state);
 
 	state.cancelController = new AbortController();
 	beginJob(state, target, "downloading", 5, release.version);
@@ -72,6 +78,8 @@ export function startRollback(
 	detachCatching(recordRollback(state, { target, fromVersion, restoredVersion, actorUserId }, failure), (error) =>
 		state.logger.error("Failed to record the update rollback", error, { target }),
 	);
+	// A failed swap is reported to the caller as the failure, not as a started rollback.
+	if (failure) throw new DomainError("internal", `Rolling back the ${target} update failed`, { code: failure });
 
 	return { started: true, target, version: restoredVersion };
 }

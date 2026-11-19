@@ -103,7 +103,7 @@ class MediaArtifactsService {
 		this.assertAllowedContentType(artifact.contentType, ownerId);
 
 		const incomingBytes = contentByteSize(artifact.content);
-		this.assertArtifactSize(artifact.content, ownerId);
+		this.assertArtifactSize(incomingBytes, ownerId);
 
 		// Gate before any side effect: a rejected write must not run plugin hooks,
 		// touch the media row or leave a file behind.
@@ -175,25 +175,11 @@ class MediaArtifactsService {
 		return await mediaArtifactsRepository.countByOwnerAndKind();
 	}
 
-	/** Artifacts `deleteByMediaFileIdAndKind` would remove with the same filters; nothing is removed. */
-	async countByMediaFileIdAndKind(mediaFileId: string, kind: string, ownerId?: string): Promise<number> {
-		const artifactKind = toArtifactKind(kind);
-		if (!artifactKind) return 0;
-
-		return await mediaArtifactsRepository.countByMediaFileIdAndKind(mediaFileId, artifactKind, ownerId);
-	}
-
+	/** When scoped, an owner may only delete its own artifacts of that kind. */
 	async deleteByMediaFileIdAndKind(mediaFileId: string, kind: string, ownerId?: string): Promise<number> {
-		const artifactKind = toArtifactKind(kind);
-		if (!artifactKind) return 0;
+		const { artifacts } = await this.deleteByMediaFileIdsAndKind([mediaFileId], kind, ownerId);
 
-		// When scoped, an owner may only delete its own artifacts of that kind.
-		const matching = await mediaArtifactsRepository.findByMediaFileIdAndKind(mediaFileId, artifactKind, ownerId);
-		if (matching.length === 0) return 0;
-
-		await this.deleteArtifacts(matching);
-
-		return matching.length;
+		return artifacts;
 	}
 
 	/** Deletes specific artifacts of one media file; the caller captured the IDs it owns. */
@@ -302,13 +288,6 @@ class MediaArtifactsService {
 		return await this.ownerByteTotals.getOrSet(ownerId, async () => await this.computeOwnerByteTotal(ownerId));
 	}
 
-	/** Stored bytes for a single media file, used to decide whether regeneration can still fit. */
-	async getMediaFileStoredBytes(mediaFileId: string, ownerId: string): Promise<number> {
-		const artifacts = await mediaArtifactsRepository.findByMediaFileId(mediaFileId);
-
-		return await this.sumStoredBytes(artifacts.filter((artifact) => artifact.pluginId === ownerId));
-	}
-
 	/**
 	 * Drops cached per-owner byte totals after files were removed outside this
 	 * service (scanner stale-artifact cleanup, media/metadata/library delete).
@@ -352,8 +331,7 @@ class MediaArtifactsService {
 		}
 	}
 
-	private assertArtifactSize(content: PlaybackArtifactWrite["content"], ownerId?: string): void {
-		const size = contentByteSize(content);
+	private assertArtifactSize(size: number, ownerId?: string): void {
 		if (size > serverConfig.plugins.artifacts.maxSizeBytes) {
 			const ownerPrefix = ownerId ? `Artifact owner '${ownerId}'` : "Artifact";
 			throw new DomainError(

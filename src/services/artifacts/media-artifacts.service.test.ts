@@ -250,22 +250,6 @@ describe("mediaArtifactsService byte totals", () => {
 	});
 });
 
-describe("mediaArtifactsService.getMediaFileStoredBytes", () => {
-	test("sums only the requested owner's stored bytes for that media file", async () => {
-		const mediaFileId = await seedMediaFile();
-		await mediaArtifactsService.write("core", { mediaFileId, kind: "chapters", contentType: "text/vtt", content: bytes("x".repeat(100)) });
-		await mediaArtifactsService.write("core", { mediaFileId, kind: "chapters", contentType: "text/vtt", content: bytes("x".repeat(100)) });
-		await mediaArtifactsService.write("org.reelvault.test", {
-			mediaFileId,
-			kind: "chapters",
-			contentType: "text/vtt",
-			content: bytes("x".repeat(50)),
-		});
-
-		expect(await mediaArtifactsService.getMediaFileStoredBytes(mediaFileId, "core")).toBe(200);
-	});
-});
-
 describe("mediaArtifactsService.list", () => {
 	test("maps stored rows to public artifact urls", async () => {
 		const mediaFileId = await seedMediaFile();

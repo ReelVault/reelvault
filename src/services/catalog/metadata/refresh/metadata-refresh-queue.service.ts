@@ -6,10 +6,10 @@ import type { AdminAuditContext } from "@/services/admin/audit-context.types";
 import { trimAndFilter, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
+import { enqueueWithOperation } from "@/workers/core/worker-operation.service";
 import { enqueueManyMetadataRefresh, enqueueMetadataRefresh } from "@/workers/definitions/metadata/metadata-refresh.worker";
 import { batchChunks } from "@/workers/utils/batch-chunker.utils";
 import { enqueueDeduped } from "@/workers/utils/enqueue-deduped.utils";
-import { workerService } from "@/workers/worker.service";
 
 const logger = createLogger("MetadataRefreshQueueService");
 
@@ -56,7 +56,7 @@ class MetadataRefreshQueueService {
 		// Keyset-page the catalog and enqueue one batch at a time: the previous
 		// version loaded every id and inserted them in a single transaction, which
 		// held the SQLite write lock and allocated hundreds of MB on large libraries.
-		const { operationId, result: count } = await workerService.enqueueUnderOperation(
+		const { operationId, result: count } = await enqueueWithOperation(
 			{ type: "metadata-refresh-all", reference: { type: "metadata-all", id: "all" } },
 			async (opId) => {
 				// A concurrent "refresh all" dedupes every item onto its operation;
@@ -118,7 +118,7 @@ class MetadataRefreshQueueService {
 			});
 		}
 
-		const { operationId } = await workerService.enqueueUnderOperation(
+		const { operationId } = await enqueueWithOperation(
 			{ type: "metadata-refresh-all", reference: { type: "metadata-all", id: "batch" } },
 			async (opId) => {
 				let enqueued = 0;

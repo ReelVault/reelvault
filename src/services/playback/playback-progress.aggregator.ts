@@ -38,7 +38,7 @@ function seriesProgress(
 	let totalPlayable = 0;
 	let hasProgress = false;
 	for (const episode of episodes) {
-		if ((episode.episodeType ?? "regular") !== "regular" || !mediaFilesByEpisodeId.has(episode.id)) continue;
+		if (!(isRegularEpisode(episode) && mediaFilesByEpisodeId.has(episode.id))) continue;
 
 		totalPlayable++;
 		const st = episodeStatuses[episode.id]?.status;
@@ -96,6 +96,11 @@ export function computePlaybackProgress(data: PlaybackProgressComputeData): Meta
 	return { ...seriesProgress(mediaFiles, episodes, progressByMediaFileId), fileProgress };
 }
 
+/** Specials and other non-regular episodes are left out of progress totals and the smart-play order. */
+function isRegularEpisode(episode: { episodeType?: string | null | undefined }): boolean {
+	return (episode.episodeType ?? "regular") === "regular";
+}
+
 export function computeSmartPlay(data: SmartPlayComputeData): SmartPlay {
 	const { metadata, mediaFiles, progressRows, seasons = [], episodes } = data;
 	const numberingMode = metadata.numberingMode ?? null;
@@ -136,7 +141,7 @@ export function computeSmartPlay(data: SmartPlayComputeData): SmartPlay {
 
 	const regularEpisodes: Array<{ id: string; seasonId: string; episodeNumber: number; absoluteNumber: number | null }> = [];
 	for (const ep of episodes) {
-		if ((ep.episodeType ?? "regular") !== "regular" || !ep.seasonId || ep.episodeNumber === undefined) continue;
+		if (!(isRegularEpisode(ep) && ep.seasonId) || ep.episodeNumber === undefined) continue;
 
 		regularEpisodes.push({
 			id: ep.id,

@@ -20,6 +20,7 @@ interface EpisodeWithSeason {
 	id: string;
 	seasonId: string;
 	episodeNumber: number;
+	absoluteNumber?: number | null;
 }
 
 interface Season {
@@ -111,7 +112,9 @@ export function selectNextEpisodeFileInSeries(
 	seasons: readonly Season[],
 	mediaFiles: readonly MediaFile[],
 	current: { id: string; seasonId: string },
+	numberingMode?: string | null,
 ): string | null {
+	const useAbsolute = numberingMode === "absolute";
 	const seasonNumberById = toMap(
 		seasons,
 		(season) => season.id,
@@ -123,7 +126,7 @@ export function selectNextEpisodeFileInSeries(
 		if (seasonNumber !== undefined) ordered.push({ episode, seasonNumber });
 	}
 
-	ordered.sort((left, right) => left.seasonNumber - right.seasonNumber || left.episode.episodeNumber - right.episode.episodeNumber);
+	ordered.sort((left, right) => compareEpisodes(orderKeyOf(left), orderKeyOf(right), useAbsolute));
 
 	const filesByEpisode = groupBy(mediaFiles, (mediaFile) => mediaFile.episodeId);
 	const filesOf = (episode: EpisodeWithSeason): readonly MediaFile[] => filesByEpisode.get(episode.id) ?? [];
@@ -227,6 +230,15 @@ function continueSuggestion(progress: PlaybackProgress): SmartPlaySuggestion | u
 	};
 }
 
+function orderKeyOf(entry: { episode: EpisodeWithSeason; seasonNumber: number }) {
+	return {
+		seasonNumber: entry.seasonNumber,
+		episodeNumber: entry.episode.episodeNumber,
+		absoluteNumber: entry.episode.absoluteNumber ?? null,
+	};
+}
+
+/** Episode order for smart play and continue watching; absolute (anime) numbering orders by the absolute number. */
 export function compareEpisodes(
 	left: { seasonNumber: number; episodeNumber: number; absoluteNumber?: number | null },
 	right: { seasonNumber: number; episodeNumber: number; absoluteNumber?: number | null },

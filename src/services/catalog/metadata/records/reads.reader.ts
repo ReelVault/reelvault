@@ -96,6 +96,18 @@ export async function getRootsById(metadataId: string): Promise<MetadataRootRow 
 	});
 }
 
+/**
+ * A read that may degrade: a failure is logged with its context and replaced by `fallback`. Degraded reads must
+ * be visible — a silent fallback would present the data as absent.
+ */
+function degradeOnError<T>(read: Promise<T>, message: string, context: Record<string, unknown>, fallback: T): Promise<T> {
+	return read.catch((error: unknown) => {
+		metadataLog.logger.warn(message, { ...context, error: errorMessage(error) });
+
+		return fallback;
+	});
+}
+
 export async function getDetailsView(metadataId: string, profileId?: string): Promise<MetadataDetailsViewResponse> {
 	return await runSafely(metadataLog, "getDetailsView", async () => {
 		const metadata = await metadataRepository.findByIdForRead(metadataId);
@@ -105,34 +117,24 @@ export async function getDetailsView(metadataId: string, profileId?: string): Pr
 
 		let watchedState: Promise<boolean>;
 		if (profileId) {
-			watchedState = watchedHistoryRepository
-				.isWatched(profileId, metadataId)
-				// Degraded reads must be visible — a silent false would present
-				// watched state as unwatched.
-				.catch((error: unknown) => {
-					metadataLog.logger.warn("Watched-state lookup failed — reporting as unwatched", {
-						metadataId,
-						profileId,
-						error: errorMessage(error),
-					});
-
-					return false;
-				});
+			watchedState = degradeOnError(
+				watchedHistoryRepository.isWatched(profileId, metadataId),
+				"Watched-state lookup failed — reporting as unwatched",
+				{ metadataId, profileId },
+				false,
+			);
 		} else {
 			watchedState = Promise.resolve(false);
 		}
 
 		let progressRowsPromise: Promise<Awaited<ReturnType<typeof playbackRepository.findProgressRows>>>;
 		if (profileId) {
-			progressRowsPromise = playbackRepository.findProgressRows(metadataId, profileId).catch((error: unknown) => {
-				metadataLog.logger.warn("Playback progress lookup failed — reporting as no progress", {
-					metadataId,
-					profileId,
-					error: errorMessage(error),
-				});
-
-				return [];
-			});
+			progressRowsPromise = degradeOnError(
+				playbackRepository.findProgressRows(metadataId, profileId),
+				"Playback progress lookup failed — reporting as no progress",
+				{ metadataId, profileId },
+				[],
+			);
 		} else {
 			progressRowsPromise = Promise.resolve([]);
 		}

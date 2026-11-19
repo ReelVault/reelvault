@@ -84,21 +84,16 @@ export const trickplayAdminService = {
 		const ids = [...new Set(mediaFileIds)];
 		// The whole batch is read in one query: the files were read (and deleted)
 		// one at a time, so a bulk request over many files cost a round trip each.
-		let artifacts: number;
-		let filesWithArtifacts: string[];
 		if (options.dryRun) {
 			const counted = await mediaArtifactsService.countByMediaFileIdsAndKind(ids, TRICKPLAY_ARTIFACT_KIND, CORE_ARTIFACTS_OWNER);
-			artifacts = counted.artifacts;
-			filesWithArtifacts = counted.mediaFileIds;
-		} else {
-			const deleted = await mediaArtifactsService.deleteByMediaFileIdsAndKind(ids, TRICKPLAY_ARTIFACT_KIND, CORE_ARTIFACTS_OWNER);
-			artifacts = deleted.artifacts;
-			filesWithArtifacts = deleted.mediaFileIds;
+
+			return { mediaFiles: counted.mediaFileIds.length, artifacts: counted.artifacts };
 		}
 
-		if (!options.dryRun) trickplayRepository.clearStatsCache();
+		const deleted = await mediaArtifactsService.deleteByMediaFileIdsAndKind(ids, TRICKPLAY_ARTIFACT_KIND, CORE_ARTIFACTS_OWNER);
+		trickplayRepository.clearStatsCache();
 
-		return { mediaFiles: filesWithArtifacts.length, artifacts };
+		return { mediaFiles: deleted.mediaFileIds.length, artifacts: deleted.artifacts };
 	},
 
 	/** Coverage counts plus the core artifact storage usage/budget for the admin page. */

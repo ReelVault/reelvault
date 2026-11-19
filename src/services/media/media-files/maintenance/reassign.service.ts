@@ -11,14 +11,13 @@ import { moviesRepository } from "@/repositories/movies.repository";
 import { seasonsRepository } from "@/repositories/seasons.repository";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
-import { fallbackEpisodeExternalId, fallbackSeasonExternalId } from "@/services/catalog/catalog.utils";
+import { fallbackEpisodeExternalId, fallbackSeasonExternalId, invalidateCatalogLists } from "@/services/catalog/catalog.utils";
 import { resolveLibraryLanguage } from "@/services/catalog/metadata/providers/library-metadata-language.resolver";
 import { createFromProvider, processPersonImages } from "@/services/catalog/metadata/providers/metadata-create.utils";
 import { mediaFilesLog } from "@/services/media/media-files/media-files.logger";
 import { pluginEventBus } from "@/system/extensions/plugin.events";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { mapLibraryType } from "@/utils/media-metadata.utils";
-import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 
 /**
@@ -190,7 +189,7 @@ export async function reassign<F extends string>(
 		});
 		// Both titles' cached pages embed the file, and the library stats count it.
 		librariesRepository.clearStatsCache();
-		invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
+		invalidateCatalogLists();
 		// In sidecar mode the NFO next to the file still names the old title; a rescan would match it back.
 		sidecarSyncService.scheduleSync(targetMetadataId);
 

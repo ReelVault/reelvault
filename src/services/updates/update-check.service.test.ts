@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { SERVER_VERSION } from "@/config/version.constants";
+import { waitFor } from "../../../tests/helpers/wait.helper";
 import { buildReleaseFetcher, UpdateCheckService } from "./update-check.service";
 
 const SERVER_PAYLOAD = {
@@ -146,6 +147,39 @@ describe("UpdateCheckService (two sources)", () => {
 		expect(state.serverUpdateAvailable).toBe(false);
 		expect(state.webLatest).toBeNull();
 		expect(state.webLastError).toBe("update.check_failed");
+	});
+});
+
+describe("UpdateCheckService failed check retry", () => {
+	test("retries a failed check after the retry delay instead of waiting out the six-hour TTL", async () => {
+		setSystemTime(new Date("2026-01-01T00:00:00Z"));
+		try {
+			let serverAttempts = 0;
+			const service = serviceWith(
+				new Map<string, () => { status: number; body: unknown }>([
+					[
+						SERVER_URL,
+						() => {
+							serverAttempts++;
+
+							return serverAttempts === 1 ? { status: 503, body: {} } : { status: 200, body: SERVER_PAYLOAD };
+						},
+					],
+					[WEB_URL, () => ({ status: 200, body: WEB_PAYLOAD })],
+				]),
+			);
+
+			await service.checkLatest(true);
+			expect(service.getState().serverLastError).toBe("update.check_failed");
+
+			setSystemTime(new Date("2026-01-01T00:16:00Z"));
+			await service.checkLatest();
+			await waitFor(() => service.getState().serverLastError === null);
+
+			expect(service.getState().serverLatest?.version).toBe("99.0.0");
+		} finally {
+			setSystemTime();
+		}
 	});
 });
 

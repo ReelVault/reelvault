@@ -2,11 +2,10 @@ import { librariesRepository } from "@/repositories/libraries.repository";
 import { mediaRepository } from "@/repositories/media-files.repository";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
 import { deleteWithArtifacts } from "@/services/artifacts/delete-with-artifacts";
-import { runBulkItems } from "@/services/catalog/catalog.utils";
+import { invalidateCatalogLists, runBulkItems } from "@/services/catalog/catalog.utils";
 import { mediaFilesLog } from "@/services/media/media-files/media-files.logger";
 import { getById } from "@/services/media/media-files/queries.reader";
 import { assertNoActiveStreamsForMediaFileIds } from "@/services/playback/active-streams.guard";
-import { CATALOG_LIST_PATH_PREFIXES, invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 
 /**
@@ -51,7 +50,7 @@ export async function deleteOne(
 			// bodies may still embed the deleted row.
 			invalidate: () => {
 				librariesRepository.clearStatsCache();
-				invalidateResponseBodiesForPathPrefixes(CATALOG_LIST_PATH_PREFIXES);
+				invalidateCatalogLists();
 			},
 			context,
 			logger: mediaFilesLog.logger,

@@ -9,6 +9,7 @@ import { seasonsRepository } from "@/repositories/seasons.repository";
 import { resolveMetadataLanguage } from "@/services/catalog/metadata/providers/library-metadata-language.resolver";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { runSafely } from "@/utils/safe-execute.utils";
+import { isNonEmptyString } from "@/utils/type.utils";
 import { findFirstProviderResult, invalidateCatalogLists, mapProviderLinks, runBulkItems } from "./catalog.utils";
 import { DictionaryReadService } from "./dictionary-crud.service";
 
@@ -51,7 +52,7 @@ class EpisodesService extends DictionaryReadService<EpisodeWithRelations, Episod
 				await episodesRepository.update({
 					primaryId: episode.id,
 					values: {
-						title: match.name ?? episode.title,
+						title: isNonEmptyString(match.name) ? match.name : episode.title,
 						overview: match.overview ?? episode.overview,
 						airDate: match.airDate ?? episode.airDate,
 					},

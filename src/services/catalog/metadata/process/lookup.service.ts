@@ -6,6 +6,7 @@ import { episodesRepository } from "@/repositories/episodes.repository";
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { seasonsRepository } from "@/repositories/seasons.repository";
 import type { CreatedProviderMetadata } from "@/services/catalog/metadata/providers/metadata-create.utils";
+import { exceedsYearTolerance } from "@/utils/media-match/normalize.utils";
 import { normalizeForMatching } from "@/utils/release-tags.constants";
 import type { TaskSchedulingOptions } from "@/utils/task-context.types";
 import { ensureBaseMetadata } from "./base.service";
@@ -32,10 +33,10 @@ export async function findExistingLocalMetadata(
 		const exact = await metadataRepository.findByTitleAndType(type, parsed.title);
 		if (!exact) return undefined;
 
-		// If both the incoming file and the local record have a release year, verify they match (<= 1 year difference)
+		// If both the incoming file and the local record have a release year, verify they match within the year tolerance
 		if (parsed.year && exact.releaseDate) {
 			const localYear = Number.parseInt(exact.releaseDate.slice(0, 4), 10);
-			if (Number.isInteger(localYear) && Math.abs(localYear - parsed.year) > 1) {
+			if (Number.isInteger(localYear) && exceedsYearTolerance(localYear, parsed.year)) {
 				// Different year (e.g. Iron Man 2008 vs Iron Man remake/sequel) - let provider search find the correct one
 				return undefined;
 			}

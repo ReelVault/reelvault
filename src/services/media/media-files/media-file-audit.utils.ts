@@ -3,7 +3,7 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { recognitionService } from "@/modules/recognition/recognition.service";
 import { parseFileName } from "@/modules/recognition/utils/recognition.utils";
 import { type MediaFileAuditRow, mediaRepository } from "@/repositories/media-files.repository";
-import { extractYear } from "@/utils/media-match/normalize.utils";
+import { exceedsYearTolerance, extractYear } from "@/utils/media-match/normalize.utils";
 import { rankCandidates } from "@/utils/media-match/ranking.utils";
 import { isSequelMismatch, REVIEW_MATCH_SCORE } from "@/utils/media-match/score.constants";
 import { mapLibraryType } from "@/utils/media-metadata.utils";
@@ -55,10 +55,9 @@ function recognizeMediaFile(row: MediaFileAuditRow): RecognizedIdentity {
 /** Year drift against the assigned release date: 3+ years is high severity, 2 is medium. */
 function yearMismatchReason(recognizedYear: number, releaseDate: string): MediaFileAuditReason | null {
 	const assignedYear = extractYear(releaseDate);
-	if (assignedYear === undefined) return null;
+	if (assignedYear === undefined || !exceedsYearTolerance(recognizedYear, assignedYear)) return null;
 
 	const yearDiff = Math.abs(recognizedYear - assignedYear);
-	if (yearDiff < 2) return null;
 
 	return {
 		code: "year_mismatch",

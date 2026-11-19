@@ -36,7 +36,7 @@ describe("continue watching builder", () => {
 						updatedAt: new Date("2026-01-02T00:00:00Z"),
 					},
 				],
-				metadataList: [{ id: "meta-1", title: "Movie", type: "movie" }],
+				metadataList: [{ id: "meta-1", title: "Movie", type: "movie", numberingMode: null }],
 				mediaFiles: [
 					{
 						id: "file-1",
@@ -83,7 +83,7 @@ describe("continue watching builder", () => {
 						updatedAt: new Date("2026-01-02T00:00:00Z"),
 					},
 				],
-				metadataList: [{ id: "meta-1", title: "Movie", type: "movie" }],
+				metadataList: [{ id: "meta-1", title: "Movie", type: "movie", numberingMode: null }],
 			}),
 			12,
 		);
@@ -122,7 +122,7 @@ describe("continue watching builder: most recent active episode", () => {
 						updatedAt: new Date("2026-01-02T00:00:00Z"),
 					},
 				],
-				metadataList: [{ id: "meta-1", title: "Show", type: "tv_show" }],
+				metadataList: [{ id: "meta-1", title: "Show", type: "tv_show", numberingMode: null }],
 				mediaFiles: [
 					{
 						id: "file-1",
@@ -163,6 +163,63 @@ describe("continue watching builder: most recent active episode", () => {
 	});
 });
 
+describe("continue watching builder: absolute numbering", () => {
+	test("follows absolute numbering when the show uses it, not season order", () => {
+		// Absolute order is ep-2 (1), then ep-1 (3); season order would end after ep-2.
+		const items = buildContinueWatching(
+			createData({
+				progressRows: [
+					{
+						mediaFileId: "file-2",
+						metadataId: "meta-1",
+						movieId: null,
+						episodeId: "ep-2",
+						position: 1200,
+						duration: 1200,
+						completed: true,
+						audioStreamIndex: null,
+						subtitleId: null,
+						updatedAt: new Date("2026-01-02T00:00:00Z"),
+					},
+				],
+				metadataList: [{ id: "meta-1", title: "Anime", type: "tv_show", numberingMode: "absolute" }],
+				mediaFiles: [
+					{
+						id: "file-1",
+						metadataId: "meta-1",
+						movieId: null,
+						episodeId: "ep-1",
+						duration: 1200,
+						isDefault: true,
+						updatedAt: new Date("2026-01-01T00:00:00Z"),
+					},
+					{
+						id: "file-2",
+						metadataId: "meta-1",
+						movieId: null,
+						episodeId: "ep-2",
+						duration: 1200,
+						isDefault: true,
+						updatedAt: new Date("2026-01-01T00:00:00Z"),
+					},
+				],
+				seasons: [{ id: "season-1", metadataId: "meta-1", seasonNumber: 1 }],
+				episodes: [
+					{ id: "ep-1", seasonId: "season-1", episodeNumber: 1, absoluteNumber: 3, title: "Pilot", episodeType: "regular" },
+					{ id: "ep-2", seasonId: "season-1", episodeNumber: 2, absoluteNumber: 1, title: "Second", episodeType: "regular" },
+				],
+			}),
+			12,
+		);
+
+		expect(items).toHaveLength(1);
+		expect(items[0]).toMatchObject({
+			mediaFileId: "file-1",
+			episode: { title: "Pilot", episodeNumber: 1, seasonNumber: 1 },
+		});
+	});
+});
+
 describe("continue watching builder: next episode after completion", () => {
 	test("recommends the next episode when the active one is completed", () => {
 		const items = buildContinueWatching(
@@ -181,7 +238,7 @@ describe("continue watching builder: next episode after completion", () => {
 						updatedAt: new Date("2026-01-02T00:00:00Z"),
 					},
 				],
-				metadataList: [{ id: "meta-1", title: "Show", type: "tv_show" }],
+				metadataList: [{ id: "meta-1", title: "Show", type: "tv_show", numberingMode: null }],
 				mediaFiles: [
 					{
 						id: "file-1",
@@ -234,7 +291,12 @@ describe("continue watching builder: next episode after completion", () => {
 			subtitleId: null,
 			updatedAt: new Date(Date.UTC(2026, 0, index + 1)),
 		}));
-		const metadataList = progressRows.map((row) => ({ id: row.metadataId, title: row.metadataId, type: "movie" as const }));
+		const metadataList = progressRows.map((row) => ({
+			id: row.metadataId,
+			title: row.metadataId,
+			type: "movie" as const,
+			numberingMode: null,
+		}));
 		const mediaFiles = progressRows.map((row) => ({
 			id: row.mediaFileId,
 			metadataId: row.metadataId,
@@ -270,7 +332,7 @@ describe("continue watching builder: minimum position threshold", () => {
 		];
 		const data = createData({
 			progressRows,
-			metadataList: [{ id: "meta-1", title: "Movie", type: "movie" }],
+			metadataList: [{ id: "meta-1", title: "Movie", type: "movie", numberingMode: null }],
 			mediaFiles: [
 				{
 					id: "file-1",
@@ -304,7 +366,7 @@ describe("continue watching builder: minimum position threshold", () => {
 					updatedAt: new Date("2026-01-03T00:00:00Z"),
 				},
 			],
-			metadataList: [{ id: "meta-1", title: "Show", type: "tv_show" }],
+			metadataList: [{ id: "meta-1", title: "Show", type: "tv_show", numberingMode: null }],
 			mediaFiles: [
 				{
 					id: "file-2",
@@ -341,7 +403,7 @@ describe("continue watching dismissal", () => {
 				updatedAt: new Date(updatedAt),
 				dismissedAt: dismissedAt ? new Date(dismissedAt) : null,
 			})),
-			metadataList: [{ id: "meta-1", title: "Movie", type: "movie" }],
+			metadataList: [{ id: "meta-1", title: "Movie", type: "movie", numberingMode: null }],
 			mediaFiles: [
 				{
 					id: "file-1",

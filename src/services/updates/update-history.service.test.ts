@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { updateHistoryRepository } from "@/repositories/update-history.repository";
+import { type UpdateHistoryOutcome, updateHistoryRepository } from "@/repositories/update-history.repository";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { selectUpdateHistory } from "../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
@@ -60,6 +60,35 @@ describe("UpdateHistoryService.settleRunsAfterStart", () => {
 		expect(byId.get(installed ?? "")).toMatchObject({ status: "succeeded", errorMessage: null });
 		expect(byId.get(stale ?? "")).toMatchObject({ status: "failed", errorMessage: "Interrupted before it finished" });
 		expect(byId.get(web ?? "")).toMatchObject({ status: "failed", errorMessage: "Interrupted before it finished" });
+	});
+
+	test("a run that cannot be closed does not stop the open runs after it from settling", async () => {
+		const stuck = await updateHistoryService.begin({
+			action: "install",
+			target: "web",
+			fromVersion: "0.2.0",
+			toVersion: "1.3.0",
+			actorUserId: null,
+		});
+		const installed = await updateHistoryService.begin({
+			action: "install",
+			target: "server",
+			fromVersion: "1.2.2",
+			toVersion: "1.3.0",
+			actorUserId: null,
+		});
+		const original = updateHistoryRepository.finish.bind(updateHistoryRepository);
+		stubs.push(
+			stubMethod(updateHistoryRepository, "finish", (id: string, outcome: UpdateHistoryOutcome) =>
+				id === stuck ? Promise.reject(new Error("database is locked")) : original(id, outcome),
+			),
+		);
+
+		await updateHistoryService.settleRunsAfterStart("1.3.0");
+
+		const byId = new Map((await selectUpdateHistory(db.client())).map((row) => [row.id, row]));
+		expect(byId.get(installed ?? "")).toMatchObject({ status: "succeeded", errorMessage: null });
+		expect(byId.get(stuck ?? "")).toMatchObject({ status: "running" });
 	});
 
 	test("a failure while reading the open runs is logged and does not fail the startup", async () => {

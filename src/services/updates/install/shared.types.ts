@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { ArchiveFetcher } from "@/plugins/catalog/plugin-package/download.fetcher";
+import { adminFailureNotificationService } from "@/services/admin/admin-failure-notification.service";
 import type { UpdateComponent, UpdateFlavor, UpdateInstallType } from "@/services/updates/update-environment.utils";
 import { removeTreeSync } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
@@ -65,6 +66,18 @@ export function beginJob(
 export function setLastError(state: UpdateInstallState, target: UpdateComponent, message: string | null): void {
 	if (target === "server") state.lastServerError = message;
 	else state.lastWebError = message;
+}
+
+/** Ends a failed install or rollback: keeps the error code on the component, clears the job and notifies the admins. */
+export function recordComponentFailure(
+	state: UpdateInstallState,
+	target: UpdateComponent,
+	failure: { errorCode: string; error: unknown; logMessage: string; notifiedVersion: string | null },
+): void {
+	setLastError(state, target, failure.errorCode);
+	state.job = null;
+	state.logger.error(failure.logMessage, failure.error);
+	adminFailureNotificationService.notifyUpdateFailed(target, failure.notifiedVersion);
 }
 
 /** Checkpoint between stages: a cancelled install stops here, before anything is replaced. */

@@ -127,7 +127,8 @@ function buildTvCandidate(
 	const playableEpisodes = metaEpisodes
 		.filter((ep) => filesByEpisodeId.has(ep.id))
 		.map((ep) => ({ ...ep, seasonNumber: seasonById.get(ep.seasonId)?.seasonNumber ?? 0 }));
-	playableEpisodes.sort((a, b) => compareEpisodes(a, b, false));
+	const useAbsolute = meta.numberingMode === "absolute";
+	playableEpisodes.sort((a, b) => compareEpisodes(a, b, useAbsolute));
 
 	if (playableEpisodes.length === 0) return null;
 

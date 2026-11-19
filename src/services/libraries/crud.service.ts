@@ -18,6 +18,7 @@ import { libraryProviderSettingsRepository } from "@/repositories/library-provid
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
 import { deleteWithArtifacts } from "@/services/artifacts/delete-with-artifacts";
+import { invalidateIngestLibrary } from "@/services/libraries/ingest-library.cache";
 import { librariesLog } from "@/services/libraries/libraries.logger";
 import { libraryWatcherService } from "@/services/libraries/watching/library-watcher.service";
 import { assertFound, DomainError } from "@/utils/domain.errors";
@@ -25,7 +26,6 @@ import { checkFileExistence } from "@/utils/file.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { invalidateResponseBodiesForPathPrefixes } from "@/utils/response-body.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
-import { ingestLibraryCache } from "@/workers/definitions/media/media-file-ingest/dependencies.utils";
 import { LIBRARY_LIST_PATH_PREFIXES, normalizeMetadataLanguage } from "./shared.utils";
 
 /**
@@ -88,6 +88,24 @@ export async function getLibraryById<F extends string>(libraryId: string, query?
 	});
 }
 
+/** Writes a library's provider priority overrides and returns the list as stored. */
+async function writeProviderPriorities(
+	libraryId: string,
+	priorities: Parameters<typeof metadataProviderSettingsService.setLibraryOverrides>[1],
+): Promise<Awaited<ReturnType<typeof libraryProviderSettingsRepository.listForLibrary>>> {
+	await metadataProviderSettingsService.setLibraryOverrides(libraryId, priorities);
+
+	return await libraryProviderSettingsRepository.listForLibrary(libraryId);
+}
+
+/** Drops the per-library caches a library's own row feeds: its ingest settings and its metadata-language override. */
+async function forgetLibraryCaches(libraryId: string): Promise<void> {
+	invalidateIngestLibrary(libraryId);
+	// Dynamic import keeps the catalog graph out of the library service's module-load cycle.
+	const { invalidateLibraryLanguageCache } = await import("@/services/catalog/metadata/providers/library-metadata-language.resolver");
+	invalidateLibraryLanguageCache(libraryId);
+}
+
 export async function createLibrary<F extends string>(
 	body: CreateLibrary,
 	query?: FieldsQuery<F>,
@@ -109,11 +127,7 @@ export async function createLibrary<F extends string>(
 			throw new DomainError("conflict", `A ${body.type} library named "${body.name}" already exists`, { code: "library.name_conflict" });
 		}
 
-		if (body.providerPriorities) {
-			// awaits: sequential — the overrides are read back only after they are written
-			await metadataProviderSettingsService.setLibraryOverrides(library.id, body.providerPriorities);
-			library.providerPriorities = await libraryProviderSettingsRepository.listForLibrary(library.id);
-		}
+		if (body.providerPriorities) library.providerPriorities = await writeProviderPriorities(library.id, body.providerPriorities);
 
 		recordAuditSafe(
 			{
@@ -159,17 +173,9 @@ export async function updateLibrary<F extends string>(
 			query,
 		);
 		assertFound(result, "Library", libraryId);
-		ingestLibraryCache.delete(libraryId);
-		// Dynamic import keeps the catalog graph out of the library service's
-		// module-load cycle; this path runs once per admin edit.
-		const { invalidateLibraryLanguageCache } = await import("@/services/catalog/metadata/providers/library-metadata-language.resolver");
-		invalidateLibraryLanguageCache(libraryId);
+		await forgetLibraryCaches(libraryId);
 
-		if (body.providerPriorities) {
-			// awaits: sequential — the overrides are read back only after they are written
-			await metadataProviderSettingsService.setLibraryOverrides(libraryId, body.providerPriorities);
-			result.providerPriorities = await libraryProviderSettingsRepository.listForLibrary(libraryId);
-		}
+		if (body.providerPriorities) result.providerPriorities = await writeProviderPriorities(libraryId, body.providerPriorities);
 
 		recordAuditSafe(
 			{
@@ -194,7 +200,6 @@ export async function deleteLibrary(libraryId: string, context?: AdminAuditConte
 	return await runSafely(librariesLog, "delete", async () => {
 		const library = await librariesRepository.findWithPaths(libraryId);
 		assertFound(library, "Library", libraryId);
-		ingestLibraryCache.delete(libraryId);
 
 		const cleanup = await librariesRepository.deleteWithDependents(libraryId);
 		await deleteWithArtifacts({
@@ -203,6 +208,7 @@ export async function deleteLibrary(libraryId: string, context?: AdminAuditConte
 			resourceId: libraryId,
 			before: library,
 			invalidate: async () => {
+				await forgetLibraryCaches(libraryId);
 				invalidateResponseBodiesForPathPrefixes(LIBRARY_LIST_PATH_PREFIXES);
 				await libraryWatcherService.syncWatchers();
 			},

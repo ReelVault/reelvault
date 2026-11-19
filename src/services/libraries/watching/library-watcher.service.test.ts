@@ -155,22 +155,19 @@ describe("LibraryWatcherService real-time events", () => {
 		const { service, clock, scanCalls, cleanup } = createHarness();
 		try {
 			emitEvent(service);
-			expect(service.getPendingTimerCount()).toBe(1);
 			expect(scanCalls.length).toBe(0);
 
-			// Events inside the debounce window re-arm a single timer — no extra timers.
+			// Events inside the debounce window push the scan back: the first event's
+			// deadline (2000 ms) must not fire it while the later events are still arriving.
+			await clock.advance(1500);
 			emitEvent(service);
 			emitEvent(service);
-			expect(service.getPendingTimerCount()).toBe(1);
-			expect(clock.scheduledCount).toBe(1);
 
 			await clock.advance(1999);
 			expect(scanCalls.length).toBe(0);
 
 			await clock.advance(1);
-			expect(scanCalls.length).toBe(1);
-			expect(scanCalls[0]).toEqual({ libraryId: "lib-1", pathId: "path-1" });
-			expect(service.getPendingTimerCount()).toBe(0);
+			expect(scanCalls).toEqual([{ libraryId: "lib-1", pathId: "path-1" }]);
 		} finally {
 			cleanup();
 		}

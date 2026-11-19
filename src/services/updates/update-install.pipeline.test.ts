@@ -14,13 +14,18 @@ import { detach } from "@/utils/promise.utils";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { insertUsers } from "../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
+import { waitFor } from "../../../tests/helpers/wait.helper";
 import type { RestartScheduler } from "./install/shared.types";
 import { type UpdateCheckState, updateCheckService } from "./update-check.service";
+import { DISCARD_DIR } from "./update-environment.utils";
 import { updateHistoryService } from "./update-history.service";
 import { UpdateInstallService } from "./update-install.service";
 
 // Run history is written through the real update_history table; the rows are the assertion.
 const db = useTestDatabase();
+
+/** Real archive I/O: the install's only completion signals are the job and the run history. At 2 ms a poll, about 5 s. */
+const PIPELINE_WAIT_ATTEMPTS = 2500;
 
 const OLD_SERVER = "1.0.0";
 // Derived from the running version so bumping the server package never makes
@@ -161,11 +166,6 @@ function fakeScheduler(): RestartScheduler & { calls: string[] } {
 	return { calls, scheduleRestart: () => calls.push("restart") };
 }
 
-/** Bounded poll (5 s) for real archive I/O: the install's only completion signals are the job and the run history. */
-async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {
-	for (let i = 0; i < 200 && !(await predicate()); i++) await Bun.sleep(25);
-}
-
 async function historyRows() {
 	return (await updateHistoryService.list({ page: 1, limit: 50 })).data;
 }
@@ -191,7 +191,7 @@ describe("server update pipeline (local HTTP archive)", () => {
 		const started = await service.startInstall("server");
 		expect(started).toEqual({ started: true, target: "server", version: NEW_SERVER });
 
-		await waitFor(() => scheduler.calls.length > 0);
+		await waitFor(() => scheduler.calls.length > 0, PIPELINE_WAIT_ATTEMPTS);
 		expect(service.getLastError("server")).toBeNull();
 		expect(service.getJob()?.target).toBe("server");
 		expect(service.getJob()?.state).toBe("restarting");
@@ -218,7 +218,7 @@ describe("server update pipeline (local HTTP archive)", () => {
 
 		serveWrongSums = true;
 		await service.startInstall("server");
-		await waitFor(() => service.getJob() === null);
+		await waitFor(() => service.getJob() === null, PIPELINE_WAIT_ATTEMPTS);
 
 		expect(service.getLastError("server")).toBe("update.checksum_mismatch");
 		expect(scheduler.calls).toEqual([]);
@@ -256,7 +256,7 @@ describe("server update database check", () => {
 		stubPreUpdateCheck(false);
 
 		await service.startInstall("server");
-		await waitFor(() => service.getJob() === null);
+		await waitFor(() => service.getJob() === null, PIPELINE_WAIT_ATTEMPTS);
 
 		expect(service.getLastError("server")).toBe("update.database_integrity_failed");
 		expect(scheduler.calls).toEqual([]);
@@ -327,7 +327,7 @@ describe("server update active streams guard", () => {
 		stubPreUpdateCheck();
 
 		await service.startInstall("server", null, { force: true });
-		await waitFor(() => scheduler.calls.length > 0);
+		await waitFor(() => scheduler.calls.length > 0, PIPELINE_WAIT_ATTEMPTS);
 		expect(scheduler.calls).toEqual(["restart"]);
 		expect(JSON.parse(readFileSync(join(root, "server", "package.json"), "utf8")).version).toBe(NEW_SERVER);
 
@@ -371,7 +371,7 @@ describe("server update active streams guard", () => {
 		stubs.push(...stubCheckState(null, webRelease()));
 
 		await expect(service.startInstall("web")).resolves.toEqual({ started: true, target: "web", version: NEW_WEB });
-		await waitFor(() => service.getJob() === null);
+		await waitFor(() => service.getJob() === null, PIPELINE_WAIT_ATTEMPTS);
 		expect(service.getLastError("web")).toBeNull();
 		expect(readFileSync(join(root, "web", "index.html"), "utf8")).toContain(`web v${NEW_WEB}`);
 
@@ -396,7 +396,7 @@ describe("server update cancel", () => {
 		stubs.push(...stubCheckState(serverRelease(), null));
 		await service.startInstall("server");
 		expect(service.cancelInstall("server")).toEqual({ target: "server" });
-		await waitFor(async () => (await historyRows()).some((row) => row.status === "cancelled"));
+		await waitFor(async () => (await historyRows()).some((row) => row.status === "cancelled"), PIPELINE_WAIT_ATTEMPTS);
 
 		expect(await historyRows()).toEqual([expect.objectContaining({ action: "install", target: "server", status: "cancelled" })]);
 		expect(service.getJob()).toBeNull();
@@ -432,7 +432,7 @@ describe("web update pipeline (local HTTP zip, no restart)", () => {
 		expect(started).toEqual({ started: true, target: "web", version: NEW_WEB });
 
 		// Web install finishes without a restart — the job disappears after the swap.
-		await waitFor(() => service.getJob() === null);
+		await waitFor(() => service.getJob() === null, PIPELINE_WAIT_ATTEMPTS);
 		expect(service.getLastError("web")).toBeNull();
 		expect(scheduler.calls).toEqual([]);
 
@@ -469,10 +469,16 @@ describe("update run history for the web UI", () => {
 		await insertUsers(db.client(), { id: "admin-1", name: "Admin", email: "admin@example.com", emailVerified: true, role: "admin" });
 
 		await service.startInstall("web", "admin-1");
-		await waitFor(async () => (await historyRows()).some((row) => row.action === "install" && row.status === "succeeded"));
+		await waitFor(
+			async () => (await historyRows()).some((row) => row.action === "install" && row.status === "succeeded"),
+			PIPELINE_WAIT_ATTEMPTS,
+		);
 
 		service.startRollback("web", "admin-1");
-		await waitFor(async () => (await historyRows()).some((row) => row.action === "rollback" && row.status === "succeeded"));
+		await waitFor(
+			async () => (await historyRows()).some((row) => row.action === "rollback" && row.status === "succeeded"),
+			PIPELINE_WAIT_ATTEMPTS,
+		);
 
 		expect(await historyRows()).toHaveLength(2);
 		expect(await historyRows()).toEqual(
@@ -523,3 +529,31 @@ function readPreviousVersionOf(root: string, component: "server" | "web"): strin
 
 	return readFileSync(join(root, ".previous", marker), "utf8").trim();
 }
+
+describe("web UI rollback that cannot swap back", () => {
+	test("reports the failed rollback to the caller and records it as failed", async () => {
+		const root = makeRoot(OLD_SERVER, OLD_WEB);
+		const service = new UpdateInstallService({
+			root,
+			installType: "archive",
+			restartScheduler: fakeScheduler(),
+			archiveFetcher: localFetcher,
+		});
+		stubs.push(...stubCheckState(null, webRelease()));
+
+		await service.startInstall("web");
+		await waitFor(() => service.getJob() === null, PIPELINE_WAIT_ATTEMPTS);
+		// A leftover, non-empty discard folder makes the swap-back rename fail.
+		mkdirSync(join(root, DISCARD_DIR, "web", "leftover"), { recursive: true });
+
+		expect(() => service.startRollback("web")).toThrow(expect.objectContaining({ category: "internal", code: "update.rollback_failed" }));
+		expect(service.getLastError("web")).toBe("update.rollback_failed");
+		expect(service.getJob()).toBeNull();
+		await waitFor(
+			async () => (await historyRows()).some((row) => row.action === "rollback" && row.status === "failed"),
+			PIPELINE_WAIT_ATTEMPTS,
+		);
+
+		removeTreeSync(root);
+	});
+});

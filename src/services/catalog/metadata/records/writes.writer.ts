@@ -90,6 +90,7 @@ export async function mergeMetadata(
 		invalidateReadCaches();
 		// Media files were repointed to the target — rewrite its sidecars.
 		sidecarSyncService.scheduleSync(targetId);
+		const mergedTarget = await metadataRepository.findByIdForRead(targetId);
 
 		recordAuditSafe(
 			{
@@ -97,7 +98,7 @@ export async function mergeMetadata(
 				resourceType: "metadata_merge",
 				resourceId: targetId,
 				before: source,
-				after: target,
+				after: mergedTarget,
 				context,
 			},
 			metadataLog.logger,
