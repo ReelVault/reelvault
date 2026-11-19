@@ -163,11 +163,7 @@ export const adminUsersRoutes = adminShell({ tags: ["Admin"] })
 		{
 			rateLimit: routeLimit("admin-users-profile-update", 30),
 			params: UserProfileIdParams,
-			body: t.Object({
-				name: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
-				avatarUrl: t.Optional(t.Nullable(t.String({ maxLength: 2048 }))),
-				pin: t.Optional(t.Nullable(t.String({ minLength: 4, maxLength: 32 }))),
-			}),
+			body: t.Partial(AdminCreateUserProfileSchema),
 			response: { ...ROUTE_ERRORS.VALIDATED_ADMIN_NOT_FOUND, 200: "admin.userProfile" },
 			detail: { description: "Update a user's profile as an administrator." },
 		},

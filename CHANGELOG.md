@@ -935,6 +935,7 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 - **Plugin code blocks are accepted.** A declarative plugin screen with a read-only `code` block (the bug-reports detail dialog uses one) failed manifest validation; every node type the SDK supports is now accepted.
 - **Plugin dashboard sections must be elements.** A `dashboard-section` slot entry with an action passed validation but never appeared on the dashboard; it is now refused when the plugin loads.
 - **Search results of plugins for regular users** no longer point at a plugin page they cannot open.
+- **Admin-set profile PINs work.** An administrator could give a profile a PIN of 9 to 32 characters, which the profile switch then refused; admin PINs now follow the same 4–8 character rule.
 - **A show with new episodes can be listed as recently added.** The metadata list accepts `sortBy=recentlyAdded`, which orders titles by the newest file linked to them. `createdAt` only records when the title was first inserted, so an existing show never moved up when episodes were added.
 - **Expired cached API responses are released from memory.** They stayed resident until the cache ran out of room.
 - **A retried playback request no longer starts a second session.** A retry that arrives while the first request is still starting, with the idempotency cache full, now shares the first request, and a retry that changes only the HDR transfer settings is reported as a conflict.

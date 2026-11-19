@@ -1,3 +1,4 @@
+import type { DownloadStatus } from "@/integrations/drizzle-orm/constants/downloads.constants";
 import type { DownloadRow } from "@/repositories/downloads.repository";
 import { toErrorCode } from "@/utils/domain.errors";
 
@@ -7,7 +8,7 @@ export interface DownloadJobView {
 	/** Title the media file belongs to; null when it no longer has one. */
 	metadataId: string | null;
 	quality: string;
-	status: string;
+	status: DownloadStatus;
 	progressPercent: number;
 	sizeBytes: number | null;
 	fileName: string | null;
