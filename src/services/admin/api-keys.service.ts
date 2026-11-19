@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { ApiKey, ApiKeyCreated } from "@reelvault/sdk/common";
+import type { ApiKey, ApiKeyCreated, ApiKeyScope, CreateApiKeyRequest, UpdateApiKeyRequest } from "@reelvault/sdk/common";
 import { type ApiKeyChanges, type ApiKeyRow, apiKeysRepository } from "@/repositories/api-keys.repository";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
@@ -19,12 +19,11 @@ const lastUsedWriteGates = new Set<string>();
  * hot path at zero queries while key CRUD clears it (keys are few, clear is free). */
 const authenticateCache = new MemoryCache<AuthenticatedApiKey>({ ttlMs: 5_000, maxSize: 200, name: "api-keys.auth" });
 
-export type ApiKeyScope = "read_only" | "full";
-
-export interface UpdateApiKeyInput {
-	name?: string | undefined;
-	expiresAtDays?: number | null | undefined;
-}
+/** The SDK contract with the optional expiry widened for callers that pass it as undefined. */
+type CreateApiKeyInput = Omit<CreateApiKeyRequest, "expiresAtDays"> & {
+	expiresAtDays?: number | undefined;
+	creatorUserId: string;
+};
 
 export interface AuthenticatedApiKey {
 	id: string;
@@ -95,7 +94,7 @@ class ApiKeysService {
 	}
 
 	/** Renames a key or changes its expiry (`expiresAtDays` null removes it). The secret does not change. */
-	async update(id: string, input: UpdateApiKeyInput, context?: AdminAuditContext): Promise<ApiKey> {
+	async update(id: string, input: UpdateApiKeyRequest, context?: AdminAuditContext): Promise<ApiKey> {
 		const before = await this.requireRow(id);
 		const changes: ApiKeyChanges = { updatedAt: new Date() };
 
@@ -170,10 +169,7 @@ class ApiKeysService {
 		return `${KEY_TAG}${randomBytes(KEY_RANDOM_BYTES).toString("base64url")}`;
 	}
 
-	async create(
-		input: { name: string; scope: ApiKeyScope; expiresAtDays?: number | undefined; creatorUserId: string },
-		context?: AdminAuditContext,
-	): Promise<ApiKeyCreated> {
+	async create(input: CreateApiKeyInput, context?: AdminAuditContext): Promise<ApiKeyCreated> {
 		const name = normalizeKeyName(input.name);
 		if (input.expiresAtDays !== undefined) assertExpiryDays(input.expiresAtDays);
 

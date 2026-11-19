@@ -9,6 +9,7 @@ import type {
 	WatchlistBulkBody,
 	WatchlistFilters,
 	WatchlistSorting,
+	WatchlistStatusesResponse,
 } from "@reelvault/sdk/common";
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { watchlistRepository } from "@/repositories/watchlist.repository";
@@ -134,7 +135,7 @@ class WatchlistService {
 		});
 	}
 
-	async getStatuses(metadataIds: string[], profileId?: string): Promise<{ statuses: Array<{ metadataId: string; inWatchlist: boolean }> }> {
+	async getStatuses(metadataIds: string[], profileId?: string): Promise<WatchlistStatusesResponse> {
 		return await runSafely(this, "getStatuses", async () => {
 			const uniqueIds = unique(metadataIds).slice(0, MAX_STATUSES_IDS);
 			if (!profileId || uniqueIds.length === 0) {

@@ -93,8 +93,9 @@ describe("route table", () => {
 			.filter((endpoint) => !routes.some((route) => route.method === endpoint.method && sameShape(route.path, endpoint.path)))
 			.map((endpoint) => `${endpoint.method} ${endpoint.path}`);
 
-		// @reelvault/sdk 1.3.0 calls 308 endpoints; a scan that found none would pass vacuously.
-		expect(endpoints.length).toBe(308);
+		// @reelvault/sdk calls 307 endpoints after the duplicate playback command
+		// method was removed; a scan that found none would pass vacuously.
+		expect(endpoints.length).toBe(307);
 		expect(missing).toEqual([]);
 	});
 });
