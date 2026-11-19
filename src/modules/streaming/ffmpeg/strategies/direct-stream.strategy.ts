@@ -25,7 +25,7 @@ export class DirectStreamStrategy extends BaseStreamingStrategy {
 			...this.buildProbeInputArgs(decision.formatName),
 			"-fflags",
 			"+genpts",
-			...(startTime > 0 ? ["-ss", startTime.toString(), "-noaccurate_seek"] : []),
+			...this.inputSeekArgs(startTime, ["-noaccurate_seek"]),
 		];
 
 		return this.runSession({

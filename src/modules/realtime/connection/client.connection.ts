@@ -1,11 +1,10 @@
+import { WS_CLOSE_TRY_AGAIN_LATER } from "@/modules/realtime/realtime.constants";
 import type { ClientConnectionInput, RealtimeSocket } from "@/modules/realtime/realtime.types";
 
 /** Bun `send` sentinel: the message was dropped because the socket buffer is full. */
 const WS_BUFFER_FULL = -1;
 /** Consecutive drops after which the connection is closed so the client resyncs on reconnect. */
 const MAX_CONSECUTIVE_DROPS = 5;
-/** WebSocket close code "Try Again Later". */
-const WS_CLOSE_TRY_AGAIN_LATER = 1013;
 
 export type SendOutcome = "delivered" | "dropped" | "closed";
 

@@ -1,6 +1,4 @@
 import { serverConfig } from "@/config/server/server.config";
-import { MINUTE } from "@/config/server/server.constants";
-import { BoundedMap } from "@/modules/streaming/utils/bounded-map.utils";
 import { normalizeStringList } from "@/modules/streaming/utils/string-list.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { detach } from "@/utils/promise.utils";
@@ -9,10 +7,10 @@ import { normalizeLower } from "@/utils/type.utils";
 interface Entry<T> {
 	fingerprint: string;
 	promise: Promise<T>;
+	/** Set when the creation settles; a pending entry never expires or gets evicted. */
 	expiresAt: number | undefined;
 }
 
-const PENDING_ENTRY_TTL_MS = MINUTE;
 const SWEEP_INTERVAL_MS = 15_000;
 const DEFAULT_MAX_ENTRIES = 1_000;
 
@@ -22,11 +20,13 @@ const DEFAULT_MAX_ENTRIES = 1_000;
  * does not claim to provide cross-node guarantees.
  */
 export class PlaybackSessionIdempotencyRegistry<T = unknown> {
-	private readonly entries: BoundedMap<Entry<T>>;
+	private readonly entries = new Map<string, Entry<T>>();
+	private readonly maxEntries: number;
 	private lastSweepAt = 0;
 
+	/** `maxEntries` caps settled entries only: a pending creation is never dropped, or a retry would start a second session. */
 	constructor(maxEntries = DEFAULT_MAX_ENTRIES) {
-		this.entries = new BoundedMap({ maxEntries });
+		this.maxEntries = maxEntries;
 	}
 
 	execute(profileId: string, idempotencyKey: string, body: Record<string, unknown>, create: () => Promise<T>): Promise<T> {
@@ -46,7 +46,8 @@ export class PlaybackSessionIdempotencyRegistry<T = unknown> {
 		}
 
 		const { promise, resolve, reject } = Promise.withResolvers<T>();
-		const entry: Entry<T> = { fingerprint, promise, expiresAt: Date.now() + PENDING_ENTRY_TTL_MS };
+		const entry: Entry<T> = { fingerprint, promise, expiresAt: undefined };
+		this.evictOldestSettledIfFull();
 		this.entries.set(key, entry);
 
 		detach(
@@ -65,12 +66,26 @@ export class PlaybackSessionIdempotencyRegistry<T = unknown> {
 		return promise;
 	}
 
+	private evictOldestSettledIfFull(): void {
+		if (this.entries.size < this.maxEntries) return;
+
+		for (const [key, entry] of this.entries) {
+			if (entry.expiresAt === undefined) continue;
+
+			this.entries.delete(key);
+
+			return;
+		}
+	}
+
 	private removeExpiredEntriesIfDue(): void {
 		const now = Date.now();
 		if (this.entries.size <= 100 && now - this.lastSweepAt < SWEEP_INTERVAL_MS) return;
 
 		this.lastSweepAt = now;
-		this.entries.prune((entry, sweepNow) => entry.expiresAt !== undefined && entry.expiresAt <= sweepNow);
+		for (const [key, entry] of this.entries) {
+			if (entry.expiresAt !== undefined && entry.expiresAt <= now) this.entries.delete(key);
+		}
 	}
 }
 
@@ -78,6 +93,7 @@ export function fingerprintPlaybackSession(body: Record<string, unknown>): strin
 	const mediaFileId = normalizeString(body.mediaFileId);
 	const videoCodecs = normalizeCodecs(body.videoCodecs).join(",");
 	const audioCodecs = normalizeCodecs(body.audioCodecs).join(",");
+	const hdrTransfers = normalizeCodecs(body.hdrTransfers).join(",");
 	const maxBitrate = fingerprintValue(body.maxBitrate);
 	const audioStreamIndex = fingerprintValue(body.audioStreamIndex);
 	const audioLanguage = normalizeString(body.audioLanguage);
@@ -85,7 +101,7 @@ export function fingerprintPlaybackSession(body: Record<string, unknown>): strin
 	const subtitlesEnabled = fingerprintValue(body.subtitlesEnabled);
 	const forcedSubtitlesOnly = fingerprintValue(body.forcedSubtitlesOnly);
 
-	return `${mediaFileId}|${videoCodecs}|${audioCodecs}|${maxBitrate}|${audioStreamIndex}|${audioLanguage}|${subtitleLanguage}|${subtitlesEnabled}|${forcedSubtitlesOnly}`;
+	return `${mediaFileId}|${videoCodecs}|${audioCodecs}|${hdrTransfers}|${maxBitrate}|${audioStreamIndex}|${audioLanguage}|${subtitleLanguage}|${subtitlesEnabled}|${forcedSubtitlesOnly}`;
 }
 
 /** Stringifies scalar fingerprint fields; non-scalar values collapse to the empty sentinel. */

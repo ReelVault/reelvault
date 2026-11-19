@@ -8,7 +8,7 @@ import { parseFields } from "@/integrations/drizzle-orm/query/parsing/fields.par
 import { buildSingleFrameExtractionCommand, buildSpriteTileCommand } from "@/integrations/ffmpeg/ffmpeg.frame-extract";
 import { ffMpegService } from "@/integrations/ffmpeg/ffmpeg.service";
 import { isStorageBudgetError, resolveCoreArtifactsBudgetBytes } from "@/modules/artifacts/artifacts-budget.utils";
-import { isCoreTrickplayArtifact } from "@/modules/trickplay/trickplay-artifacts.utils";
+import { isCoreTrickplayArtifact, TRICKPLAY_ARTIFACT_KIND } from "@/modules/trickplay/trickplay-artifacts.utils";
 import { mediaRepository } from "@/repositories/media-files.repository";
 import { writeCoreArtifact } from "@/services/artifacts/core-artifacts.writer";
 import { mediaArtifactsService } from "@/services/artifacts/media-artifacts.service";
@@ -260,7 +260,7 @@ class TrickplayService {
 			await writeCoreArtifact(
 				{
 					mediaFileId,
-					kind: "trickplay",
+					kind: TRICKPLAY_ARTIFACT_KIND,
 					contentType: CONTENT_TYPE_VTT,
 					content: new TextEncoder().encode(buildTrickplayVtt(buildCues(job, sprites), layout.tileWidth, layout.tileHeight)),
 				},
@@ -308,19 +308,17 @@ class TrickplayService {
 
 	/** The IDs of the core generation's artifacts, captured before a replacement run. */
 	private async previousTrickplayArtifactIds(mediaFileId: string): Promise<string[]> {
-		const artifacts = await mediaArtifactsService.list(mediaFileId);
+		const artifacts = await listCoreTrickplayArtifacts(mediaFileId);
 
-		return artifacts.filter((artifact) => isCoreTrickplayArtifact(artifact)).map((artifact) => artifact.id);
+		return artifacts.map((artifact) => artifact.id);
 	}
 
 	/** Deletes the core artifacts this attempt wrote, leaving the previous generation and plugins untouched. */
 	private async removeNewArtifacts(mediaFileId: string, previousIds: readonly string[]): Promise<void> {
 		try {
 			const previous = new Set(previousIds);
-			const current = await mediaArtifactsService.list(mediaFileId);
-			const newIds = current
-				.filter((artifact) => isCoreTrickplayArtifact(artifact) && !previous.has(artifact.id))
-				.map((artifact) => artifact.id);
+			const current = await listCoreTrickplayArtifacts(mediaFileId);
+			const newIds = current.filter((artifact) => !previous.has(artifact.id)).map((artifact) => artifact.id);
 
 			if (newIds.length > 0) await mediaArtifactsService.deleteByIds(mediaFileId, newIds);
 		} catch (error) {
@@ -418,7 +416,7 @@ class TrickplayService {
 			const written = await writeCoreArtifact(
 				{
 					mediaFileId: job.mediaFileId,
-					kind: "trickplay",
+					kind: TRICKPLAY_ARTIFACT_KIND,
 					contentType: CONTENT_TYPE_WEBP,
 					content: sprite.file,
 				},
@@ -484,13 +482,7 @@ class TrickplayService {
 
 			const rows = Math.ceil(chunkTimeMs.length / layout.columns);
 			const command = buildSpriteTileCommand(join(framesDir, "frame_%04d.webp"), layout.columns, rows, "webp", spritePath);
-			const result = await ffMpegService.runToCompletion(command, {
-				timeoutMs: systemResourcesService.scaledTimeoutMs(TRICKPLAY_TILE_TIMEOUT_MS),
-				stdout: "ignore",
-				maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
-				signal,
-			});
-			this.trackPeakRss(job, result);
+			const result = await this.runFfmpeg(job, command, systemResourcesService.scaledTimeoutMs(TRICKPLAY_TILE_TIMEOUT_MS), signal);
 
 			if (result.exitCode !== 0) {
 				const exitText = result.exitCode === null ? "signal" : String(result.exitCode);
@@ -532,13 +524,7 @@ class TrickplayService {
 					format: "webp",
 					outputPath: framePath,
 				});
-				const result = await ffMpegService.runToCompletion(command, {
-					timeoutMs: systemResourcesService.scaledTimeoutMs(TRICKPLAY_FRAME_TIMEOUT_MS),
-					stdout: "ignore",
-					maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
-					signal,
-				});
-				this.trackPeakRss(job, result);
+				const result = await this.runFfmpeg(job, command, systemResourcesService.scaledTimeoutMs(TRICKPLAY_FRAME_TIMEOUT_MS), signal);
 
 				if (result.exitCode === 0 && file(framePath).size > 0) return true;
 
@@ -592,12 +578,7 @@ class TrickplayService {
 			"-y",
 			framePath,
 		];
-		const result = await ffMpegService.runToCompletion(command, {
-			timeoutMs: TRICKPLAY_PLACEHOLDER_TIMEOUT_MS,
-			stdout: "ignore",
-			signal,
-		});
-		this.trackPeakRss(job, result);
+		const result = await this.runFfmpeg(job, command, TRICKPLAY_PLACEHOLDER_TIMEOUT_MS, signal);
 
 		if (result.exitCode !== 0 || file(framePath).size === 0) {
 			throw new DomainError("internal", `Trickplay placeholder frame failed: ${result.stderr.slice(-500)}`, {
@@ -606,11 +587,31 @@ class TrickplayService {
 		}
 	}
 
+	/** Runs one ffmpeg command with its output discarded and records the child's peak memory. */
+	private async runFfmpeg(job: TrickplayJob, command: string[], timeoutMs: number, signal: AbortSignal) {
+		const result = await ffMpegService.runToCompletion(command, {
+			timeoutMs,
+			stdout: "ignore",
+			maxOutputBytes: serverConfig.plugins.ffmpeg.maxOutputBytes,
+			signal,
+		});
+		this.trackPeakRss(job, result);
+
+		return result;
+	}
+
 	private trackPeakRss(job: TrickplayJob, result: { maxRssBytes?: number | undefined }): void {
 		if (result.maxRssBytes === undefined) return;
 
 		job.peakChildRssBytes = Math.max(job.peakChildRssBytes, result.maxRssBytes);
 	}
+}
+
+/** The core trickplay artifacts a media file currently has, whichever generation wrote them. */
+async function listCoreTrickplayArtifacts(mediaFileId: string) {
+	const artifacts = await mediaArtifactsService.list(mediaFileId);
+
+	return artifacts.filter((artifact) => isCoreTrickplayArtifact(artifact));
 }
 
 function vttTimestamp(seconds: number): string {

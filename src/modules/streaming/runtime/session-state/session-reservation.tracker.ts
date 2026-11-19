@@ -36,15 +36,7 @@ export class SessionReservationTracker {
 		let reservedUserSessions: number | undefined;
 
 		if (userId && this.maxSessionsPerUser !== undefined) {
-			activeUserSessions = 0;
-			reservedUserSessions = 0;
-
-			for (const [id, uid] of this.sessionUsers.entries()) {
-				if (uid === userId) {
-					if (this.store.isAttached(id)) activeUserSessions++;
-					else if (this.reservedIds.has(id) && id !== sessionId) reservedUserSessions++;
-				}
-			}
+			({ active: activeUserSessions, reserved: reservedUserSessions } = this.countUserSessions(userId, sessionId));
 		}
 
 		const canReserve = canReserveStreamingSession({
@@ -76,9 +68,8 @@ export class SessionReservationTracker {
 		const perUserLimit = this.maxSessionsPerUser;
 		let userActive = 0;
 		if (userId && perUserLimit !== undefined) {
-			for (const [id, uid] of this.sessionUsers.entries()) {
-				if (uid === userId && (this.store.isAttached(id) || this.reservedIds.has(id))) userActive++;
-			}
+			const counts = this.countUserSessions(userId);
+			userActive = counts.active + counts.reserved;
 
 			if (userActive >= perUserLimit) return { scope: "user", limit: perUserLimit, active: userActive };
 		}
@@ -117,6 +108,20 @@ export class SessionReservationTracker {
 
 	get reservedCount(): number {
 		return this.reservedIds.size;
+	}
+
+	/** Slots a user holds: attached sessions, and reserved ones without a process (`excludeId` is not counted). */
+	private countUserSessions(userId: string, excludeId?: string): { active: number; reserved: number } {
+		let active = 0;
+		let reserved = 0;
+		for (const [id, uid] of this.sessionUsers) {
+			if (uid !== userId) continue;
+
+			if (this.store.isAttached(id)) active++;
+			else if (this.reservedIds.has(id) && id !== excludeId) reserved++;
+		}
+
+		return { active, reserved };
 	}
 
 	private countReservedNotActive(): number {

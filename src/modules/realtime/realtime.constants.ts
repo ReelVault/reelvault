@@ -17,3 +17,6 @@ export const CLIENT_STALE_TIMEOUT_MS = 60_000;
  * Sweep interval for reaping closed or unresponsive sockets.
  */
 export const STALE_SWEEP_INTERVAL_MS = 30_000;
+
+/** WebSocket close code "Try Again Later". */
+export const WS_CLOSE_TRY_AGAIN_LATER = 1013;

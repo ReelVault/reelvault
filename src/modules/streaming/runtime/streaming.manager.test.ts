@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { ProcessManager } from "@/modules/streaming/ffmpeg/process.manager";
 import { createMockPlaybackDecision } from "@/modules/streaming/streaming.helper";
 import { type MethodStub, stubMethod } from "../../../../tests/helpers/method-stub.helper";
 import { streamingManager } from "./streaming.manager";
@@ -88,31 +89,31 @@ describe("streaming session isolation", () => {
 			inputPath: "/media/a.mkv",
 		});
 
-		const processManager: object = Reflect.get(streamingManager, "processManager");
+		// The attach stub marks the session as started, as a real process attach does.
 		const stubs: MethodStub[] = [
-			stubMethod(processManager, "startSession", () => {
-				const store: { get(id: string): { generation: number } | undefined } = Reflect.get(streamingManager, "store");
-				const session = store.get(sessionId);
-				if (session) session.generation = 1;
+			stubMethod(ProcessManager.prototype, "startSession", (input: { session: { generation: number } }) => {
+				input.session.generation = 1;
 
 				return Promise.resolve();
 			}),
-			stubMethod(processManager, "stopRunningProcess", noOpAsync),
-			stubMethod(processManager, "removeTempDirectory", noOpAsync),
+			stubMethod(ProcessManager.prototype, "stopRunningProcess", noOpAsync),
+			stubMethod(ProcessManager.prototype, "removeTempDirectory", noOpAsync),
 		];
+		const [, stopStub] = stubs;
+		const callbackError = new Error("callback failed");
 		streamingManager.configureLifecycleCallbacks({
 			cancelOperation: noOpAsync,
 			onSessionStarted: () => {
-				throw new Error("callback failed");
+				throw callbackError;
 			},
 			onSessionEnded: noOp,
 		});
 
 		try {
-			await expect(streamingManager.startSession({ sessionId, inputPath: "/media/a.mkv", decision })).rejects.toBeInstanceOf(Error);
-			expect(stubs[1]!.calls).toHaveLength(1);
+			await expect(streamingManager.startSession({ sessionId, inputPath: "/media/a.mkv", decision })).rejects.toBe(callbackError);
+			expect(stopStub?.calls).toHaveLength(1);
 		} finally {
-			for (const stub of stubs.splice(0)) stub.restore();
+			for (const stub of stubs.splice(0).toReversed()) stub.restore();
 		}
 	});
 

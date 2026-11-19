@@ -68,7 +68,7 @@ export class TranscodeStrategy extends BaseStreamingStrategy {
 			const inputArgs = [
 				...this.buildProbeInputArgs(decision.formatName),
 				...buildHwaccelInputArgs(decision, hw, toneMap),
-				...(startTime > 0 ? ["-ss", startTime.toString()] : []),
+				...this.inputSeekArgs(startTime),
 			];
 
 			// Encode to EOF — no `-t` output bound. A bounded lookahead window made

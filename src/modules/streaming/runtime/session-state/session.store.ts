@@ -8,6 +8,10 @@ import { isNullish } from "@/utils/type.utils";
 export const RESERVATION_DEADLINE_MS = 60_000;
 const MAX_TERMINATED_SESSIONS = 1_000;
 
+function profileFileKey(profileId: string, mediaFileId: string): string {
+	return `${profileId}:${mediaFileId}`;
+}
+
 export interface SessionRegistration {
 	readonly id: string;
 	readonly mediaFileId: string;
@@ -299,7 +303,7 @@ export class SessionStore {
 			reason,
 			terminatedAt,
 		});
-		const key = `${access.profileId}:${access.mediaFileId}`;
+		const key = profileFileKey(access.profileId, access.mediaFileId);
 		const sessionIds = this.terminatedSessionsByProfileFile.get(key);
 		if (sessionIds) sessionIds.add(sessionId);
 		else this.terminatedSessionsByProfileFile.set(key, new Set([sessionId]));
@@ -311,7 +315,7 @@ export class SessionStore {
 
 	isProfileTerminatedRecently(profileId: string, mediaFileId: string, withinMs: number): { reason: string } | null {
 		const cutoff = Date.now() - withinMs;
-		for (const sessionId of this.terminatedSessionsByProfileFile.get(`${profileId}:${mediaFileId}`) ?? []) {
+		for (const sessionId of this.terminatedSessionsByProfileFile.get(profileFileKey(profileId, mediaFileId)) ?? []) {
 			const item = this.terminatedSessions.get(sessionId);
 			if (item && item.terminatedAt >= cutoff) return { reason: item.reason };
 		}
@@ -333,7 +337,7 @@ export class SessionStore {
 		if (!item) return;
 
 		this.terminatedSessions.delete(id);
-		const key = `${item.profileId}:${item.mediaFileId}`;
+		const key = profileFileKey(item.profileId, item.mediaFileId);
 		const sessionIds = this.terminatedSessionsByProfileFile.get(key);
 		if (!sessionIds) return;
 

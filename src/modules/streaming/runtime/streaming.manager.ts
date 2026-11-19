@@ -278,6 +278,7 @@ class StreamingManager {
 		sessionId: string,
 		access: { mediaFileId: string; profileId: string; decision: PlaybackDecision; inputPath: string; durationMs?: number | null },
 	): void {
+		const hwaccel = getEffectiveHwaccel();
 		const session = this.store.register({
 			id: sessionId,
 			mediaFileId: access.mediaFileId,
@@ -285,10 +286,10 @@ class StreamingManager {
 			decision: access.decision,
 			inputPath: access.inputPath,
 			tempDir: join(this.config.tempRootDir, sessionId),
-			softwareVideoTranscode: usesSoftwareVideoEncode(access.decision, getEffectiveHwaccel().type),
+			softwareVideoTranscode: usesSoftwareVideoEncode(access.decision, hwaccel.type),
 			durationMs: access.durationMs ?? null,
 		});
-		this.streamEnvironments.set(session, { hwaccel: getEffectiveHwaccel(), toneMapMethod: getToneMappingMethod() });
+		this.streamEnvironments.set(session, { hwaccel, toneMapMethod: getToneMappingMethod() });
 	}
 
 	/** Reserve a software-transcode slot before the session exists; false at the capacity cap. */

@@ -29,6 +29,11 @@ export abstract class BaseStreamingStrategy implements StreamingStrategy {
 
 	abstract startSession(input: StreamStartInput): Promise<Subprocess>;
 
+	/** `-ss` before `-i` for a session that starts past zero; a session from zero takes no seek args. */
+	protected inputSeekArgs(startTime: number, extraArgs: readonly string[] = []): string[] {
+		return startTime > 0 ? ["-ss", startTime.toString(), ...extraArgs] : [];
+	}
+
 	/** Refuses to start when the input disappeared between selection and spawn. */
 	protected async assertInputExists(inputPath: string): Promise<void> {
 		if (!(await fileExists(inputPath))) {

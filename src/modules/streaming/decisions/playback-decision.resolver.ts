@@ -8,13 +8,6 @@ const TEN_BIT_PIXEL_FORMAT_REGEX = /(?:10)(?:le|be)$|p010/i;
 const TWELVE_BIT_PIXEL_FORMAT_REGEX = /(?:12)(?:le|be)$|p016/i;
 const HIGH_TEN_H264_PROFILE_REGEX = /high\s*10/i;
 
-/**
- * Determines whether streams need re-encoding. Output is always fMP4 HLS —
- * the only question is `-c copy` vs re-encode.
- *
- * direct-stream → both streams compatible & within bandwidth limit → -c:v copy -c:a copy (fast, lossless)
- * transcode     → one or both incompatible / bandwidth capped      → libx264 (or HW) / aac (CPU/GPU)
- */
 function buildCodecSet(codecs: readonly string[]): Set<string> {
 	return new Set(codecs.map((codec) => codec.toLowerCase()));
 }
@@ -269,6 +262,13 @@ function transcodeDecision(input: TranscodeInput): PlaybackDecision {
 	};
 }
 
+/**
+ * Determines whether streams need re-encoding. Output is always fMP4 HLS —
+ * the only question is `-c copy` vs re-encode.
+ *
+ * direct-stream → both streams compatible & within bandwidth limit → -c:v copy -c:a copy (fast, lossless)
+ * transcode     → one or both incompatible / bandwidth capped      → libx264 (or HW) / aac (CPU/GPU)
+ */
 export function decidePlaybackMode(
 	file: MediaFileInfo,
 	capabilities: ClientCapabilities,

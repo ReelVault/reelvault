@@ -23,6 +23,7 @@ describe("session lifecycle publisher", () => {
 			},
 		});
 
-		expect(published).toEqual([{ event: "playback.lifecycle.started", payload: event }]);
+		expect(published.map((item) => item.event)).toEqual(["playback.lifecycle.started"]);
+		expect(published[0]?.payload).toMatchObject({ sessionId: "session-1", mediaFileId: "file-1", videoBitrateKbps: 8000 });
 	});
 });

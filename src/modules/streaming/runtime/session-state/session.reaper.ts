@@ -185,7 +185,7 @@ export class SessionReaper {
 			await Promise.all([cancelOperation, releaseProgress, killProcess]);
 			if (process) ffmpegProcessTracker.forgetStderrTail(process);
 
-			await this.processManager.removeTempDirectory(join(config.tempRootDir, sessionId));
+			await this.processManager.removeTempDirectory(session?.tempDir ?? join(config.tempRootDir, sessionId));
 		} catch (error) {
 			this.logger.error("Failed to cleanup streaming session", error, { sessionId, reason, mode: session?.mode });
 		} finally {

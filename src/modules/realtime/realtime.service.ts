@@ -9,6 +9,7 @@ import {
 	MAX_REALTIME_CONNECTIONS,
 	MAX_REALTIME_CONNECTIONS_PER_USER,
 	STALE_SWEEP_INTERVAL_MS,
+	WS_CLOSE_TRY_AGAIN_LATER,
 } from "./realtime.constants";
 import type { ClientConnectionInput, RealtimeStats } from "./realtime.types";
 
@@ -33,7 +34,7 @@ export class RealtimeService {
 			this.registry.findConnectionsByUser(input.userId).length >= MAX_REALTIME_CONNECTIONS_PER_USER
 		) {
 			this.logger.warn("Realtime connection limit reached", { userId: input.userId });
-			input.socket.close?.(1013, "Too many realtime connections");
+			input.socket.close?.(WS_CLOSE_TRY_AGAIN_LATER, "Too many realtime connections");
 
 			return;
 		}
