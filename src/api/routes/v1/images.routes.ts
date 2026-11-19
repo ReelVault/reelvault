@@ -1,5 +1,6 @@
 import type { ImageQuery } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
+import { IMAGE_OPTIMIZATION_WINDOW_MS } from "@/api/api.constants";
 import { authMiddleware } from "@/api/middleware/auth.middleware";
 import { rateLimitMiddleware, routeLimit } from "@/api/middleware/rate-limit.middleware";
 import { type CacheOptions, cacheControlFor, cached } from "@/api/middleware/response-cache.middleware";
@@ -35,7 +36,7 @@ export const imagesRoutes = new Elysia({
 			return binaryFileResponse(image.file, image.contentType, IMAGE_CACHE_CONTROL, headers["if-none-match"]);
 		},
 		{
-			rateLimit: routeLimit("image-optimization", 250, 10_000),
+			rateLimit: routeLimit("image-optimization", 250, IMAGE_OPTIMIZATION_WINDOW_MS),
 			...cached(IMAGE_CACHE_OPTIONS),
 			params: ImageIdParams,
 			query: t.Object({

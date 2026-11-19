@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { headersFromRecord } from "@/api/utils/http-response.utils";
 import { serverConfig } from "@/config/server/server.config";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
 import { getResponseStatus } from "@/utils/http.utils";
@@ -31,49 +32,31 @@ function shouldCompress(contentType: string, size: number): boolean {
 }
 
 /**
- * Normalizes a route response into a compressible Buffer, applying the minimum
- * size threshold and deriving the content type when the route did not set one.
- * Returns undefined when the response type is not compressible.
+ * The bytes a route response carries, and the content type it gets when the
+ * route did not set one. Undefined for values that are not a body (streams,
+ * records of no known shape).
  */
-function resolveCompressibleBody(
-	responseValue: unknown,
-	minSize: number,
-	contentType: string,
-): { body: Buffer; contentType: string } | undefined {
+function responseBodyBytes(responseValue: unknown) {
 	if (typeof responseValue === "string") {
-		if (responseValue.length < minSize) return undefined;
-
-		return { body: Buffer.from(responseValue), contentType: contentType || "text/plain; charset=utf-8" };
-	}
-
-	if (responseValue instanceof Buffer) {
-		if (responseValue.byteLength < minSize) return undefined;
-
-		return { body: responseValue, contentType: contentType || "application/octet-stream" };
+		return { bytes: Buffer.from(responseValue), defaultContentType: "text/plain; charset=utf-8" };
 	}
 
 	if (responseValue instanceof Uint8Array) {
-		if (responseValue.byteLength < minSize) return undefined;
-
 		return {
-			body: Buffer.from(responseValue.buffer, responseValue.byteOffset, responseValue.byteLength),
-			contentType: contentType || "application/octet-stream",
+			bytes: Buffer.from(responseValue.buffer, responseValue.byteOffset, responseValue.byteLength),
+			defaultContentType: "application/octet-stream",
 		};
 	}
 
 	if (responseValue instanceof ArrayBuffer) {
-		if (responseValue.byteLength < minSize) return undefined;
-
-		return { body: Buffer.from(responseValue), contentType: contentType || "application/octet-stream" };
+		return { bytes: Buffer.from(responseValue), defaultContentType: "application/octet-stream" };
 	}
 
-	if (!isRecord(responseValue)) return undefined;
+	if (!isRecord(responseValue)) return null;
 
-	const preSerialized = serializedBodyCache.get(responseValue);
-	const serialized = preSerialized ?? JSON.stringify(responseValue);
-	if (serialized.length < minSize) return undefined;
+	const serialized = serializedBodyCache.get(responseValue) ?? JSON.stringify(responseValue);
 
-	return { body: Buffer.from(serialized), contentType: contentType || "application/json; charset=utf-8" };
+	return { bytes: Buffer.from(serialized), defaultContentType: "application/json; charset=utf-8" };
 }
 
 /**
@@ -97,31 +80,23 @@ export const compressionMiddleware = new Elysia({ name: "Compression" })
 		const encoding = negotiateEncoding(request.headers.get("accept-encoding") ?? "");
 		if (!encoding) return undefined;
 
-		const minSize = serverConfig.compression.minSizeBytes;
 		const setContentType = set.headers["content-type"];
-		const contentType = typeof setContentType === "string" ? setContentType : "";
-		const bodyBytes = resolveCompressibleBody(responseValue, minSize, contentType);
-		if (!bodyBytes) return undefined;
+		const body = responseBodyBytes(responseValue);
+		if (!body || body.bytes.byteLength < serverConfig.compression.minSizeBytes) return undefined;
 
-		if (!shouldCompress(bodyBytes.contentType, bodyBytes.body.byteLength)) return undefined;
+		const contentType = typeof setContentType === "string" && setContentType ? setContentType : body.defaultContentType;
+		if (!shouldCompress(contentType, body.bytes.byteLength)) return undefined;
 
-		const compressed = await compressBuffer(bodyBytes.body, encoding);
+		const compressed = await compressBuffer(body.bytes, encoding);
 
 		set.headers["content-encoding"] = encoding;
 		set.headers["content-length"] = String(compressed.byteLength);
-		set.headers["content-type"] = bodyBytes.contentType;
+		set.headers["content-type"] = contentType;
 		set.headers.vary = "Accept-Encoding";
-
-		const headers = new Headers();
-		for (const [key, value] of Object.entries(set.headers)) {
-			if (typeof value === "string") {
-				headers.set(key, value);
-			}
-		}
 
 		return new Response(compressed, {
 			status: getResponseStatus(set),
-			headers,
+			headers: headersFromRecord(set.headers),
 		});
 	})
 	.as("global");

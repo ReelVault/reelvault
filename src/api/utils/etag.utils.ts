@@ -1,4 +1,5 @@
 import { hash as bunHash } from "bun";
+import { notModifiedResponse } from "@/api/utils/http-response.utils";
 import { serverConfig } from "@/config/server/server.config";
 import { compressBuffer, negotiateEncoding } from "@/utils/compression.utils";
 import { matchesIfNoneMatch, requestIdentityKey } from "@/utils/http.utils";
@@ -43,7 +44,7 @@ export async function buildJsonResponse(options: JsonResponseOptions): Promise<R
 	});
 
 	if (matchesIfNoneMatch(options.ifNoneMatch, options.etag)) {
-		return new Response(null, { status: 304, headers });
+		return notModifiedResponse(headers);
 	}
 
 	const encoding = negotiateEncoding(options.acceptEncoding);
@@ -94,7 +95,7 @@ export async function withEtagResponse<T>(
 ): Promise<Response> {
 	const ifNoneMatch = request.headers.get("if-none-match");
 	const acceptEncoding = request.headers.get("accept-encoding") ?? "";
-	const cacheKey = options ? etagCacheKey(request, options.profileId) : undefined;
+	const cacheKey = options ? requestIdentityKey(request, { profileId: options.profileId }) : undefined;
 
 	const respond = async (body: string, etag: string): Promise<Response> => {
 		set.headers.ETag = etag;
@@ -124,9 +125,4 @@ export async function withEtagResponse<T>(
 	if (cacheKey) setEtagResponseBody(cacheKey, body, etag);
 
 	return await respond(body, etag);
-}
-
-/** Credential-scoped body-cache key — the same format the response-cache middleware builds. */
-function etagCacheKey(request: Request, profileId: string | undefined): string {
-	return requestIdentityKey(request, { profileId: profileId ?? "" });
 }

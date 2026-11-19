@@ -45,6 +45,11 @@ const AuditFilterFields = {
 /** The resource-history window both resource routes accept. */
 const ResourceHistoryHours = t.Optional(ClampedNumeric(1, RESOURCE_HISTORY_MAX_HOURS, { default: 24 }));
 
+/** Serves a built export (body, file name and content type) as a download. */
+function exportDownload(exported: { body: BodyInit | null; filename: string; contentType: string }): Response {
+	return attachmentResponse(exported.body, { filename: exported.filename, contentType: exported.contentType });
+}
+
 export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 	.model({
 		"admin.refreshMetadata": RefreshMetadataSchema,
@@ -128,7 +133,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		async ({ query }) => {
 			const exported = await adminResourcesService.exportHistory(query.hours, query.format);
 
-			return attachmentResponse(exported.body, { filename: exported.filename, contentType: exported.contentType });
+			return exportDownload(exported);
 		},
 		{
 			rateLimit: routeLimit("admin-resources-export", 10),
@@ -183,7 +188,7 @@ export const adminSystemRoutes = adminShell({ tags: ["Admin"] })
 		async ({ query }) => {
 			const exported = await adminAuditService.exportEntries(query);
 
-			return attachmentResponse(exported.body, { filename: exported.filename, contentType: exported.contentType });
+			return exportDownload(exported);
 		},
 		{
 			rateLimit: routeLimit("admin-audit-export", 10),

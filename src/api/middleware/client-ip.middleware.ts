@@ -8,11 +8,9 @@ import { CLIENT_IP_HEADER, resolveRequestClientIp } from "@/utils/client-ip.util
  * logs or Better Auth's login limiter by forging the header.
  */
 export const clientIpMiddleware = new Elysia({ name: "ClientIpMiddleware" })
-	.derive({ as: "global" }, ({ request, server }) => {
+	.onRequest(({ request, server }) => {
 		request.headers.delete(CLIENT_IP_HEADER);
 		const clientIp = resolveRequestClientIp(request, server);
 		if (clientIp) request.headers.set(CLIENT_IP_HEADER, clientIp);
-
-		return { clientIp };
 	})
 	.as("global");

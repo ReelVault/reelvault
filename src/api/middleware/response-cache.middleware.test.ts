@@ -12,18 +12,25 @@ function makeApp() {
 }
 
 describe("responseCacheMiddleware", () => {
-	test("serves the cached body with the unified Vary and Content-Type headers", async () => {
-		const app = makeApp();
-		const first = await app.handle(new Request("http://localhost/cached"));
-		const second = await app.handle(new Request("http://localhost/cached"));
+	test("answers a repeat request from the body cache without running the handler again", async () => {
+		let runs = 0;
+		const app = new Elysia()
+			.use(responseCacheMiddleware)
+			.get("/repeat-from-cache", () => ({ run: ++runs }), { cache: { maxAge: 60, private: true } });
 
-		expect(first.status).toBe(200);
+		await app.handle(new Request("http://localhost/repeat-from-cache"));
+		const second = await app.handle(new Request("http://localhost/repeat-from-cache"));
+
+		expect(runs).toBe(1);
 		expect(second.status).toBe(200);
-		expect(await second.text()).toBe(JSON.stringify({ data: "cached" }));
-		expect(first.headers.get("Vary")).toBe("Accept-Encoding, Cookie");
-		expect(first.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+		expect(await second.text()).toBe('{"run":1}');
+		expect(second.headers.get("Vary")).toBe("Accept-Encoding, Cookie");
+		expect(second.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+	});
 
-		const publicResponse = await app.handle(new Request("http://localhost/public"));
+	test("a public route varies on Accept-Encoding only", async () => {
+		const publicResponse = await makeApp().handle(new Request("http://localhost/public"));
+
 		expect(publicResponse.headers.get("Vary")).toBe("Accept-Encoding");
 	});
 

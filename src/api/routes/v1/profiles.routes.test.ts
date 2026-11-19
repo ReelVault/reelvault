@@ -4,19 +4,18 @@ import { domainErrorsMiddleware } from "@/api/middleware/domain-errors.middlewar
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { profilesRepository } from "@/repositories/profiles.repository";
 import { hashProfilePin } from "@/utils/crypto.utils";
+import { stubSignedInSession } from "../../../../tests/helpers/better-auth-session.helper";
+import type { MethodStub } from "../../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 
 const UNLOCK_TOKEN_FORMAT = /^profile-3\.\d+\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+$/;
 
-const [{ profilesRoutes }, { auth }] = await Promise.all([
-	import("./profiles.routes"),
-	import("@/integrations/better-auth/better-auth.config"),
-]);
+const { profilesRoutes } = await import("./profiles.routes");
 const app = new Elysia().use(domainErrorsMiddleware).use(profilesRoutes);
 const { client } = useTestDatabase();
 
 const PROFILE_IDS = ["profile-1", "profile-2", "profile-3"];
-const originalGetSession = auth.api.getSession;
+const stubs: MethodStub[] = [];
 
 beforeEach(async () => {
 	// The auth hot path caches profile rows process-wide, so a fresh per-test database must not read a copy another test left behind.
@@ -31,31 +30,13 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-	auth.api.getSession = originalGetSession;
+	for (const stub of stubs.splice(0)) stub.restore();
 	for (const id of PROFILE_IDS) profilesRepository.invalidateCached(id);
 });
 
-/** Wraps a fake better-auth session payload so the mock matches auth.api.getSession's shape. */
-function fakeGetSession(body: unknown): typeof auth.api.getSession {
-	return (async () => body) as typeof auth.api.getSession;
-}
-
 /** Signed in as user-1; the profile rows are real and seeded in beforeEach. */
 function signInAsUser1(): void {
-	const now = new Date("2026-01-02T03:04:05.000Z");
-	auth.api.getSession = fakeGetSession({
-		user: {
-			id: "user-1",
-			name: "User",
-			email: "user@example.com",
-			emailVerified: true,
-			createdAt: now,
-			updatedAt: now,
-			role: "user",
-			banned: false,
-		},
-		session: { id: "session-1" },
-	});
+	stubs.push(stubSignedInSession("user-1"));
 }
 
 test("profile preferences endpoint rejects unauthenticated requests", async () => {

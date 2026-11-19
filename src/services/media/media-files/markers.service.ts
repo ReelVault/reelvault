@@ -73,7 +73,6 @@ export async function importMarkers(text: string, context?: AdminAuditContext): 
 export async function setMarkers(
 	mediaFileId: string,
 	markers: readonly CreateMediaMarker[],
-	options?: { pluginId?: string; source?: "automatic" | "manual" | "plugin" },
 	context?: AdminAuditContext,
 ): Promise<MediaMarker[]> {
 	return await runSafely(mediaFilesLog, "setMarkers", async () => {
@@ -89,7 +88,7 @@ export async function setMarkers(
 			mediaMarkersRepository.findByMediaFileId(mediaFileId),
 		]);
 		assertExists(mediaFileExists, "MediaFile", mediaFileId);
-		const saved = await mediaMarkersRepository.replaceMarkersForMediaFile(mediaFileId, markers, options);
+		const saved = await mediaMarkersRepository.replaceMarkersForMediaFile(mediaFileId, markers);
 		const after = saved.map((item) => toPublicMarker(item));
 
 		recordAuditSafe(

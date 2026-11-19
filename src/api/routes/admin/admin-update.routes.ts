@@ -5,9 +5,9 @@ import {
 	AdminUpdateStatusSchema,
 } from "@reelvault/sdk/common";
 import { t } from "elysia";
+import { ADMIN_MAINTENANCE_WINDOW_MS } from "@/api/api.constants";
 import { routeLimit } from "@/api/middleware/rate-limit.middleware";
 import { PaginationQuerySchema, ROUTE_ERRORS } from "@/api/schemas/common.schema";
-import { MINUTE } from "@/config/server/server.constants";
 import { resolveWebVersion } from "@/config/server/web-dist.utils";
 import { SERVER_VERSION } from "@/config/version.constants";
 import { updateCheckService } from "@/services/updates/update-check.service";
@@ -64,7 +64,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 		"/install",
 		async ({ body, user }) => await updateInstallService.startInstall(body.target, user?.id ?? null, { force: body.force }),
 		{
-			rateLimit: routeLimit("admin-update-install", 3, 10 * MINUTE),
+			rateLimit: routeLimit("admin-update-install", 3, ADMIN_MAINTENANCE_WINDOW_MS),
 			body: ActionBody,
 			response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateInstall" },
 			detail: {
@@ -74,7 +74,7 @@ export const adminUpdateRoutes = adminShell({ prefix: "/update", tags: ["Admin"]
 		},
 	)
 	.post("/rollback", ({ body, user }) => updateInstallService.startRollback(body.target, user?.id ?? null, { force: body.force }), {
-		rateLimit: routeLimit("admin-update-rollback", 3, 10 * MINUTE),
+		rateLimit: routeLimit("admin-update-rollback", 3, ADMIN_MAINTENANCE_WINDOW_MS),
 		body: ActionBody,
 		response: { ...ROUTE_ERRORS.ADMIN, 200: "admin.updateInstall" },
 		detail: {

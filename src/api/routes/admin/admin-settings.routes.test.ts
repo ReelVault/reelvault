@@ -5,11 +5,12 @@ import { serverConfig } from "@/config/server/server.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { stubSignedInSession } from "../../../../tests/helpers/better-auth-session.helper";
+import type { MethodStub } from "../../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../../tests/helpers/test-database.helper";
 
-const [{ adminSettingsRoutes }, { auth }, { systemSettingsService }] = await Promise.all([
+const [{ adminSettingsRoutes }, { systemSettingsService }] = await Promise.all([
 	import("./admin-settings.routes"),
-	import("@/integrations/better-auth/better-auth.config"),
 	import("@/services/admin/system-settings.service"),
 ]);
 
@@ -25,12 +26,10 @@ beforeEach(async () => {
 
 const app = new Elysia().use(domainErrorsMiddleware).use(adminSettingsRoutes);
 
-const originalGetSession = auth.api.getSession;
-const originalUserHasPermission = auth.api.userHasPermission;
+const stubs: MethodStub[] = [];
 
 afterEach(() => {
-	auth.api.getSession = originalGetSession;
-	auth.api.userHasPermission = originalUserHasPermission;
+	for (const stub of stubs.splice(0)) stub.restore();
 	// PATCH tests write runtime settings (e.g. ffmpeg.hwaccel=nvenc) into the
 	// shared store — leaking them changes transcode behaviour for every later
 	// test file in the same run.
@@ -43,21 +42,7 @@ test("admin settings endpoint rejects unauthenticated requests", async () => {
 });
 
 test("admin settings endpoint returns grouped settings for authorized admin", async () => {
-	auth.api.getSession = (async () =>
-		({
-			user: {
-				id: "admin-1",
-				name: "Admin",
-				email: "admin@example.com",
-				emailVerified: true,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				role: "admin",
-				banned: false,
-			},
-			session: { id: "session-1" },
-		}) as unknown) as typeof auth.api.getSession;
-	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
+	stubs.push(stubSignedInSession("admin-1", "admin"));
 
 	const response = await app.handle(
 		new Request("http://localhost/settings", {
@@ -71,21 +56,7 @@ test("admin settings endpoint returns grouped settings for authorized admin", as
 });
 
 test("admin settings PATCH applies and stores the new values", async () => {
-	auth.api.getSession = (async () =>
-		({
-			user: {
-				id: "admin-1",
-				name: "Admin",
-				email: "admin@example.com",
-				emailVerified: true,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				role: "admin",
-				banned: false,
-			},
-			session: { id: "session-1" },
-		}) as unknown) as typeof auth.api.getSession;
-	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
+	stubs.push(stubSignedInSession("admin-1", "admin"));
 
 	const response = await app.handle(
 		new Request("http://localhost/settings", {
@@ -110,21 +81,7 @@ test("admin settings PATCH applies and stores the new values", async () => {
 });
 
 test("serverConfig.paths dynamically reflects runtime setting updates for transcodes, downloads, backups", async () => {
-	auth.api.getSession = (async () =>
-		({
-			user: {
-				id: "admin-1",
-				name: "Admin",
-				email: "admin@example.com",
-				emailVerified: true,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				role: "admin",
-				banned: false,
-			},
-			session: { id: "session-1" },
-		}) as unknown) as typeof auth.api.getSession;
-	auth.api.userHasPermission = (async () => ({ success: true })) as typeof auth.api.userHasPermission;
+	stubs.push(stubSignedInSession("admin-1", "admin"));
 
 	const response = await app.handle(
 		new Request("http://localhost/settings", {

@@ -147,7 +147,9 @@ export const meRoutes = new Elysia({ prefix: "/me", tags: ["My Profile & Playbac
 	)
 	.get(
 		"/stream-prefs/:mediaFileId",
-		async ({ params, profile }) => {
+		async ({ params, user, profile }) => {
+			// awaits: sequential — the access check must pass before any preference is read
+			await assertRouteMediaAccess({ user, profile }, params.mediaFileId);
 			const prefs = await playbackProgressService.getStreamPrefs(params.mediaFileId, requireProfileId(profile));
 
 			return { audioLanguage: prefs?.audioLanguage ?? null, subtitleLanguage: prefs?.subtitleLanguage ?? null };

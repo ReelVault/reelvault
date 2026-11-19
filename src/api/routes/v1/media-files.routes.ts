@@ -19,6 +19,7 @@ import {
 	UpdateMediaFileSchema,
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
+import { LIBRARY_REFRESH_WINDOW_MS } from "@/api/api.constants";
 import { authMiddleware } from "@/api/middleware/auth.middleware";
 import { routeLimit } from "@/api/middleware/rate-limit.middleware";
 import {
@@ -33,7 +34,6 @@ import { MediaFileArtifactParams, MediaFileIdParams, OperationIdParams } from "@
 import { assertRouteMediaAccess } from "@/api/utils/access-context.utils";
 import { actorContext } from "@/api/utils/audit-context.utils";
 import { attachmentResponse } from "@/api/utils/binary-response.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { mediaService } from "@/services/media/media-files/media-files.service";
 import { DomainError } from "@/utils/domain.errors";
 
@@ -92,7 +92,7 @@ export const mediaFilesRoutes = new Elysia({
 	})
 	.post("/refresh", async ({ status, user, request }) => status(202, await mediaService.refreshAll(actorContext({ user, request }))), {
 		adminOnly: true,
-		rateLimit: routeLimit("media-files-refresh-all", 1, 5 * MINUTE),
+		rateLimit: routeLimit("media-files-refresh-all", 1, LIBRARY_REFRESH_WINDOW_MS),
 		response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
 		detail: {
 			description: "Queue a refresh of technical data and linked metadata for all media files.",
@@ -232,7 +232,7 @@ export const mediaFilesRoutes = new Elysia({
 	.post(
 		"/:mediaFileId/markers",
 		async ({ params, body, user, request }) => {
-			return await mediaService.setMarkers(params.mediaFileId, body.markers, undefined, actorContext({ user, request }));
+			return await mediaService.setMarkers(params.mediaFileId, body.markers, actorContext({ user, request }));
 		},
 		{
 			adminOnly: true,

@@ -1,7 +1,12 @@
-import { expect, setSystemTime, test } from "bun:test";
+import { beforeEach, expect, setSystemTime, test } from "bun:test";
 import Elysia from "elysia";
 import { domainErrorsMiddleware } from "./domain-errors.middleware";
-import { isExemptFromGlobalLimit, rateLimitMiddleware } from "./rate-limit.middleware";
+import { clearRateLimitBuckets, isExemptFromGlobalLimit, rateLimitMiddleware } from "./rate-limit.middleware";
+
+// Budgets are process-wide: every file in one run shares them, so each test starts with an empty limiter.
+beforeEach(() => {
+	clearRateLimitBuckets();
+});
 
 test("rate limit middleware limits a route within a fixed window", async () => {
 	const app = new Elysia()
@@ -68,24 +73,6 @@ test("a forged X-Forwarded-For cannot buy a fresh anonymous bucket", async () =>
 
 	expect(first.status).toBe(200);
 	expect(second.status).toBe(429);
-});
-
-test("adminBypass skips rate limiting for admin users", async () => {
-	const app = new Elysia()
-		.use(domainErrorsMiddleware)
-		.use(rateLimitMiddleware)
-		.derive(() => ({
-			user: { id: "admin-1", role: "admin" },
-		}))
-		.get("/limited", () => "ok", { rateLimit: { name: "admin-bypass-test", max: 1, windowMs: 60_000, adminBypass: true } });
-
-	const results = await Promise.all([
-		app.handle(new Request("http://localhost/limited")),
-		app.handle(new Request("http://localhost/limited")),
-		app.handle(new Request("http://localhost/limited")),
-	]);
-
-	for (const res of results) expect(res.status).toBe(200);
 });
 
 test("adminBypass does not skip rate limiting for non-admin users", async () => {

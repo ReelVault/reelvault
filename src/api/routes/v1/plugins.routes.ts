@@ -26,17 +26,14 @@ const FORBIDDEN_PLUGIN_RESPONSE_HEADERS: ReadonlySet<string> = new Set([
 	"host",
 ]);
 
-/** The request fields the dispatch reads, shared by the Elysia handler and the dispatch adapter. */
-interface PluginRouteRequest {
+/** The request fields a plugin route dispatch reads from the Elysia context. */
+interface PluginRouteContext {
+	params: { pluginId: string; "*"?: string };
 	request: Request;
 	set: { status?: number | keyof StatusMap; headers: HTTPHeaders };
 	user: { id?: string; role?: string } | null | undefined;
 	profile?: { id: string } | null | undefined;
 	body?: unknown;
-}
-
-interface PluginRouteContext extends PluginRouteRequest {
-	params: { pluginId: string; "*"?: string };
 }
 
 const PLUGIN_ROUTE_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
@@ -52,18 +49,6 @@ const pluginRouteOptions = {
 		description: "Dispatches a declared plugin route through the core authorization and lifecycle boundary.",
 	},
 };
-
-async function dispatchPluginRoute({ params, request, set, user, profile, body }: PluginRouteContext) {
-	return await handlePluginRouteDispatch({
-		pluginId: params.pluginId,
-		path: params["*"] === undefined ? "/" : `/${params["*"]}`,
-		request,
-		set,
-		user,
-		profile,
-		body,
-	});
-}
 
 const pluginRoutesApp = new Elysia({ prefix: "/plugins", tags: ["Plugins"] })
 	.use(commonModel)
@@ -92,21 +77,13 @@ for (const method of PLUGIN_ROUTE_METHODS) {
 	// cannot carry one: Elysia's exactMirror cannot compile a TypeBox object that
 	// owns the "*" key, which silently kills the route. pluginId is re-validated
 	// in the dispatch service instead.
-	pluginRoutesApp.route(method, "/:pluginId", dispatchPluginRoute, { ...pluginRouteOptions, params: PluginIdParams });
-	pluginRoutesApp.route(method, "/:pluginId/*", dispatchPluginRoute, pluginRouteOptions);
+	pluginRoutesApp.route(method, "/:pluginId", handlePluginRouteDispatch, { ...pluginRouteOptions, params: PluginIdParams });
+	pluginRoutesApp.route(method, "/:pluginId/*", handlePluginRouteDispatch, pluginRouteOptions);
 }
 
 export const pluginsRoutes = pluginRoutesApp;
 
-async function handlePluginRouteDispatch({
-	pluginId,
-	path,
-	request,
-	set,
-	user,
-	profile,
-	body,
-}: PluginRouteRequest & { pluginId: string; path: string }) {
+async function handlePluginRouteDispatch({ params, request, set, user, profile, body }: PluginRouteContext) {
 	let parsedBody = body;
 	if (parsedBody === undefined) {
 		parsedBody = await parseJsonBody(request);
@@ -116,9 +93,9 @@ async function handlePluginRouteDispatch({
 		headersObj[key.toLowerCase()] = value;
 	}
 	const result = await pluginRouteDispatchService.dispatch({
-		pluginId,
+		pluginId: params.pluginId,
 		method: request.method,
-		path,
+		path: params["*"] === undefined ? "/" : `/${params["*"]}`,
 		query: Object.fromEntries(new URL(request.url).searchParams),
 		headers: headersObj,
 		body: parsedBody,

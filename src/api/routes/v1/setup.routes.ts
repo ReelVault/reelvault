@@ -1,9 +1,9 @@
 import { RegisterResponseSchema, SetupAdminRequestSchema, SetupStatusSchema } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
+import { ACCOUNT_SECURITY_WINDOW_MS } from "@/api/api.constants";
 import { assertAuthRequestOrigin } from "@/api/middleware/auth-origin.guard";
 import { rateLimitMiddleware, routeLimit } from "@/api/middleware/rate-limit.middleware";
 import { commonModel } from "@/api/schemas/common.schema";
-import { MINUTE } from "@/config/server/server.constants";
 import { firstRunSetupService } from "@/services/auth/setup/first-run-setup.service";
 
 export const setupRoutes = new Elysia({
@@ -29,7 +29,7 @@ export const setupRoutes = new Elysia({
 	.post("/", async ({ body, request }) => await firstRunSetupService.createAdminFromRequest(body, request.headers), {
 		body: "setup.admin.body",
 		// The setup token is the only credential — throttle guessing.
-		rateLimit: routeLimit("setup:create-admin", 10, 15 * MINUTE),
+		rateLimit: routeLimit("setup:create-admin", 10, ACCOUNT_SECURITY_WINDOW_MS),
 		response: {
 			200: "setup.admin.response",
 			400: "error.response",

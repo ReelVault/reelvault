@@ -69,8 +69,8 @@ export const playbackSessionsRoutes = new Elysia({ prefix: "/playback-sessions",
 	)
 	.get(
 		"/:sessionId/playlist",
-		async ({ params, set, profile, request }) => {
-			assertSessionOwnershipById(params.sessionId, profile?.id);
+		async ({ params, set, user, profile, request }) => {
+			await assertRouteSessionAccess({ user, profile }, params.sessionId);
 			set.headers["Content-Type"] = "application/x-mpegURL";
 			set.headers["Cache-Control"] = "no-store";
 

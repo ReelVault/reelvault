@@ -1,13 +1,10 @@
 import { AuthUserSchema, TwoFactorBackupCodesStatusSchema } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
+import { TWO_FACTOR_MANAGEMENT_WINDOW_MS, TWO_FACTOR_VERIFY_WINDOW_MS } from "@/api/api.constants";
 import { assertAuthRequestOrigin } from "@/api/middleware/auth-origin.guard";
 import { rateLimitMiddleware, routeLimit } from "@/api/middleware/rate-limit.middleware";
 import { commonModel, ROUTE_ERRORS } from "@/api/schemas/common.schema";
-import { MINUTE } from "@/config/server/server.constants";
 import { twoFactorService } from "@/services/auth/two-factor.service";
-
-const MANAGEMENT_WINDOW_MS = 15 * MINUTE;
-const VERIFY_WINDOW_MS = 5 * MINUTE;
 
 /** Successful sign-in verification: the new session token (also set as a cookie) and the signed-in user. */
 const TwoFactorSignInSchema = t.Object({ token: t.Nullable(t.String()), user: AuthUserSchema });
@@ -20,7 +17,7 @@ export const twoFactorRoutes = new Elysia({
 	.use(rateLimitMiddleware)
 	.onBeforeHandle(({ request }) => assertAuthRequestOrigin(request))
 	.get("/backup-codes", async ({ request }) => await twoFactorService.countRemainingBackupCodes(request.headers), {
-		rateLimit: routeLimit("auth-two-factor-backup-codes", 30, MANAGEMENT_WINDOW_MS),
+		rateLimit: routeLimit("auth-two-factor-backup-codes", 30, TWO_FACTOR_MANAGEMENT_WINDOW_MS),
 		response: { 200: TwoFactorBackupCodesStatusSchema },
 		detail: {
 			description: "How many backup codes the signed-in account can still use. The codes themselves are never returned.",
@@ -29,7 +26,7 @@ export const twoFactorRoutes = new Elysia({
 	.post("/enable", async ({ request, body }) => await twoFactorService.enable(request.headers, body.password), {
 		body: t.Object({ password: t.String({ minLength: 1 }) }),
 		response: { ...ROUTE_ERRORS.VALIDATED, 200: t.Object({ totpURI: t.String(), backupCodes: t.Array(t.String()) }) },
-		rateLimit: routeLimit("two-factor:enable", 10, MANAGEMENT_WINDOW_MS),
+		rateLimit: routeLimit("two-factor:enable", 10, TWO_FACTOR_MANAGEMENT_WINDOW_MS),
 		detail: {
 			description:
 				"Start enabling TOTP two-factor authentication: returns the otpauth URI to scan and one-time backup codes. Requires the account password.",
@@ -38,7 +35,7 @@ export const twoFactorRoutes = new Elysia({
 	.post("/disable", async ({ request, body }) => await twoFactorService.disable(request.headers, body.password), {
 		body: t.Object({ password: t.String({ minLength: 1 }) }),
 		response: { ...ROUTE_ERRORS.VALIDATED, 200: t.Object({ status: t.Literal(true) }) },
-		rateLimit: routeLimit("two-factor:disable", 10, MANAGEMENT_WINDOW_MS),
+		rateLimit: routeLimit("two-factor:disable", 10, TWO_FACTOR_MANAGEMENT_WINDOW_MS),
 		detail: {
 			description: "Turn off two-factor authentication. Requires the account password. Responds `{ status: true }` on success.",
 		},
@@ -47,7 +44,7 @@ export const twoFactorRoutes = new Elysia({
 		body: t.Object({ code: t.String({ minLength: 6 }) }),
 		response: { ...ROUTE_ERRORS.VALIDATED, 200: TwoFactorSignInSchema },
 		// TOTP is a 6-digit secret — throttle brute force hard.
-		rateLimit: routeLimit("two-factor:verify-totp", 5, VERIFY_WINDOW_MS),
+		rateLimit: routeLimit("two-factor:verify-totp", 5, TWO_FACTOR_VERIFY_WINDOW_MS),
 		detail: {
 			description:
 				"Verify a 6-digit authenticator code to finish enabling two-factor or to complete a two-factor sign-in. On sign-in the response carries the new session token and user, and the session cookie is set.",
@@ -56,7 +53,7 @@ export const twoFactorRoutes = new Elysia({
 	.post("/verify-backup-code", async ({ request, body }) => await twoFactorService.verifyBackupCode(request.headers, body.code), {
 		body: t.Object({ code: t.String({ minLength: 1 }) }),
 		response: { ...ROUTE_ERRORS.VALIDATED, 200: TwoFactorSignInSchema },
-		rateLimit: routeLimit("two-factor:verify-backup-code", 5, VERIFY_WINDOW_MS),
+		rateLimit: routeLimit("two-factor:verify-backup-code", 5, TWO_FACTOR_VERIFY_WINDOW_MS),
 		detail: {
 			description:
 				"Complete a two-factor sign-in with one of the one-time backup codes. The response carries the new session token and user, and the session cookie is set. A used code stops working.",
@@ -65,6 +62,6 @@ export const twoFactorRoutes = new Elysia({
 	.post("/generate-backup-codes", async ({ request, body }) => await twoFactorService.generateBackupCodes(request.headers, body.password), {
 		body: t.Object({ password: t.String({ minLength: 1 }) }),
 		response: { ...ROUTE_ERRORS.VALIDATED, 200: t.Object({ backupCodes: t.Array(t.String()) }) },
-		rateLimit: routeLimit("two-factor:generate-backup-codes", 10, MANAGEMENT_WINDOW_MS),
+		rateLimit: routeLimit("two-factor:generate-backup-codes", 10, TWO_FACTOR_MANAGEMENT_WINDOW_MS),
 		detail: { description: "Replace the backup codes with a fresh set (the old ones stop working). Requires the account password." },
 	});

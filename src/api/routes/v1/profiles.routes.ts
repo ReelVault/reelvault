@@ -12,6 +12,7 @@ import {
 	UpdateProfileSchema,
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
+import { ACCOUNT_SECURITY_WINDOW_MS } from "@/api/api.constants";
 import { authMiddleware } from "@/api/middleware/auth.middleware";
 import { rateLimitMiddleware, routeLimit } from "@/api/middleware/rate-limit.middleware";
 import { commonModel, listQuerySchema, PaginatedResponseSchema, ROUTE_ERRORS } from "@/api/schemas/common.schema";
@@ -19,6 +20,11 @@ import { IdParams } from "@/api/schemas/route-params.schema";
 import { serverConfig } from "@/config/server/server.config";
 import { profilesService } from "@/services/users/profiles.service";
 import { getCookieDomainFromOrigin } from "@/utils/cookie-domain.utils";
+
+/** Attributes shared by the profile selection cookie and the PIN unlock cookie. */
+function profileCookieOptions(domain: string | undefined, maxAge: number) {
+	return { httpOnly: true, secure: serverConfig.auth.secureCookies, sameSite: "lax" as const, path: "/", maxAge, domain };
+}
 
 export const profilesRoutes = new Elysia({
 	prefix: "/profiles",
@@ -96,25 +102,9 @@ export const profilesRoutes = new Elysia({
 		async ({ body, cookie: { current_profile_id, profile_unlock }, request, user }) => {
 			const results = await profilesService.switch(body, user?.id);
 			const cookieDomain = getCookieDomainFromOrigin(request.headers.get("origin"));
-			current_profile_id?.set({
-				value: body.profileId,
-				httpOnly: true,
-				secure: serverConfig.auth.secureCookies,
-				sameSite: "lax",
-				path: "/",
-				maxAge: 7 * 86400,
-				domain: cookieDomain,
-			});
+			current_profile_id?.set({ value: body.profileId, ...profileCookieOptions(cookieDomain, 7 * 86400) });
 			if (results.unlockToken) {
-				profile_unlock?.set({
-					value: results.unlockToken,
-					httpOnly: true,
-					secure: serverConfig.auth.secureCookies,
-					sameSite: "lax",
-					path: "/",
-					maxAge: 12 * 60 * 60,
-					domain: cookieDomain,
-				});
+				profile_unlock?.set({ value: results.unlockToken, ...profileCookieOptions(cookieDomain, 12 * 60 * 60) });
 			} else {
 				profile_unlock?.remove();
 			}
@@ -132,7 +122,7 @@ export const profilesRoutes = new Elysia({
 		{
 			// PIN verification runs argon2id — cap attempts per account (middleware
 			// identity is userId when no profile is active) to slow brute force.
-			rateLimit: routeLimit("profile-switch", 10, 15 * 60_000),
+			rateLimit: routeLimit("profile-switch", 10, ACCOUNT_SECURITY_WINDOW_MS),
 			body: "profile.switch.body",
 			response: {
 				...ROUTE_ERRORS.VALIDATED,

@@ -7,13 +7,14 @@ import {
 } from "@reelvault/sdk/common";
 import { file } from "bun";
 import { t } from "elysia";
+import { ADMIN_MAINTENANCE_WINDOW_MS } from "@/api/api.constants";
 import { routeLimit } from "@/api/middleware/rate-limit.middleware";
 import { BinaryResponseSchema, ROUTE_ERRORS } from "@/api/schemas/common.schema";
 import { FileNameParams } from "@/api/schemas/route-params.schema";
 import { actorContext } from "@/api/utils/audit-context.utils";
 import { attachmentResponse } from "@/api/utils/binary-response.utils";
 import { env } from "@/config/env.config";
-import { IMAGE_UPLOAD_MAX_SIZE, MINUTE } from "@/config/server/server.constants";
+import { IMAGE_UPLOAD_MAX_SIZE } from "@/config/server/server.constants";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import { databaseBackupService } from "@/services/admin/database-backup.service";
 import { databaseMaintenanceService } from "@/services/admin/database-maintenance.service";
@@ -125,7 +126,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 	})
 	.post(
 		"/database/restore",
-		async ({ body, request, status }) => {
+		async ({ body, user, request, status }) => {
 			const result = await databaseRestoreService.restore(body.fileName, env.ROOT_DIR, env.DB_FILE_NAME, process.cwd(), {
 				force: body.force,
 			});
@@ -135,7 +136,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 					resourceType: "database_restore",
 					resourceId: body.fileName,
 					after: { restarting: result.restarting },
-					context: { headers: request.headers },
+					context: actorContext({ user, request }),
 				},
 				databaseRestoreLogger,
 			);
@@ -143,7 +144,7 @@ export const adminDatabaseRoutes = adminShell({ tags: ["Admin"] })
 			return status(202, result);
 		},
 		{
-			rateLimit: routeLimit("admin-db-restore", 3, 10 * MINUTE),
+			rateLimit: routeLimit("admin-db-restore", 3, ADMIN_MAINTENANCE_WINDOW_MS),
 			body: t.Object({ fileName: t.String({ minLength: 1 }), force: t.Optional(t.Boolean()) }),
 			response: { ...ROUTE_ERRORS.ADMIN, 202: AdminDatabaseRestoreResponseSchema },
 			detail: {

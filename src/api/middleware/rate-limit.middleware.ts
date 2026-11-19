@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { isImageAssetPath, isPluginUiPath } from "@/api/utils/route-classification.utils";
+import { isHealthPath, isImageAssetPath, isPlaybackSegmentPath, isPluginUiPath, isV1Path } from "@/api/utils/route-classification.utils";
 import { tunedRouteMax } from "@/config/rate-limit-overrides.utils";
 import { serverConfig } from "@/config/server/server.config";
 import { MINUTE } from "@/config/server/server.constants";
@@ -67,21 +67,18 @@ export function isExemptFromGlobalLimit(request: Request): boolean {
 	if (request.method === "OPTIONS") return true;
 
 	const pathname = getNormalizedPathname(request);
-	if (pathname === "/v1/health" || pathname.startsWith("/v1/health/")) return true;
+	if (isHealthPath(pathname)) return true;
 
 	if (isImageAssetPath(pathname)) return true;
 
 	// Plugin UI bundles are loaded as ESM modules; throttling them breaks the UI.
 	if (isPluginUiPath(pathname)) return true;
 
-	// Only the playback HLS segment route is exempt. A broad
-	// `pathname.includes("/segments/")` also exempted plugin-owned routes that
-	// merely contained that word.
-	if (pathname.startsWith("/v1/playback-sessions/") && pathname.includes("/segments/")) return true;
+	if (isPlaybackSegmentPath(pathname)) return true;
 
 	// Page loads and SPA assets outside the API are cheap and precompressed —
 	// a 429 here would render raw JSON instead of the app's own error screen.
-	if ((request.method === "GET" || request.method === "HEAD") && !pathname.startsWith("/v1/")) return true;
+	if ((request.method === "GET" || request.method === "HEAD") && !isV1Path(pathname)) return true;
 
 	return false;
 }
@@ -94,7 +91,6 @@ function readRequestSubject(context: object) {
 
 	return {
 		userId: user && typeof user.id === "string" ? user.id : undefined,
-		userRole: user && typeof user.role === "string" ? user.role : undefined,
 		profileId: profile && typeof profile.id === "string" ? profile.id : undefined,
 		params,
 	};
@@ -102,12 +98,10 @@ function readRequestSubject(context: object) {
 
 export const rateLimitMiddleware = new Elysia({ name: "RateLimitMiddleware" })
 	.macro({
-		rateLimit: (options: { name: string; max: number; windowMs: number; adminBypass?: boolean; perParam?: string }) => ({
+		rateLimit: (options: { name: string; max: number; windowMs: number; perParam?: string }) => ({
 			beforeHandle(context) {
-				const { userId, userRole, profileId, params } = readRequestSubject(context);
+				const { userId, profileId, params } = readRequestSubject(context);
 				const { request, server, set } = context;
-
-				if (options.adminBypass && userRole === "admin") return;
 
 				const routeMax = tunedRouteMax(options.name, options.max) ?? Math.round(options.max * serverConfig.api.rateLimit.routeMultiplier);
 				// Anonymous callers share one identity bucket per IP (never a global

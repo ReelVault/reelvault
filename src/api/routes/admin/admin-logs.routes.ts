@@ -74,7 +74,7 @@ export const adminLogsRoutes = adminShell({ tags: ["Admin"] })
 		"/logs/cleanup",
 		async ({ query, user, request }) => {
 			const dryRun = query.dryRun === true;
-			const result = await adminLogsService.purgeOldLogs(query.retentionDays, actorContext({ user, request }), undefined, dryRun);
+			const result = await adminLogsService.purgeOldLogs(query.retentionDays, actorContext({ user, request }), request.signal, dryRun);
 
 			return { ...result, dryRun };
 		},

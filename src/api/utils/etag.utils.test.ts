@@ -47,11 +47,12 @@ describe("withEtagResponse", () => {
 		expect(second.headers.get("ETag")).toBe(etag);
 	});
 
-	test("different payloads produce different etags", async () => {
+	test("an etag is the hash of the serialized JSON body, so different payloads get different etags", async () => {
 		const etagOf = async (payload: object) =>
 			(await withEtagResponse(makeRequest(), setHeaders(), () => Promise.resolve(payload))).headers.get("ETag");
 
-		expect(await etagOf({ a: 1 })).not.toBe(await etagOf({ a: 2 }));
+		expect(await etagOf({ a: 1 })).toBe('"84eba45ffd5bfb32"');
+		expect(await etagOf({ a: 2 })).toBe('"a48bd8e2991579a0"');
 	});
 
 	test("serves repeat requests from the body cache within the TTL", async () => {

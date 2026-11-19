@@ -23,6 +23,26 @@ export function isPluginUiPath(pathname: string): boolean {
 	return pathname.startsWith(serverConstants.security.pluginUiRoutePrefix);
 }
 
+/** The plugin UI manifest: role-filtered, so it stays behind authentication. */
+export function isPluginUiManifestPath(pathname: string): boolean {
+	return pathname === `${serverConstants.security.pluginUiRoutePrefix}manifest`;
+}
+
+/** The health probes, which are exempt from the global rate limit. */
+export function isHealthPath(pathname: string): boolean {
+	return pathname === "/v1/health" || pathname.startsWith("/v1/health/");
+}
+
+/** The HLS segment route: a player fetches many segments per second, so it is exempt from the global limit. */
+export function isPlaybackSegmentPath(pathname: string): boolean {
+	return pathname.startsWith("/v1/playback-sessions/") && pathname.includes("/segments/");
+}
+
+/** Paths under the versioned API router. */
+export function isV1Path(pathname: string): boolean {
+	return pathname.startsWith("/v1/");
+}
+
 /**
  * Prefixes owned by the API router and the API docs. The web static plugin
  * yields on these so unknown API & docs paths keep the JSON 404 envelope.

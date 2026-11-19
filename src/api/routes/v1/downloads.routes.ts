@@ -40,7 +40,9 @@ export const downloadsRoutes = new Elysia({ prefix: "/downloads", tags: ["Downlo
 	.post(
 		"/seasons",
 		async ({ body, user, profile }) =>
-			await downloadsService.queueSeason(profile?.id, body, (mediaFileId) => assertRouteMediaAccess({ user, profile }, mediaFileId)),
+			await downloadsService.queueSeason(requireProfileId(profile), body, (mediaFileId) =>
+				assertRouteMediaAccess({ user, profile }, mediaFileId),
+			),
 		{
 			rateLimit: routeLimit("downloads-queue-season", 10),
 			body: QueueSeasonDownloadSchema,

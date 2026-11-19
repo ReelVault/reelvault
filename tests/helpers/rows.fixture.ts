@@ -209,10 +209,6 @@ export async function insertGenres(client: TestClient, values: Insertable<typeof
 	await client.insert(schema.genres).values(rowsOf(values));
 }
 
-export async function selectGenres(client: TestClient) {
-	return await client.select().from(schema.genres);
-}
-
 export async function insertPeople(client: TestClient, values: Insertable<typeof schema.people>): Promise<void> {
 	await client.insert(schema.people).values(rowsOf(values));
 }

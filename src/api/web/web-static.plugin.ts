@@ -1,10 +1,10 @@
-import type { Stats } from "node:fs";
 import { join } from "node:path";
 import { file as bunFile } from "bun";
 import { Elysia } from "elysia";
 import { NotFoundError } from "elysia/error";
 import { isWebApiPath } from "@/api/utils/route-classification.utils";
 import { resolveWebDistRoot } from "@/config/server/web-dist.utils";
+import { getFileStats } from "@/utils/file.utils";
 import { getPathname, getRequestPathname, matchesIfNoneMatch } from "@/utils/http.utils";
 import { byteRangeResponse } from "@/utils/http-range.utils";
 import { MemoryCache } from "@/utils/memory.cache";
@@ -35,7 +35,9 @@ interface FileStatView {
 	isFile: boolean;
 }
 
-function toFileStatView(fileStat: Stats | null): FileStatView | null {
+/** Stats the file at `path`; null when it is missing or unreadable. */
+async function statOrNull(path: string): Promise<FileStatView | null> {
+	const fileStat = await getFileStats(path);
 	if (!fileStat) return null;
 
 	return { mtimeMs: fileStat.mtimeMs, size: fileStat.size, isFile: fileStat.isFile() };
@@ -54,11 +56,7 @@ const assetStatCache = new MemoryCache<FileStatView>({
 });
 
 async function statIndexEntry(root: string): Promise<FileStatView | null> {
-	return toFileStatView(
-		await bunFile(join(root, HTML_ENTRY))
-			.stat()
-			.catch(() => null),
-	);
+	return await statOrNull(join(root, HTML_ENTRY));
 }
 
 /**
@@ -79,24 +77,13 @@ async function resolveEntryStat(
 		const cached = assetStatCache.get(filePath);
 		if (cached) return { isHtmlEntry: false, fileStat: cached };
 
-		const fileStat = toFileStatView(
-			await bunFile(filePath)
-				.stat()
-				.catch(() => null),
-		);
+		const fileStat = await statOrNull(filePath);
 		if (fileStat?.isFile) assetStatCache.set(filePath, fileStat);
 
 		return { isHtmlEntry: false, fileStat };
 	}
 
-	return {
-		isHtmlEntry: false,
-		fileStat: toFileStatView(
-			await bunFile(filePath)
-				.stat()
-				.catch(() => null),
-		),
-	};
+	return { isHtmlEntry: false, fileStat: await statOrNull(filePath) };
 }
 
 async function loadIndexEntry(root: string, fileStat: FileStatView): Promise<Buffer> {

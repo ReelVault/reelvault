@@ -3,6 +3,7 @@ import { file } from "bun";
 import Elysia, { t } from "elysia";
 import { authMiddleware } from "@/api/middleware/auth.middleware";
 import { binaryFileResponse } from "@/api/utils/binary-response.utils";
+import { headersFromRecord } from "@/api/utils/http-response.utils";
 import { serverConfig } from "@/config/server/server.config";
 import { pluginManager } from "@/plugins/lifecycle/plugin.manager";
 import { pluginRegistry } from "@/plugins/lifecycle/plugin.registry";
@@ -130,10 +131,7 @@ export const pluginsUiRoutes = new Elysia({ prefix: "/plugins/ui", tags: ["Plugi
 			// CORS headers from the global cors middleware must be carried over exactly
 			// once (duplicate `Access-Control-Allow-Origin` is a CORS failure).
 			const pluginFile = file(assetPath);
-			const extraHeaders = new Headers();
-			for (const [key, value] of Object.entries(set.headers)) {
-				if (typeof value === "string") extraHeaders.set(key, value);
-			}
+			const extraHeaders = headersFromRecord(set.headers);
 
 			if (!extraHeaders.has("access-control-allow-origin")) extraHeaders.set("access-control-allow-origin", "*");
 

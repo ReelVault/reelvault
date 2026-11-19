@@ -1,10 +1,9 @@
 import type { User } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
 import { assertAuthRequestOrigin } from "@/api/middleware/auth-origin.guard";
-import { isImageAssetPath, isPluginUiPath, isWebAssetPath } from "@/api/utils/route-classification.utils";
-import { serverConstants } from "@/config/server/server.constants";
+import { isImageAssetPath, isPluginUiManifestPath, isPluginUiPath, isWebAssetPath } from "@/api/utils/route-classification.utils";
 import { type ResolvedSession, sessionResolver } from "@/services/auth/session-resolver.service";
-import { DomainError } from "@/utils/domain.errors";
+import { assertProfileId, DomainError } from "@/utils/domain.errors";
 import { getNormalizedPathname } from "@/utils/http.utils";
 import { createLogger } from "@/utils/logger.utils";
 
@@ -16,8 +15,6 @@ const logger = createLogger("AuthMiddleware");
  * paid full session verification + profile lookup — a catalog grid loads
  * dozens of images per view, each carrying the session cookie.
  */
-const PLUGIN_UI_MANIFEST_PATH = `${serverConstants.security.pluginUiRoutePrefix}manifest`;
-
 function isPublicGet(request: Request): boolean {
 	if (request.method !== "GET") return false;
 
@@ -32,7 +29,7 @@ function isPublicGet(request: Request): boolean {
 	// Plugin UI assets are static bundle files (secret-free) imported cross-origin
 	// as ESM modules — browsers omit credentials on those requests. The manifest
 	// stays authenticated (it is role-filtered), as do plugin API routes.
-	return isPluginUiPath(path) && path !== PLUGIN_UI_MANIFEST_PATH;
+	return isPluginUiPath(path) && !isPluginUiManifestPath(path);
 }
 
 export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
@@ -84,10 +81,7 @@ export const authMiddleware = new Elysia({ name: "AuthMiddleware" })
 				if (!required) return;
 
 				requireUser(user);
-				if (!profile) {
-					logger.debug("Active profile required");
-					throw new DomainError("unauthorized", "Active profile required", { code: "auth.profile_required" });
-				}
+				assertProfileId(profile?.id);
 			},
 		}),
 	});

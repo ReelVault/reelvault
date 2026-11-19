@@ -1,8 +1,9 @@
 import { hash as bunHash } from "bun";
-import { Elysia } from "elysia";
+import { Elysia, ElysiaCustomStatusResponse } from "elysia";
 import { env } from "@/config/env.config";
 import { serverConfig } from "@/config/server/server.config";
-import { getResponseStatus, requestIdentityKey } from "@/utils/http.utils";
+import { requestIdentityKey } from "@/utils/http.utils";
+import { responseStatus } from "./request-logger.middleware";
 import { serializedBodyCache } from "./serialized-body.cache";
 
 // Benchmark honesty escape hatch: with dedup disabled every request does its
@@ -31,12 +32,10 @@ interface InflightEntry {
 const inflight = new Map<string, InflightEntry>();
 /** Which entry (if any) each request created as leader — identity survives key reuse. */
 const leaderEntries = new WeakMap<object, InflightEntry>();
-let trackedCount = 0;
 
 /** Release a leader's slot and pass its failure to every waiter. */
 function failEntry(entry: InflightEntry, error: unknown): void {
 	inflight.delete(entry.key);
-	trackedCount--;
 	const waiters = entry.waiters;
 	entry.waiters = [];
 	entry.settled = true;
@@ -154,15 +153,15 @@ function settleEntry(entry: InflightEntry): void {
  */
 export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 	.macro({
-		deduplicate: (_options: { enabled?: boolean } = {}) => ({
+		deduplicate: () => ({
 			async beforeHandle(context: { request: Request }): Promise<Response | undefined> {
-				if (_options.enabled === false || dedupDisabledByEnv || !serverConfig.requestDedup.enabled) return undefined;
+				if (dedupDisabledByEnv || !serverConfig.requestDedup.enabled) return undefined;
 
 				if (!(context.request.method === "GET" || context.request.method === "HEAD")) return undefined;
 
-				if (trackedCount >= serverConfig.requestDedup.maxConcurrent) {
+				if (inflight.size >= serverConfig.requestDedup.maxConcurrent) {
 					sweepStaleEntries();
-					if (trackedCount >= serverConfig.requestDedup.maxConcurrent) return undefined;
+					if (inflight.size >= serverConfig.requestDedup.maxConcurrent) return undefined;
 				}
 
 				// GET and HEAD share a route but not a response contract — keep them apart.
@@ -180,7 +179,6 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 				if (existing) evictEntry(existing);
 				const entry: InflightEntry = { key, settled: false, createdAt: Date.now(), status: 200, waiters: [] };
 				inflight.set(key, entry);
-				trackedCount++;
 				leaderEntries.set(context, entry);
 
 				return undefined;
@@ -195,15 +193,9 @@ export const requestDedupMiddleware = new Elysia({ name: "RequestDedup" })
 		if (!entry || inflight.get(entry.key) !== entry) return;
 
 		inflight.delete(entry.key);
-		trackedCount--;
-		entry.responseValue = responseValue;
-		entry.status = getResponseStatus(set);
+		// A status(code, body) result carries its code and body; followers need both, not the wrapper.
+		entry.responseValue = responseValue instanceof ElysiaCustomStatusResponse ? responseValue.response : responseValue;
+		entry.status = responseStatus(responseValue, set);
 		settleEntry(entry);
-	})
-	.onError({ as: "global" }, (context) => {
-		const entry = leaderEntries.get(context);
-		if (!entry || inflight.get(entry.key) !== entry) return;
-
-		failEntry(entry, context.error);
 	})
 	.as("global");

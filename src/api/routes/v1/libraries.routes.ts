@@ -20,13 +20,13 @@ import {
 	UpdateScanFindingSchema,
 } from "@reelvault/sdk/common";
 import { Elysia, t } from "elysia";
+import { LIBRARY_REFRESH_WINDOW_MS } from "@/api/api.constants";
 import { authMiddleware } from "@/api/middleware/auth.middleware";
 import { rateLimitMiddleware, routeLimit } from "@/api/middleware/rate-limit.middleware";
 import { cached } from "@/api/middleware/response-cache.middleware";
 import { commonModel, FieldsSchema, listQuerySchema, PaginatedResponseSchema, ROUTE_ERRORS } from "@/api/schemas/common.schema";
 import { LibraryIdParams, LibraryPathParams, OperationIdParams } from "@/api/schemas/route-params.schema";
 import { actorContext } from "@/api/utils/audit-context.utils";
-import { MINUTE } from "@/config/server/server.constants";
 import { sidecarAssetsService } from "@/modules/metadata-sidecars/sidecar-assets.service";
 import { librariesService } from "@/services/libraries/libraries.service";
 
@@ -52,7 +52,7 @@ export const librariesRoutes = new Elysia({
 			status(202, await librariesService.checkErrors(body.libraryPaths, actorContext({ user, request }))),
 		{
 			adminOnly: true,
-			rateLimit: routeLimit("library-errors-check", 1, 5 * MINUTE),
+			rateLimit: routeLimit("library-errors-check", 1, LIBRARY_REFRESH_WINDOW_MS),
 			body: "libraries.checkErrors.body",
 			response: { ...ROUTE_ERRORS.ADMIN, 202: OperationQueuedResponseSchema },
 			detail: {

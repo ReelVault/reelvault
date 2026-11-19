@@ -31,8 +31,8 @@ afterEach(() => {
 	for (const stub of stubs.splice(0)) stub.restore();
 });
 
-function createApp(handler?: () => string | Promise<string>, options?: { deduplicate?: { enabled?: boolean } }) {
-	return new Elysia().use(requestDedupMiddleware).get("/test", handler ?? (() => "ok"), { deduplicate: options?.deduplicate ?? {} });
+function createApp(handler?: () => string | Promise<string>) {
+	return new Elysia().use(requestDedupMiddleware).get("/test", handler ?? (() => "ok"), { deduplicate: {} });
 }
 
 test("concurrent GETs with the same URL and credentials share one execution and one body", async () => {
@@ -186,30 +186,6 @@ test("a request issued after the leader completed runs the handler again", async
 	expect(calls).toBe(2);
 });
 
-test("per-route deduplicate enabled: false runs every concurrent request", async () => {
-	const release = gate();
-	let calls = 0;
-	const app = new Elysia().use(requestDedupMiddleware).get(
-		"/test",
-		async () => {
-			calls++;
-			await release.promise;
-
-			return "ok";
-		},
-		{ deduplicate: { enabled: false } },
-	);
-
-	const first = app.handle(new Request("http://localhost/test"));
-	const second = app.handle(new Request("http://localhost/test"));
-	await settle();
-	release.open();
-
-	expect((await first).status).toBe(200);
-	expect((await second).status).toBe(200);
-	expect(calls).toBe(2);
-});
-
 test("a failing leader hands its error response to concurrent followers without re-running the handler", async () => {
 	const release = gate();
 	let calls = 0;
@@ -341,4 +317,27 @@ test("a follower runs the handler itself when the leader does not settle within 
 	expect(await (await leader).text()).toBe("run-1");
 	expect(await (await follower).text()).toBe("run-2");
 	expect(calls).toBe(2);
+});
+
+test("a follower receives the leader's status(202) code and body, not the status wrapper", async () => {
+	const release = gate();
+	const app = new Elysia().use(requestDedupMiddleware).get(
+		"/queued",
+		async ({ status }) => {
+			await release.promise;
+
+			return status(202, { queued: true });
+		},
+		{ deduplicate: {} },
+	);
+
+	const leader = app.handle(new Request("http://localhost/queued"));
+	const follower = app.handle(new Request("http://localhost/queued"));
+	await settle();
+	release.open();
+
+	const [leaderRes, followerRes] = await Promise.all([leader, follower]);
+	expect(leaderRes.status).toBe(202);
+	expect(followerRes.status).toBe(202);
+	expect(await followerRes.json()).toEqual({ queued: true });
 });

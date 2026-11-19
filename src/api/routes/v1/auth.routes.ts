@@ -10,12 +10,12 @@ import {
 	SessionResponseSchema,
 } from "@reelvault/sdk/common";
 import { Elysia } from "elysia";
+import { ACCOUNT_SECURITY_WINDOW_MS } from "@/api/api.constants";
 import { authMiddleware } from "@/api/middleware/auth.middleware";
 import { assertAuthRequestOrigin } from "@/api/middleware/auth-origin.guard";
 import { rateLimitMiddleware, routeLimit } from "@/api/middleware/rate-limit.middleware";
 import { commonModel, PaginationSchema, ROUTE_ERRORS } from "@/api/schemas/common.schema";
 import { SessionIdParams } from "@/api/schemas/route-params.schema";
-import { MINUTE } from "@/config/server/server.constants";
 import { authService } from "@/services/auth/auth.service";
 import { sessionsService } from "@/services/auth/sessions.service";
 import { quickConnectRoutes } from "./quick-connect.routes";
@@ -47,7 +47,7 @@ export const authRoutes = new Elysia({
 			400: "error.response",
 			500: "error.response",
 		},
-		rateLimit: routeLimit("auth-register", 5, 15 * MINUTE),
+		rateLimit: routeLimit("auth-register", 5, ACCOUNT_SECURITY_WINDOW_MS),
 		detail: {
 			description: "Create a new user account with email and password.",
 		},
@@ -95,7 +95,7 @@ export const authRoutes = new Elysia({
 	.post("/change-password", async ({ body, request }) => await authService.changePassword(body, request), {
 		body: "auth.change_password.body",
 		response: { ...ROUTE_ERRORS.AUTH, 200: "auth.change_password.response", 400: "error.response" },
-		rateLimit: routeLimit("auth-change-password", 5, 15 * MINUTE),
+		rateLimit: routeLimit("auth-change-password", 5, ACCOUNT_SECURITY_WINDOW_MS),
 		detail: { description: "Change the signed-in user's password. Every other session is revoked; the current one stays signed in." },
 	})
 	.delete("/sessions", async ({ request, session, user }) => await sessionsService.revokeOthers(request.headers, session?.id, user?.id), {

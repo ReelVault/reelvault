@@ -1,3 +1,4 @@
+import { notModifiedResponse } from "@/api/utils/http-response.utils";
 import { matchesIfNoneMatch } from "@/utils/http.utils";
 
 /**
@@ -12,23 +13,21 @@ function binaryFileEtag(file: Blob): string | undefined {
 	return `"${file.size}-${Math.floor(lastModified)}"`;
 }
 
-interface BinaryResponseInit {
-	body: Blob | null;
+interface BinaryHeadersInit {
 	contentType: string;
 	etag: string | undefined;
 	cacheControl: string;
-	status: 200 | 304;
 	extraHeaders?: HeadersInit | undefined;
 }
 
-function toBinaryResponse({ body, contentType, etag, cacheControl, status, extraHeaders }: BinaryResponseInit): Response {
+function binaryHeaders({ contentType, etag, cacheControl, extraHeaders }: BinaryHeadersInit): Headers {
 	const headers = new Headers(extraHeaders);
 	headers.set("Content-Type", contentType);
 	headers.set("Cache-Control", cacheControl);
 	headers.set("Vary", "Accept-Encoding");
 	if (etag) headers.set("ETag", etag);
 
-	return new Response(body, { status, headers });
+	return headers;
 }
 
 export interface BinaryResponseOptions {
@@ -53,11 +52,10 @@ export function binaryFileResponse(
 	options?: BinaryResponseOptions,
 ): Response {
 	const etag = binaryFileEtag(file);
-	if (etag && matchesIfNoneMatch(ifNoneMatch, etag)) {
-		return toBinaryResponse({ body: null, contentType, etag, cacheControl, status: 304, extraHeaders: options?.headers });
-	}
+	const headers = binaryHeaders({ contentType, etag, cacheControl, extraHeaders: options?.headers });
+	if (etag && matchesIfNoneMatch(ifNoneMatch, etag)) return notModifiedResponse(headers);
 
-	return toBinaryResponse({ body: file, contentType, etag, cacheControl, status: 200, extraHeaders: options?.headers });
+	return new Response(file, { status: 200, headers });
 }
 
 export interface AttachmentResponseOptions {
