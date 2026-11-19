@@ -70,3 +70,34 @@ describe("serverConfig HLS segment length", () => {
 		expect(serverConfig.stream.hlsSegmentDurationSeconds).toBe(atBoot);
 	});
 });
+
+describe("serverConfig load-test env hatches", () => {
+	afterEach(() => {
+		systemSettingsStore.clearRuntimeValues();
+		env.REELVAULT_RATE_LIMIT_GLOBAL_MAX = undefined;
+		env.REELVAULT_RATE_LIMIT_ROUTE_MULTIPLIER = undefined;
+		env.REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS = undefined;
+	});
+
+	test("unset hatches leave the rate limits at their stored settings", () => {
+		systemSettingsStore.setRuntimeValue("network.rateLimit.globalMax", 2500);
+		systemSettingsStore.setRuntimeValue("network.rateLimit.routeMultiplier", 3);
+		systemSettingsStore.setRuntimeValue("auth.rateLimit.loginAccountMaxAttempts", 20);
+
+		expect(serverConfig.api.rateLimit.globalMax).toBe(2500);
+		expect(serverConfig.api.rateLimit.routeMultiplier).toBe(3);
+		expect(serverConfig.auth.loginAccountMaxAttempts).toBe(20);
+	});
+
+	test("a set hatch overrides the stored rate-limit setting", () => {
+		systemSettingsStore.setRuntimeValue("network.rateLimit.globalMax", 2500);
+		systemSettingsStore.setRuntimeValue("auth.rateLimit.loginAccountMaxAttempts", 20);
+		env.REELVAULT_RATE_LIMIT_GLOBAL_MAX = 1_000_000;
+		env.REELVAULT_RATE_LIMIT_ROUTE_MULTIPLIER = 100_000;
+		env.REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS = 10_000_000;
+
+		expect(serverConfig.api.rateLimit.globalMax).toBe(1_000_000);
+		expect(serverConfig.api.rateLimit.routeMultiplier).toBe(100_000);
+		expect(serverConfig.auth.loginAccountMaxAttempts).toBe(10_000_000);
+	});
+});

@@ -119,19 +119,13 @@ function prepareDatabase(rootDir: string, rows: number): void {
 	}
 }
 
-/**
- * Seeds the rate-limit SYSTEM SETTINGS to their load-test ceilings. The env
- * hatches (REELVAULT_RATE_LIMIT_*) stopped working when these limits moved
- * into the settings store (server.config.ts reads the store live), so without
- * this row the benchmark measures the limiter's 1000 req/min/IP instead of the
- * server. Multiplier clamps at its definition max (10_000).
- */
+/** Seeds the settings a benchmark run needs; the rate limits come from the env hatches above. */
 function seedBenchSettings(database: Database): void {
+	if (process.env.REELVAULT_BENCH_FORCE_SOFTWARE !== "true") return;
 	const now = Math.floor(Date.now() / 1000);
-	const upsert = database.prepare("INSERT OR REPLACE INTO system_settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)");
-	upsert.run("network.rateLimit.globalMax", "1000000", now, now);
-	upsert.run("network.rateLimit.routeMultiplier", "10000", now, now);
-	if (process.env.REELVAULT_BENCH_FORCE_SOFTWARE === "true") upsert.run("ffmpeg.hwaccel", "none", now, now);
+	database
+		.prepare("INSERT OR REPLACE INTO system_settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)")
+		.run("ffmpeg.hwaccel", "none", now, now);
 }
 
 /** Registers the generated sample clip in the catalog and returns its media-file id. */

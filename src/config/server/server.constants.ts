@@ -316,13 +316,7 @@ export const serverConstants = {
 		rateLimit: {
 			maxBuckets: 10_000,
 			cleanupWindowMs: MINUTE,
-			// Deployment/benchmark tuning: reverse proxies in front of the server may
-			// aggregate many clients behind one source IP, and load tests must not
-			// measure the rate limiter instead of the server. Env hatches live in
-			// env.ts (documented in .env.example); unset env keeps these defaults.
-			globalMax: env.REELVAULT_RATE_LIMIT_GLOBAL_MAX ?? 1000,
 			globalWindowMs: MINUTE,
-			routeMultiplier: env.REELVAULT_RATE_LIMIT_ROUTE_MULTIPLIER ?? 1,
 		},
 		openapi: {
 			enabled: env.OPENAPI_DOCS_ENABLED === "true",
@@ -357,10 +351,6 @@ export const serverConstants = {
 			max: 100,
 			emailSignIn: { windowSeconds: 60, max: 5 },
 			emailSignUp: { windowSeconds: 15 * 60, max: 5 },
-			/** Per-account throttle (attempts per {@link loginAccountWindowMs}) —
-			 * protects one mailbox from distributed brute-force. Raised only by
-			 * soak tests through REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS. */
-			loginAccountMaxAttempts: env.REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS,
 		},
 	},
 };

@@ -177,15 +177,15 @@ const envSchema = Type.Object({
 	// ── Load-test / soak escape hatches — leave unset in production. ──
 	// Load tests must not measure the rate limiters (see server.constants),
 	// so a soak run raises or disables them without touching defaults.
-	// Ceiling on the per-IP global request limiter (default 1000/min).
+	// Ceiling on the per-IP global request limiter (unset keeps the stored setting).
 	REELVAULT_RATE_LIMIT_GLOBAL_MAX: optional(Type.Integer({ exclusiveMinimum: 0 })),
-	// Multiplier applied to every per-route rate limit (default 1 = verbatim).
+	// Multiplier applied to every per-route rate limit (unset keeps the stored setting).
 	REELVAULT_RATE_LIMIT_ROUTE_MULTIPLIER: optional(Type.Integer({ exclusiveMinimum: 0 })),
 	// Disables better-auth's internal limiter entirely (it keys on the socket IP,
 	// which a load test cannot spread across identities).
 	REELVAULT_AUTH_RATE_LIMIT_ENABLED: choice(["true", "false"], { default: "true" }),
-	// Per-account login throttle (attempts per 5 minutes, default 10).
-	REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS: Type.Integer({ exclusiveMinimum: 0, default: 10 }),
+	// Per-account login throttle (attempts per 5 minutes; unset keeps the stored setting).
+	REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS: optional(Type.Integer({ exclusiveMinimum: 0 })),
 	// Benchmark honesty: every MemoryCache reports a miss and drops writes, so
 	// `bun run benchmark --no-cache` measures uncached work (set by the runner).
 	REELVAULT_BENCH_DISABLE_CACHES: choice(["true", "false"], { default: "false" }),

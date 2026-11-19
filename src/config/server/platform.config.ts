@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { ProfilePreferenceDefaults } from "@reelvault/sdk/common";
+import { env } from "@/config/env.config";
 import { profileDefaultPreferences } from "@/config/profile-default-preferences.config";
 import { DAY, serverConstants } from "@/config/server/server.constants";
 import { systemSettingsStore } from "@/config/system-settings.store";
@@ -80,11 +81,12 @@ export const platformConfig = {
 		...serverConstants.api,
 		rateLimit: {
 			...serverConstants.api.rateLimit,
+			// A load-test env hatch, when set, wins over the stored setting.
 			get globalMax() {
-				return systemSettingsStore.get("network.rateLimit.globalMax");
+				return env.REELVAULT_RATE_LIMIT_GLOBAL_MAX ?? systemSettingsStore.get("network.rateLimit.globalMax");
 			},
 			get routeMultiplier() {
-				return systemSettingsStore.get("network.rateLimit.routeMultiplier");
+				return env.REELVAULT_RATE_LIMIT_ROUTE_MULTIPLIER ?? systemSettingsStore.get("network.rateLimit.routeMultiplier");
 			},
 		},
 		pagination: {
@@ -126,7 +128,7 @@ export const platformConfig = {
 			return systemSettingsStore.get("auth.enforceTwoFactor");
 		},
 		get loginAccountMaxAttempts() {
-			return systemSettingsStore.get("auth.rateLimit.loginAccountMaxAttempts");
+			return env.REELVAULT_LOGIN_ACCOUNT_MAX_ATTEMPTS ?? systemSettingsStore.get("auth.rateLimit.loginAccountMaxAttempts");
 		},
 	},
 };
