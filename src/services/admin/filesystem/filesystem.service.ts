@@ -1,8 +1,9 @@
 import { readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { AdminFilesystemBrowse } from "@reelvault/sdk/common";
-import { file as bunFile } from "bun";
+
 import { systemResourcesService } from "@/config/system-resources.service";
+import { statWithTimeout } from "@/utils/file.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
 
@@ -33,7 +34,7 @@ async function listSubdirectories(dir: string): Promise<DirectoryEntry[]> {
 
 	await mapConcurrent(symlinkNames, systemResourcesService.getIoConcurrency(), async (name) => {
 		try {
-			if ((await bunFile(join(dir, name)).stat()).isDirectory()) {
+			if ((await statWithTimeout(join(dir, name))).isDirectory()) {
 				directories.push({ name, path: join(dir, name) });
 			}
 		} catch {
@@ -49,7 +50,7 @@ export async function browseFilesystem(requestedPath?: string): Promise<AdminFil
 	const targetPath = isNonEmptyString(requestedPath) ? resolve(requestedPath.trim()) : "/";
 
 	try {
-		if (!(await bunFile(targetPath).stat()).isDirectory()) return browseResult(targetPath, [], false);
+		if (!(await statWithTimeout(targetPath)).isDirectory()) return browseResult(targetPath, [], false);
 
 		return browseResult(targetPath, await listSubdirectories(targetPath), true);
 	} catch {

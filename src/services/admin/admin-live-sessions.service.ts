@@ -24,6 +24,7 @@ import { MemoryCache } from "@/utils/memory.cache";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { serializeDate } from "@/utils/time.utils";
+import { toOwnedBytes } from "./admin-files.utils";
 import { buildSessionLogArchive, readSessionLogFiles, sessionLogArchiveName, sessionLogSegments } from "./live-session-log.utils";
 import { type ActiveStreamData, buildSessionMaps } from "./live-sessions/session-maps.utils";
 import { buildActiveStreamItem } from "./live-sessions/stream-item.mapper";
@@ -96,7 +97,11 @@ class AdminLiveSessionsService {
 		const [latestUserSessions, bufferAnalyses] = await Promise.all([
 			liveSessionsRepository.findLatestUserSessions(userIds),
 			mapConcurrent(activeStreamSessions, systemResourcesService.getIoConcurrency(), (s) =>
-				streamingManager.getBuffer(s.id).catch(() => null),
+				streamingManager.getBuffer(s.id).catch((error: unknown) => {
+					this.logger.debug("Buffer analysis unavailable for a live session", { sessionId: s.id, error });
+
+					return null;
+				}),
 			),
 		]);
 
@@ -219,11 +224,7 @@ class AdminLiveSessionsService {
 
 			const operationId = active ? active.operationId : ended?.operationId;
 			const { files, truncated } = await readSessionLogFiles(sessionLogSegments(sessionId, operationId));
-			const zipped = await buildSessionLogArchive(sessionId, files, truncated);
-
-			// A fresh buffer keeps the view narrow (`Uint8Array<ArrayBuffer>`), which the Response body type requires.
-			const data = new Uint8Array(zipped.byteLength);
-			data.set(zipped);
+			const data = toOwnedBytes(await buildSessionLogArchive(sessionId, files, truncated));
 
 			return { data, filename: sessionLogArchiveName(sessionId, new Date()) };
 		});

@@ -2,7 +2,7 @@ import { HOUR } from "@/config/server/server.constants";
 import { notificationsService } from "@/services/notifications/notifications.service";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { detach } from "@/utils/promise.utils";
+import { detachCatching } from "@/utils/promise.utils";
 
 /**
  * Failures an administrator must not miss:
@@ -62,28 +62,25 @@ class AdminFailureNotificationService {
 		this.recentFailures.set(entry.dedupKey, true);
 
 		// Retries and alerts fire from worker/pool internals — never block them on the DB write.
-		detach(
+		detachCatching(
 			(async () => {
-				try {
-					const recipients = await notificationsService.createForAdministrators(
-						{
-							type: entry.type,
-							title: entry.titleKey,
-							data: entry.data,
-							link: entry.link,
-						},
-						{ skipOwnershipCheck: true },
-					);
-
-					this.logger.info("Notified administrators about a failure", {
+				const recipients = await notificationsService.createForAdministrators(
+					{
 						type: entry.type,
-						dedupKey: entry.dedupKey,
-						recipients,
-					});
-				} catch (error) {
-					this.logger.warn("Could not notify administrators about a failure", { type: entry.type, error });
-				}
+						title: entry.titleKey,
+						data: entry.data,
+						link: entry.link,
+					},
+					{ skipOwnershipCheck: true },
+				);
+
+				this.logger.info("Notified administrators about a failure", {
+					type: entry.type,
+					dedupKey: entry.dedupKey,
+					recipients,
+				});
 			})(),
+			(error) => this.logger.warn("Could not notify administrators about a failure", { type: entry.type, error }),
 		);
 	}
 }

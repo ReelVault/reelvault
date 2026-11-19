@@ -8,15 +8,16 @@ import { systemSettingsStore } from "@/config/system-settings.store";
 import { databaseMaintenanceRepository } from "@/repositories/database-maintenance.repository";
 import { createDirectory } from "@/utils/directory.utils";
 import { DomainError } from "@/utils/domain.errors";
-import { deleteFile } from "@/utils/file.utils";
+import { deleteFile, statWithTimeout } from "@/utils/file.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { resolveWithin } from "@/utils/path.utils";
 import { mapConcurrent } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
+import { resolveConfinedPath } from "./admin-files.utils";
 
 /** The first 16 bytes of every SQLite 3 database file. */
 const SQLITE_HEADER = new TextEncoder().encode("SQLite format 3\0");
 
+/** Backup file names keep their own format (`2026-11-19_11-37-00-000`); existing backups are named this way. */
 function backupTimestamp(now: Date): string {
 	return now
 		.toISOString()
@@ -40,7 +41,7 @@ class DatabaseBackupService {
 			// awaits: sequential — the backup file is statted after the backup is written
 			await databaseMaintenanceRepository.backup(filePath);
 
-			const stats = await file(filePath).stat();
+			const stats = await statWithTimeout(filePath);
 			const backup: AdminDatabaseBackup = {
 				fileName,
 				filePath,
@@ -65,7 +66,7 @@ class DatabaseBackupService {
 			const sqliteEntries = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".sqlite"));
 			const backups = await mapConcurrent(sqliteEntries, systemResourcesService.getIoConcurrency(), async (entry) => {
 				const fullPath = join(serverConfig.paths.backups, entry.name);
-				const stats = await file(fullPath).stat();
+				const stats = await statWithTimeout(fullPath);
 
 				return {
 					fileName: entry.name,
@@ -108,7 +109,7 @@ class DatabaseBackupService {
 				const filePath = join(serverConfig.paths.backups, fileName);
 				// awaits: sequential — the file is renamed into place before it is statted
 				await rename(stagingPath, filePath);
-				const stats = await file(filePath).stat();
+				const stats = await statWithTimeout(filePath);
 				this.logger.info("Database backup uploaded", { fileName, sizeBytes: stats.size });
 
 				return { fileName, filePath, sizeBytes: stats.size, createdAt: now.toISOString() };
@@ -162,7 +163,7 @@ export const databaseBackupService = new DatabaseBackupService();
  * that folder are refused; a download names a `.sqlite` file, a delete does not.
  */
 function resolveBackupPath(fileName: string, options: { requireSqliteSuffix: boolean }): string {
-	if (fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) {
+	if (fileName.includes("/") || fileName.includes("\\")) {
 		throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
 	}
 
@@ -170,7 +171,7 @@ function resolveBackupPath(fileName: string, options: { requireSqliteSuffix: boo
 		throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
 	}
 
-	const fullPath = resolveWithin(serverConfig.paths.backups, fileName);
+	const fullPath = resolveConfinedPath(serverConfig.paths.backups, fileName);
 	if (!fullPath) {
 		throw new DomainError("validation", "Invalid backup file name", { code: "admin.invalid_backup_name" });
 	}

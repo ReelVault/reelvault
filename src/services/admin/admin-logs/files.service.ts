@@ -5,14 +5,13 @@ import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
+import { resolveConfinedPath } from "@/services/admin/admin-files.utils";
 import { walkLogFiles } from "@/services/admin/admin-logs/log-walker.utils";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
 import { DomainError, isMissingFile } from "@/utils/domain.errors";
-import { normalizePath, resolveWithin } from "@/utils/path.utils";
+import { normalizePath } from "@/utils/path.utils";
 import { normalizeLower } from "@/utils/type.utils";
 import { adminLogsLog } from "./admin-logs.logger";
-
-const leadingParentTraversalPattern = /^(\.\.(\/|\\|$))+/;
 
 /** Ordered log-type markers — the first match wins, so "transcode" must be
  * tested before the generic "ffmpeg" marker. */
@@ -92,8 +91,7 @@ export function resolveLogFilePath(fileId?: string): { filePath: string; filenam
 
 	// A NUL byte never belongs in a path, and the logs root itself is a directory, not a log file.
 	const trimmed = fileId.trim();
-	const cleanId = trimmed.includes("\0") ? "" : normalizePath(trimmed).replace(leadingParentTraversalPattern, "");
-	const targetPath = resolveWithin(logsRoot, cleanId);
+	const targetPath = trimmed.includes("\0") ? undefined : resolveConfinedPath(logsRoot, normalizePath(trimmed));
 	if (!targetPath || targetPath === logsRoot) {
 		throw new DomainError("validation", "Invalid log file path", { code: "admin.log_path_invalid", params: { fileId } });
 	}

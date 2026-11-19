@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { realtimeService } from "@/modules/realtime/realtime.service";
 import { profilePreferencesRepository } from "@/repositories/profile-preferences.repository";
 import { getCachedResponseBody, responseCacheKey, setCachedResponseBody } from "@/utils/response-body.cache";
+import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
 import {
 	insertMetadata,
@@ -112,6 +114,31 @@ describe("notificationsService.createForAdministrators", () => {
 
 		await expect(notificationsService.createForAdministrators({ type: "bug-report", title: "Subtitles drift" })).rejects.toBe(quota);
 		expect((await storedNotifications()).map((row) => row.userId)).toEqual(["admin-2"]);
+	});
+});
+
+describe("notificationsService new episode delivery", () => {
+	test("a new episode reaches a watchlisting profile as a live notification event", async () => {
+		// An earlier test mutes new_episode for this profile; this one needs it unmuted.
+		await profilePreferencesRepository.applyUpdate({ profileId: "profile-1", body: { mutedNotificationTypes: "" } });
+		await insertMovieMediaFile(db.client(), "/media/Show (2020)/episode.mkv", "meta-1");
+		await insertWatchlist(db.client(), { profileId: "profile-1", metadataId: "meta-1" });
+		const sendToProfile = stubMethod(realtimeService, "sendToProfile", () => 1);
+		stubs.push(sendToProfile);
+
+		await notificationsService.notifyNewEpisode({
+			metadataId: "meta-1",
+			showTitle: "Show",
+			seasonNumber: 1,
+			episodeNumber: 2,
+		});
+
+		// The live event is detached: one macrotask lets its muted-types read finish.
+		await Bun.sleep(0);
+
+		expect(sendToProfile.calls).toMatchObject([
+			["profile-1", "notification:created", { userId: "user-1", profileId: "profile-1", type: "new_episode", link: "/details/meta-1" }],
+		]);
 	});
 });
 

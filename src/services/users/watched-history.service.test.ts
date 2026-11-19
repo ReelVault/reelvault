@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { profilePreferencesRepository } from "@/repositories/profile-preferences.repository";
 import { insertMovieMediaFile } from "../../../tests/helpers/media.fixture";
 import {
 	insertProfiles,
 	insertUsers,
 	insertWatchedHistory,
+	insertWatchlist,
 	selectPlaybackProgress,
 	selectWatchedHistory,
+	selectWatchlist,
 	updateMediaFileDuration,
 } from "../../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
@@ -82,6 +85,7 @@ describe("WatchedHistoryService getWrapped", () => {
 
 		const wrapped = await watchedHistoryService.getWrapped(year, "profile-1");
 
+		expect(wrapped.moviesWatchedCount).toBe(6);
 		expect(wrapped.topMovies).toHaveLength(5);
 	});
 });
@@ -119,5 +123,15 @@ describe("WatchedHistoryService sync", () => {
 		await watchedHistoryService.sync({ mediaFileId: fileId, isFullWatch: true }, "profile-1");
 
 		expect(await selectWatchedHistory(db.client())).toHaveLength(1);
+	});
+
+	test("marking a title watched takes it off the watchlist when the profile asked for that", async () => {
+		const fileId = await seedMovieFile();
+		await profilePreferencesRepository.applyUpdate({ profileId: "profile-1", body: { watchlistAutoRemoveWatched: true } });
+		await insertWatchlist(db.client(), { profileId: "profile-1", metadataId: "meta-1" });
+
+		await watchedHistoryService.sync({ mediaFileId: fileId, isFullWatch: true }, "profile-1");
+
+		expect(await selectWatchlist(db.client())).toEqual([]);
 	});
 });

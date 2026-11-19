@@ -18,7 +18,7 @@ import {
 	coldStartFallback,
 	completionBonus,
 	type ProgressSignal,
-	RATING_WEIGHTS,
+	ratingWeight,
 	recencyMultiplier,
 	SIGNAL_WEIGHTS,
 	scoreCandidate,
@@ -64,13 +64,8 @@ function buildSeedWeights(
 	for (const item of ratings) {
 		if (!item.metadataId) continue;
 
-		let ratingDelta: number;
-		if (item.rating === 2) ratingDelta = RATING_WEIGHTS.like;
-		else if (item.rating === 1) ratingDelta = RATING_WEIGHTS.neutral;
-		else ratingDelta = RATING_WEIGHTS.dislike;
-
 		const prev = seedWeights.get(item.metadataId) ?? 0;
-		seedWeights.set(item.metadataId, prev + ratingDelta);
+		seedWeights.set(item.metadataId, prev + ratingWeight(item.rating));
 	}
 
 	return seedWeights;
@@ -124,7 +119,11 @@ class DiscoverService {
 			discoverRepository
 				.findRecentlyWatchedByOthers(TRENDING_DAYS, TRENDING_CANDIDATE_LIMIT)
 				.then((rows) => rows.filter((row) => !(row.metadataId && dislikedIds.has(row.metadataId))))
-				.catch(() => []),
+				.catch((error: unknown) => {
+					this.logger.warn("Failed to load trending titles for discover view, falling back to none", { profileId, err: error });
+
+					return [];
+				}),
 		]);
 
 		const recentlyAddedMovies = recentlyAdded.get("movie") ?? [];

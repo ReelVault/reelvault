@@ -17,6 +17,8 @@ import { profilesRepository } from "@/repositories/profiles.repository";
 import { type SessionActivity, sessionsRepository } from "@/repositories/sessions.repository";
 import { usersRepository } from "@/repositories/users.repository";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
+import { revokeUserSession, revokeUserSessions } from "@/services/auth/session-revocation.service";
+import { toSessionView } from "@/services/auth/sessions.service";
 import { hasEntry } from "@/utils/array.utils";
 import { hashProfilePin } from "@/utils/crypto.utils";
 import { assertExists, assertFound, assertPresent, DomainError } from "@/utils/domain.errors";
@@ -85,14 +87,7 @@ class AdminUsersService {
 
 			return {
 				...page,
-				data: page.data.map((session) => ({
-					id: session.id,
-					ipAddress: session.ipAddress,
-					userAgent: session.userAgent,
-					createdAt: session.createdAt.toISOString(),
-					updatedAt: session.updatedAt.toISOString(),
-					expiresAt: session.expiresAt.toISOString(),
-				})),
+				data: page.data.map((session) => toSessionView(session)),
 			};
 		});
 	}
@@ -100,7 +95,7 @@ class AdminUsersService {
 	/** Ends one session of a user. */
 	async revokeSession(userId: string, sessionId: string, context?: AdminAuditContext) {
 		return await runSafely(this, "revokeSession", async () => {
-			const revoked = await sessionsRepository.deleteForUser({ userId, sessionId });
+			const revoked = await revokeUserSession(userId, sessionId);
 			assertFound(revoked || undefined, "Session", sessionId);
 
 			recordAuditSafe({ action: "delete", resourceType: "user_session", resourceId: sessionId, after: { userId }, context }, this.logger);
@@ -112,7 +107,7 @@ class AdminUsersService {
 	/** Ends every session of the listed users at once. */
 	async revokeSessionsForUsers(userIds: string[], context?: AdminAuditContext) {
 		return await runSafely(this, "revokeSessionsForUsers", async () => {
-			const revokedSessions = await sessionsRepository.deleteForUsers(userIds);
+			const revokedSessions = await revokeUserSessions(userIds);
 
 			recordAuditSafe(
 				{ action: "delete", resourceType: "user_session", resourceId: "bulk", after: { userIds, revokedSessions }, context },
@@ -181,8 +176,7 @@ class AdminUsersService {
 			// awaits: sequential — sessions are revoked only after the password has changed
 			await betterAuthApi.setUserPassword({ userId, newPassword: body.newPassword, headers: context.headers });
 			// A stolen session token must not survive a password reset.
-			await sessionsRepository.deleteAllForUser(userId);
-			realtimeService.disconnectUser(userId);
+			await revokeUserSessions([userId]);
 			recordAuditSafe(
 				{
 					action: "update",

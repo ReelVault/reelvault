@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { streamingManager } from "@/modules/streaming/runtime/streaming.manager";
 import { DomainError } from "@/utils/domain.errors";
 import { stubMethod } from "../../../tests/helpers/method-stub.helper";
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
@@ -14,12 +15,13 @@ afterEach(() => {
 
 describe("AdminLiveSessionsService.terminateSessions", () => {
 	test("terminates each session on its own and reports one outcome per session", async () => {
-		// Live stream sessions are process state backed by FFmpeg children, so terminating one is stubbed; the outcome list is asserted.
+		// Live sessions are FFmpeg-backed process state: the streaming manager's access lookup and teardown are stubbed at that boundary.
 		stubs.push(
-			stubMethod(adminLiveSessionsService, "terminateSession", (sessionId: string) => {
+			stubMethod(streamingManager, "getSessionAccess", () => ({ mediaFileId: "media-1", profileId: undefined })),
+			stubMethod(streamingManager, "releaseSession", (sessionId: string) => {
 				if (sessionId === "s-2") return Promise.reject(new DomainError("conflict", "Session is busy", { code: "stream.session_busy" }));
 
-				return Promise.resolve({ success: true });
+				return Promise.resolve("released");
 			}),
 		);
 

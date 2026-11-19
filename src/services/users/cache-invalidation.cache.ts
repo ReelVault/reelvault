@@ -14,12 +14,13 @@ const INSIGHTS_CACHE_MAX_SIZE = 200;
  * two full cache scans (each one copying the key list), so the entries are
  * indexed by their profile instead.
  */
-class ProfileScopedCache<T> {
+export class ProfileScopedCache<T> {
 	private readonly cache: MemoryCache<T>;
 	private readonly keysByProfile = new Map<string, Set<string>>();
 
-	constructor(cache: MemoryCache<T>) {
-		this.cache = cache;
+	constructor(options: { ttlMs: number; maxSize: number; name: string }) {
+		// An evicted or expired entry leaves the profile index too, so the index never outgrows the cache.
+		this.cache = new MemoryCache<T>({ ...options, onEvict: (key) => this.forget(key) });
 	}
 
 	getOrSet(key: string, loader: () => Promise<T>): Promise<T> {
@@ -46,35 +47,48 @@ class ProfileScopedCache<T> {
 	}
 
 	private remember(key: string): void {
-		const separator = key.indexOf(":");
-		if (separator <= 0) return;
+		const profileId = profileIdOf(key);
+		if (!profileId) return;
 
-		const profileId = key.slice(0, separator);
 		const keys = this.keysByProfile.get(profileId) ?? new Set<string>();
 		keys.add(key);
 		this.keysByProfile.set(profileId, keys);
 	}
+
+	private forget(key: string): void {
+		const profileId = profileIdOf(key);
+		if (!profileId) return;
+
+		const keys = this.keysByProfile.get(profileId);
+		if (!keys) return;
+
+		keys.delete(key);
+		if (keys.size === 0) this.keysByProfile.delete(profileId);
+	}
+}
+
+/** The profile id a cache key starts with (`${profileId}:...`), or undefined for a key without one. */
+function profileIdOf(key: string): string | undefined {
+	const separator = key.indexOf(":");
+
+	return separator <= 0 ? undefined : key.slice(0, separator);
 }
 
 /**
  * Profile-scoped insight caches live here (not on the service) so the
  * invalidation helper below can reach them without importing the service.
  */
-export const profileInsightsCache = new ProfileScopedCache<ProfileInsights>(
-	new MemoryCache<ProfileInsights>({
-		ttlMs: INSIGHTS_CACHE_TTL_MS,
-		maxSize: INSIGHTS_CACHE_MAX_SIZE,
-		name: "profile-insights",
-	}),
-);
+export const profileInsightsCache = new ProfileScopedCache<ProfileInsights>({
+	ttlMs: INSIGHTS_CACHE_TTL_MS,
+	maxSize: INSIGHTS_CACHE_MAX_SIZE,
+	name: "profile-insights",
+});
 
-export const wrappedInsightsCache = new ProfileScopedCache<WrappedInsights>(
-	new MemoryCache<WrappedInsights>({
-		ttlMs: INSIGHTS_CACHE_TTL_MS,
-		maxSize: INSIGHTS_CACHE_MAX_SIZE,
-		name: "wrapped-insights",
-	}),
-);
+export const wrappedInsightsCache = new ProfileScopedCache<WrappedInsights>({
+	ttlMs: INSIGHTS_CACHE_TTL_MS,
+	maxSize: INSIGHTS_CACHE_MAX_SIZE,
+	name: "wrapped-insights",
+});
 
 /** Drops the insight entries of one profile (cache keys are `${profileId}:...`). */
 export function clearProfileInsights(profileId: string): void {

@@ -2,6 +2,9 @@ import type { MetadataWithRelation } from "@reelvault/sdk";
 import { DAY } from "@/config/server/server.constants";
 import { metadataRepository } from "@/repositories/metadata.repository";
 import { toMap, unique } from "@/utils/array.utils";
+import { createLogger } from "@/utils/logger.utils";
+
+const logger = createLogger("DiscoverRecommendations");
 
 /** Recency decay half-life in days: a seed from 130 days ago has ~50% weight. */
 export const RECENCY_HALF_LIFE_DAYS = 130;
@@ -20,6 +23,14 @@ export const DIVERSITY_MAX_FRACTION = 1 / 3;
 
 /** Explicit rating bonuses (rating column: 2=like, 1=neutral, 0=dislike). */
 export const RATING_WEIGHTS = { like: 6, neutral: 0, dislike: -8 } as const;
+
+/** The seed weight a rating adds: 2 = like, 1 = neutral, anything else = dislike. */
+export function ratingWeight(rating: number) {
+	if (rating === 2) return RATING_WEIGHTS.like;
+	if (rating === 1) return RATING_WEIGHTS.neutral;
+
+	return RATING_WEIGHTS.dislike;
+}
 
 /** Bonus for watchlist items, before recency decay. */
 export const WATCHLIST_BASE_BONUS = 4;
@@ -244,7 +255,11 @@ export async function buildTrending(
 	const trendingIds = validActivity.map((r) => r.metadataId);
 	const missingIds = trendingIds.filter((id) => !knownMap.has(id));
 	if (missingIds.length > 0) {
-		const fetched = await metadataRepository.findManyByIdsWithRelations(missingIds).catch(() => []);
+		const fetched = await metadataRepository.findManyByIdsWithRelations(missingIds).catch((error: unknown) => {
+			logger.warn("Failed to load trending titles missing from the catalog batch", { count: missingIds.length, err: error });
+
+			return [];
+		});
 		for (const m of fetched) knownMap.set(m.id, m);
 	}
 

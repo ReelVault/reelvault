@@ -59,8 +59,10 @@ describe("resolveLogFilePath", () => {
 		});
 	});
 
-	test("keeps leading parent traversal inside the logs directory", () => {
-		expect(resolveLogFilePath("../../debug.log")).toEqual({ filePath: join(logsDir, "debug.log"), filename: "debug.log" });
+	test("refuses a log id that starts with parent traversal instead of stripping it", () => {
+		expect(() => resolveLogFilePath("../../debug.log")).toThrow(
+			expect.objectContaining({ category: "validation", code: "admin.log_path_invalid" }),
+		);
 	});
 
 	test("rejects a path that escapes the logs directory after the leading segment", () => {

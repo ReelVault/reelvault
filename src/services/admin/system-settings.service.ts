@@ -11,9 +11,7 @@ import {
 } from "@/config/system-settings.definitions";
 import { serializeSettingValue, systemSettingsStore } from "@/config/system-settings.store";
 import type { SettingGroup } from "@/config/system-settings.types";
-import { initializeFfmpegCapabilities } from "@/integrations/ffmpeg/ffmpeg.capabilities";
 import { assertFFMpegAvailable } from "@/integrations/ffmpeg/ffmpeg.environment";
-import { clearFFProbeCache } from "@/integrations/ffprobe/ffprobe.builder";
 import { assertFFProbeAvailable } from "@/integrations/ffprobe/ffprobe.environment";
 import { realtimeService } from "@/modules/realtime/realtime.service";
 import { providerService } from "@/plugins/capabilities/provider.service";
@@ -28,6 +26,7 @@ import { DomainError } from "@/utils/domain.errors";
 import { createLogger, setLogLevel } from "@/utils/logger.utils";
 import { invalidateResponseBodies } from "@/utils/response-body.cache";
 import { recordAuditSafe } from "./admin-audit.service";
+import { refreshFfmpegCapabilities } from "./admin-ffmpeg-capabilities.service";
 
 interface SystemSettingItemView {
 	key: string;
@@ -182,12 +181,8 @@ class SystemSettingsService {
 		const beforeValues: Record<string, unknown> = {};
 		const afterValues = new Map<SystemSettingKey, SystemSettingValue<SystemSettingKey>>();
 
-		for (const [key, rawValue] of Object.entries(updates)) {
-			// A stale or misspelled key used to be dropped silently, so the admin saw "saved" for a setting that never changed.
-			if (!isSystemSettingKey(key)) {
-				throw new DomainError("validation", `Unknown setting "${key}"`, { code: "admin.settings.unknown_key", params: { key } });
-			}
-
+		for (const [rawKey, rawValue] of Object.entries(updates)) {
+			const key = toSettingKey(rawKey);
 			const { parsedValue, finalSerialized } = this.parseAndSerialize(key, rawValue);
 			await assertSettingAllowed(key, parsedValue);
 
@@ -244,7 +239,7 @@ class SystemSettingsService {
 	async resetSettings(keys?: string[], context?: AdminAuditContext): Promise<Record<SettingGroup, SystemSettingItemView[]>> {
 		await this.init();
 
-		const keysToReset = keys && keys.length > 0 ? keys.filter((item) => isSystemSettingKey(item)) : [...SETTING_KEYS];
+		const keysToReset = keys && keys.length > 0 ? keys.map((key) => toSettingKey(key)) : [...SETTING_KEYS];
 
 		const beforeValues: Record<string, unknown> = {};
 		for (const key of keysToReset) {
@@ -332,9 +327,8 @@ class SystemSettingsService {
 	private async reloadFfmpeg(): Promise<void> {
 		try {
 			assertFFMpegAvailable();
-			await initializeFfmpegCapabilities();
 			assertFFProbeAvailable();
-			clearFFProbeCache();
+			await refreshFfmpegCapabilities();
 			this.logger.info("Refreshed FFmpeg and FFprobe configurations");
 		} catch (error) {
 			this.logger.warn("Could not reload FFmpeg / FFprobe capabilities after settings update", { error });
@@ -461,6 +455,15 @@ function assertCrossFieldSettings(updates: Record<string, unknown>, afterValues:
 }
 
 /** Deep equality for the primitive and string-array values settings use. */
+/** A stale or misspelled key is refused, never dropped: the admin must not see "saved" for a setting that did not change. */
+function toSettingKey(key: string): SystemSettingKey {
+	if (!isSystemSettingKey(key)) {
+		throw new DomainError("validation", `Unknown setting "${key}"`, { code: "admin.settings.unknown_key", params: { key } });
+	}
+
+	return key;
+}
+
 function isDefaultSettingValue(defaultValue: unknown, value: unknown): boolean {
 	if (Array.isArray(defaultValue) || Array.isArray(value)) {
 		return (

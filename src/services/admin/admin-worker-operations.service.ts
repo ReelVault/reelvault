@@ -143,8 +143,8 @@ export const adminWorkerOperationsService = {
 	},
 
 	async cancelOperation(id: string, context?: AdminAuditContext): Promise<{ success: true }> {
-		const operation = await workerService.getOperation(id);
-		assertFound(operation, "Worker operation", id);
+		// awaits: sequential — the operation is read before it is cancelled, so the audit can record its prior state
+		const operation = await adminWorkerOperationsService.getOperation(id);
 
 		const cancelled = await workerService.cancelOperation(id);
 		if (!cancelled) {
@@ -170,8 +170,8 @@ export const adminWorkerOperationsService = {
 	},
 
 	async resumeOperation(id: string, context?: AdminAuditContext): Promise<{ success: true; resumed: number }> {
-		const operation = await workerService.getOperation(id);
-		assertFound(operation, "Worker operation", id);
+		// awaits: sequential — the operation is read before it is resumed, so the audit can record its prior state
+		const operation = await adminWorkerOperationsService.getOperation(id);
 
 		const result = await workerService.resumeOperation(id);
 
@@ -207,8 +207,7 @@ export const adminWorkerOperationsService = {
 	},
 
 	async cancelItem(id: string, context?: AdminAuditContext): Promise<{ success: true }> {
-		const item = await workerService.getItem(id);
-		assertFound(item, "Worker item", id);
+		const item = await adminWorkerOperationsService.getItem(id);
 		if (item.status !== "pending" && item.status !== "running") {
 			throw new DomainError("conflict", "Only pending or running worker items can be cancelled", {
 				code: "worker.item_not_cancellable",
@@ -240,8 +239,7 @@ export const adminWorkerOperationsService = {
 	},
 
 	async retryItem(id: string, context?: AdminAuditContext): Promise<{ success: true; jobId: string }> {
-		const item = await workerService.getItem(id);
-		assertFound(item, "Worker item", id);
+		const item = await adminWorkerOperationsService.getItem(id);
 		if (item.status !== "failed") {
 			throw new DomainError("conflict", "Only failed worker items can be retried", {
 				code: "worker.item_not_retryable",

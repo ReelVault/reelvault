@@ -9,7 +9,7 @@ import { DomainError } from "@/utils/domain.errors";
  * re-thrown as DomainErrors so the client receives the standard error envelope
  * with a stable code instead of better-auth's own body shape.
  */
-class TwoFactorService {
+export const twoFactorService = {
 	/** Backup codes the signed-in account can still use (`null` when they cannot be read). The codes themselves are never returned. */
 	async countRemainingBackupCodes(headers: Headers): Promise<{ remaining: number | null }> {
 		const session = await betterAuthApi.getSession({ headers, query: { disableCookieCache: true } });
@@ -19,46 +19,44 @@ class TwoFactorService {
 		if (encrypted === null) return { remaining: 0 };
 
 		return { remaining: await countEncryptedBackupCodes(encrypted) };
-	}
+	},
 
 	enable(headers: Headers, password: string): Promise<Response> {
-		return this.withErrorMapping(betterAuthApi.enableTwoFactor({ password, headers }), "auth.two_factor.invalid_password");
-	}
+		return withErrorMapping(betterAuthApi.enableTwoFactor({ password, headers }), "auth.two_factor.invalid_password");
+	},
 
 	disable(headers: Headers, password: string): Promise<Response> {
-		return this.withErrorMapping(betterAuthApi.disableTwoFactor({ password, headers }), "auth.two_factor.invalid_password");
-	}
+		return withErrorMapping(betterAuthApi.disableTwoFactor({ password, headers }), "auth.two_factor.invalid_password");
+	},
 
 	verifyTotp(headers: Headers, code: string): Promise<Response> {
-		return this.withErrorMapping(betterAuthApi.verifyTotp({ code, headers }), "auth.two_factor.invalid_code");
-	}
+		return withErrorMapping(betterAuthApi.verifyTotp({ code, headers }), "auth.two_factor.invalid_code");
+	},
 
 	verifyBackupCode(headers: Headers, code: string): Promise<Response> {
-		return this.withErrorMapping(betterAuthApi.verifyBackupCode({ code, headers }), "auth.two_factor.invalid_backup_code");
-	}
+		return withErrorMapping(betterAuthApi.verifyBackupCode({ code, headers }), "auth.two_factor.invalid_backup_code");
+	},
 
 	generateBackupCodes(headers: Headers, password: string): Promise<Response> {
-		return this.withErrorMapping(betterAuthApi.generateBackupCodes({ password, headers }), "auth.two_factor.invalid_password");
+		return withErrorMapping(betterAuthApi.generateBackupCodes({ password, headers }), "auth.two_factor.invalid_password");
+	},
+};
+
+async function withErrorMapping(pending: Promise<Response>, rejectionCode: string): Promise<Response> {
+	const response = await pending;
+	if (response.ok) return response;
+
+	// Only the status carries over: 4xx from these endpoints means the
+	// submitted secret (password / TOTP / backup code) was rejected, so each
+	// caller maps to its own stable code. better-auth's message is dropped —
+	// responses travel as code + params only.
+	if (response.status === 401 || response.status === 403) {
+		throw new DomainError("unauthorized", `Two-factor secret rejected (${response.status})`, { code: rejectionCode });
 	}
 
-	private async withErrorMapping(pending: Promise<Response>, rejectionCode: string): Promise<Response> {
-		const response = await pending;
-		if (response.ok) return response;
-
-		// Only the status carries over: 4xx from these endpoints means the
-		// submitted secret (password / TOTP / backup code) was rejected, so each
-		// caller maps to its own stable code. better-auth's message is dropped —
-		// responses travel as code + params only.
-		if (response.status === 401 || response.status === 403) {
-			throw new DomainError("unauthorized", `Two-factor secret rejected (${response.status})`, { code: rejectionCode });
-		}
-
-		if (response.status >= 400 && response.status < 500) {
-			throw new DomainError("validation", "Two-factor request rejected", { code: rejectionCode });
-		}
-
-		throw new DomainError("validation", "Two-factor request failed", { code: "auth.two_factor.failed" });
+	if (response.status >= 400 && response.status < 500) {
+		throw new DomainError("validation", "Two-factor request rejected", { code: rejectionCode });
 	}
+
+	throw new DomainError("validation", "Two-factor request failed", { code: "auth.two_factor.failed" });
 }
-
-export const twoFactorService = new TwoFactorService();

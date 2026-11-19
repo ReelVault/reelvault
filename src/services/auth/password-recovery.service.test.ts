@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
-import { type MethodStub, stubMethod } from "../../../tests/helpers/method-stub.helper";
+import { describe, expect, test } from "bun:test";
+import { verifyPassword } from "better-auth/crypto";
 import {
 	insertAccounts,
 	insertSessions,
@@ -14,10 +13,8 @@ import {
 import { useTestDatabase } from "../../../tests/helpers/test-database.helper";
 import { passwordRecoveryService } from "./password-recovery.service";
 
-// Rows live in the migrated test database. Only the password hash function is stubbed: it is
-// a third-party primitive, and a fixed output lets the test read the stored value back.
+// Rows live in the migrated test database. The password is hashed by the real better-auth hasher.
 const db = useTestDatabase();
-const stubs: MethodStub[] = [];
 
 async function seedAlice(options: { passwordLogin: boolean; twoFactor: boolean }): Promise<void> {
 	const client = db.client();
@@ -46,7 +43,6 @@ async function seedAlice(options: { passwordLogin: boolean; twoFactor: boolean }
 		token: "token-1",
 		expiresAt: new Date(Date.now() + 60_000),
 	});
-	stubs.push(stubMethod(betterAuthApi, "hashPassword", (password: string) => Promise.resolve(`hashed:${password}`)));
 }
 
 async function storedPassword(): Promise<string | null | undefined> {
@@ -59,10 +55,6 @@ async function sessionCount(): Promise<number> {
 	return (await selectSessions(db.client())).filter((row) => row.userId === "u1").length;
 }
 
-afterEach(() => {
-	for (const stub of stubs.splice(0)) stub.restore();
-});
-
 describe("passwordRecoveryService.resetPassword", () => {
 	test("stores a new hash, revokes every session and leaves two-factor alone by default", async () => {
 		await seedAlice({ passwordLogin: true, twoFactor: true });
@@ -70,7 +62,9 @@ describe("passwordRecoveryService.resetPassword", () => {
 		const result = await passwordRecoveryService.resetPassword({ email: " alice@example.com ", newPassword: "a-new-password" });
 
 		expect(result).toEqual({ userId: "u1", email: "alice@example.com" });
-		expect(await storedPassword()).toBe("hashed:a-new-password");
+		const stored = await storedPassword();
+		expect(stored).not.toBe("old-hash");
+		expect(await verifyPassword({ hash: stored ?? "", password: "a-new-password" })).toBe(true);
 		expect(await sessionCount()).toBe(0);
 		expect(await selectTwoFactors(db.client())).toHaveLength(1);
 	});

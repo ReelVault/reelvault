@@ -1,12 +1,13 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { ApiKey, ApiKeyCreated } from "@reelvault/sdk/common";
 import { type ApiKeyChanges, type ApiKeyRow, apiKeysRepository } from "@/repositories/api-keys.repository";
 import { recordAuditSafe } from "@/services/admin/admin-audit.service";
 import type { AdminAuditContext } from "@/services/admin/audit-context.types";
+import { createHash } from "@/utils/crypto.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { MemoryCache } from "@/utils/memory.cache";
-import { detach } from "@/utils/promise.utils";
+import { detachCatching } from "@/utils/promise.utils";
 import { isNullish } from "@/utils/type.utils";
 
 const KEY_TAG = "rv_";
@@ -41,6 +42,43 @@ function hashKey(rawKey: string): string {
 	return createHash("sha256").update(rawKey).digest("hex");
 }
 
+/** Trims a key name and refuses an empty one. */
+function normalizeKeyName(name: string): string {
+	const trimmed = name.trim();
+	if (!trimmed) throw new DomainError("validation", "API key name is required", { code: "api_key.name_required" });
+
+	return trimmed;
+}
+
+/** Refuses an expiry outside 1 to 3650 days. */
+function assertExpiryDays(days: number): void {
+	if (days < 1 || days > 3650) {
+		throw new DomainError("validation", "Expiry must be between 1 and 3650 days", { code: "api_key.expiry_invalid" });
+	}
+}
+
+/** The one-time response for a new secret: the raw key is included, and only here. */
+function toApiKeyCreated(fields: {
+	id: string;
+	name: string;
+	keyPrefix: string;
+	scope: ApiKeyScope;
+	expiresAt: Date | null;
+	createdAt: Date;
+	key: string;
+}): ApiKeyCreated {
+	return {
+		id: fields.id,
+		name: fields.name,
+		keyPrefix: fields.keyPrefix,
+		scope: fields.scope,
+		expiresAt: fields.expiresAt ? fields.expiresAt.toISOString() : null,
+		lastUsedAt: null,
+		createdAt: fields.createdAt.toISOString(),
+		key: fields.key,
+	};
+}
+
 /** Anything unexpected degrades to read-only — the safe direction. */
 function toScope(value: string): ApiKeyScope {
 	return value === "full" ? "full" : "read_only";
@@ -61,17 +99,10 @@ class ApiKeysService {
 		const before = await this.requireRow(id);
 		const changes: ApiKeyChanges = { updatedAt: new Date() };
 
-		if (input.name !== undefined) {
-			const name = input.name.trim();
-			if (!name) throw new DomainError("validation", "API key name is required", { code: "api_key.name_required" });
-
-			changes.name = name;
-		}
+		if (input.name !== undefined) changes.name = normalizeKeyName(input.name);
 
 		if (input.expiresAtDays !== undefined) {
-			if (input.expiresAtDays !== null && (input.expiresAtDays < 1 || input.expiresAtDays > 3650)) {
-				throw new DomainError("validation", "Expiry must be between 1 and 3650 days", { code: "api_key.expiry_invalid" });
-			}
+			if (input.expiresAtDays !== null) assertExpiryDays(input.expiresAtDays);
 
 			changes.expiresAt = input.expiresAtDays === null ? null : new Date(Date.now() + input.expiresAtDays * 86_400_000);
 		}
@@ -113,16 +144,15 @@ class ApiKeysService {
 			this.logger,
 		);
 
-		return {
+		return toApiKeyCreated({
 			id,
 			name: row.name,
 			keyPrefix,
 			scope: toScope(row.scope),
-			expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
-			lastUsedAt: null,
-			createdAt: row.createdAt.toISOString(),
+			expiresAt: row.expiresAt,
+			createdAt: row.createdAt,
 			key: rawKey,
-		};
+		});
 	}
 
 	private async requireRow(id: string): Promise<ApiKeyRow> {
@@ -144,11 +174,8 @@ class ApiKeysService {
 		input: { name: string; scope: ApiKeyScope; expiresAtDays?: number | undefined; creatorUserId: string },
 		context?: AdminAuditContext,
 	): Promise<ApiKeyCreated> {
-		const name = input.name.trim();
-		if (!name) throw new DomainError("validation", "API key name is required", { code: "api_key.name_required" });
-		if (input.expiresAtDays !== undefined && (input.expiresAtDays < 1 || input.expiresAtDays > 3650)) {
-			throw new DomainError("validation", "Expiry must be between 1 and 3650 days", { code: "api_key.expiry_invalid" });
-		}
+		const name = normalizeKeyName(input.name);
+		if (input.expiresAtDays !== undefined) assertExpiryDays(input.expiresAtDays);
 
 		const rawKey = this.newRawKey();
 		const keyPrefix = rawKey.slice(0, 12);
@@ -182,16 +209,7 @@ class ApiKeysService {
 		);
 
 		// The raw key is returned exactly once — only its hash is persisted.
-		return {
-			id,
-			name,
-			keyPrefix,
-			scope: input.scope,
-			expiresAt: expiresAt ? expiresAt.toISOString() : null,
-			lastUsedAt: null,
-			createdAt: now.toISOString(),
-			key: rawKey,
-		};
+		return toApiKeyCreated({ id, name, keyPrefix, scope: input.scope, expiresAt, createdAt: now, key: rawKey });
 	}
 
 	async revoke(id: string, context?: AdminAuditContext): Promise<void> {
@@ -232,17 +250,16 @@ class ApiKeysService {
 		if (lastUsedWriteGates.has(keyId)) return;
 
 		lastUsedWriteGates.add(keyId);
-		detach(
+		detachCatching(
 			(async () => {
 				try {
 					await apiKeysRepository.touchLastUsed(keyId, new Date());
-				} catch (error) {
-					this.logger.warn("Failed to refresh API key last-used timestamp", { keyId, error });
 				} finally {
 					// unref: a pending throttle gate must never keep the process alive during shutdown.
 					setTimeout(() => lastUsedWriteGates.delete(keyId), LAST_USED_UPDATE_THROTTLE_MS).unref();
 				}
 			})(),
+			(error) => this.logger.warn("Failed to refresh API key last-used timestamp", { keyId, error }),
 		);
 	}
 

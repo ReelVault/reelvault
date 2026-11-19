@@ -109,29 +109,37 @@ class NotificationsService {
 			this.emitNotificationCreated(event);
 			const realtimePayload = toRealtimePayload(event);
 
-			if (notification.profileId) {
-				// A muted type still exists for the profile's list and plugins; it just does not interrupt with a live event.
-				detachCatching(this.sendProfileRealtimeCreated(notification, realtimePayload), (error) =>
-					this.logger.warn("Could not send the live notification event", { profileId: notification.profileId, error }),
-				);
-			} else {
-				realtimeService.sendToUser(notification.userId, "notification:created", realtimePayload);
-			}
+			this.sendRealtimeCreated(notification, realtimePayload);
 
 			return id;
 		});
 	}
 
+	/** Live delivery of a created notification: to its profile (unless muted there), or to the account. */
+	private sendRealtimeCreated(
+		recipient: { userId: string; profileId?: string | undefined; type: string },
+		payload: RealtimePayload<"notification:created">,
+	): void {
+		if (!recipient.profileId) {
+			realtimeService.sendToUser(recipient.userId, "notification:created", payload);
+
+			return;
+		}
+
+		// A muted type still exists for the profile's list and plugins; it just does not interrupt with a live event.
+		detachCatching(this.sendProfileRealtimeCreated(recipient.profileId, recipient.type, payload), (error) =>
+			this.logger.warn("Could not send the live notification event", { profileId: recipient.profileId, error }),
+		);
+	}
+
 	/** Sends the live event to a profile, unless the profile muted that type. */
 	private async sendProfileRealtimeCreated(
-		notification: CreateNotification,
+		profileId: string,
+		type: string,
 		payload: RealtimePayload<"notification:created">,
 	): Promise<void> {
-		const profileId = notification.profileId;
-		if (!profileId) return;
-
 		const muted = await this.mutedTypesFor(profileId);
-		if (muted.includes(notification.type)) return;
+		if (muted.includes(type)) return;
 
 		realtimeService.sendToProfile(profileId, "notification:created", payload);
 	}
@@ -335,16 +343,22 @@ class NotificationsService {
 					const notifId = ids[i];
 					if (!(recipient && notifId)) continue;
 
+					const title = items[i]?.title ?? "notification.new_episode";
+					const link = `/details/${input.metadataId}`;
 					this.emitNotificationCreated({
 						id: notifId,
 						userId: recipient.userId,
 						profileId: recipient.profileId,
 						type: "new_episode",
-						title: items[i]?.title ?? "notification.new_episode",
+						title,
 						message: null,
-						link: `/details/${input.metadataId}`,
+						link,
 						data: items[i]?.data ?? {},
 					});
+					this.sendRealtimeCreated(
+						{ userId: recipient.userId, profileId: recipient.profileId, type: "new_episode" },
+						{ id: notifId, userId: recipient.userId, profileId: recipient.profileId, type: "new_episode", title, message: null, link },
+					);
 				}
 			}
 		});

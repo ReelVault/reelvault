@@ -7,6 +7,25 @@ import { assertPresent, assertUserId, DomainError } from "@/utils/domain.errors"
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 
+/** The public view of a session row: dates as ISO strings, tokens never included. */
+export function toSessionView(session: {
+	id: string;
+	ipAddress: string | null;
+	userAgent: string | null;
+	createdAt: Date;
+	updatedAt: Date;
+	expiresAt: Date;
+}) {
+	return {
+		id: session.id,
+		ipAddress: session.ipAddress ?? null,
+		userAgent: session.userAgent ?? null,
+		createdAt: session.createdAt.toISOString(),
+		updatedAt: session.updatedAt.toISOString(),
+		expiresAt: session.expiresAt.toISOString(),
+	};
+}
+
 export const sessionsService = {
 	serviceName: "SessionsService",
 	logger: createLogger("SessionsService"),
@@ -17,15 +36,7 @@ export const sessionsService = {
 			assertPresent(headers, "Request headers are required to list sessions");
 
 			const sessions = await sessionsRepository.findActivePageByUserId(userId, query);
-			const data = sessions.data.map((session) => ({
-				id: session.id,
-				ipAddress: session.ipAddress ?? null,
-				userAgent: session.userAgent ?? null,
-				createdAt: session.createdAt.toISOString(),
-				updatedAt: session.updatedAt.toISOString(),
-				expiresAt: session.expiresAt.toISOString(),
-				isCurrent: session.id === currentSessionId,
-			}));
+			const data = sessions.data.map((session) => ({ ...toSessionView(session), isCurrent: session.id === currentSessionId }));
 
 			return { ...sessions, data };
 		});

@@ -1,30 +1,18 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { ProfileInsightsSchema } from "@reelvault/sdk/common";
-import { Value } from "@sinclair/typebox/value";
-import { clearProfileInsights, profileInsightsCache } from "./cache-invalidation.cache";
+import { describe, expect, test } from "bun:test";
+import { ProfileScopedCache } from "./cache-invalidation.cache";
 
-afterEach(() => {
-	profileInsightsCache.clear();
-});
+describe("ProfileScopedCache", () => {
+	test("clearing one profile drops its cached entries and leaves other profiles' entries cached", async () => {
+		const cache = new ProfileScopedCache<string>({ ttlMs: 60_000, maxSize: 2, name: "profile-scoped-cache-test" });
 
-describe("clearProfileInsights", () => {
-	test("drops the named profile's cached entry so the next read reloads it", async () => {
-		const key = "profile-1:insights:7d";
-		let loadCount = 0;
-		const value = Value.Create(ProfileInsightsSchema);
-		const loader = () => {
-			loadCount++;
+		await cache.getOrSet("profile-1:a", async () => "a");
+		await cache.getOrSet("profile-1:b", async () => "b");
+		// Evicts profile-1:a, the least recently used entry.
+		await cache.getOrSet("profile-2:c", async () => "c");
 
-			return Promise.resolve({ ...value, totalMinutes: loadCount * 10 });
-		};
+		cache.clearProfile("profile-1");
 
-		const first = await profileInsightsCache.getOrSet(key, loader);
-		const cached = await profileInsightsCache.getOrSet(key, loader);
-		expect(cached.totalMinutes).toBe(first.totalMinutes);
-
-		clearProfileInsights("profile-1");
-
-		const reloaded = await profileInsightsCache.getOrSet(key, loader);
-		expect(reloaded.totalMinutes).toBe(20);
+		expect(await cache.getOrSet("profile-1:b", async () => "b-reloaded")).toBe("b-reloaded");
+		expect(await cache.getOrSet("profile-2:c", async () => "c-reloaded")).toBe("c");
 	});
 });

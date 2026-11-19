@@ -12,7 +12,7 @@ import { buildCsvExport, toCsvLine } from "@/utils/csv.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { safeParseJson } from "@/utils/json.utils";
 import { createLogger } from "@/utils/logger.utils";
-import { detach } from "@/utils/promise.utils";
+import { detachCatching } from "@/utils/promise.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { formatDateOnly } from "@/utils/time.utils";
 import type { AdminAuditContext, AdminAuditRecord } from "./audit-context.types";
@@ -226,15 +226,7 @@ export async function auditedUpdate<T>(params: AuditedUpdateParams<T>): Promise<
  * AdminAuditService.
  */
 export function recordAuditSafe(entry: AdminAuditRecord, logger: Logger): void {
-	detach(
-		(async () => {
-			try {
-				await adminAuditService.record(entry);
-			} catch (error) {
-				logger.warn("Audit log failed", { error });
-			}
-		})(),
-	);
+	detachCatching(adminAuditService.record(entry), (error) => logger.warn("Audit log failed", { error }));
 }
 
 /** Audits an edit: the snapshot before and after it, written under the caller's logger like `recordAuditSafe`. */

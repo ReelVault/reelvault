@@ -51,8 +51,13 @@ describe("admin plugin configuration", () => {
 	});
 
 	test("an import saves the listed values but never a secret field from the file", async () => {
-		const read = stubMethod(pluginManager, "getPluginConfigDetails", () => Promise.resolve(details));
-		const save = stubMethod(pluginManager, "savePluginConfig", () => Promise.resolve(details));
+		let stored: Record<string, unknown> = { region: "eu" };
+		const read = stubMethod(pluginManager, "getPluginConfigDetails", () => Promise.resolve({ ...details, config: stored }));
+		const save = stubMethod(pluginManager, "savePluginConfig", (_pluginId: string, values: Record<string, unknown>) => {
+			stored = values;
+
+			return Promise.resolve({ ...details, config: values });
+		});
 		try {
 			await adminService.importPluginConfig("org.reelvault.config-io", {
 				format: "reelvault.plugin-config",
@@ -61,7 +66,7 @@ describe("admin plugin configuration", () => {
 				values: { region: "us", apiKey: "attacker-value" },
 			});
 
-			expect(save.calls[0]?.[1]).toEqual({ region: "us" });
+			expect((await pluginManager.getPluginConfigDetails("org.reelvault.config-io")).config).toEqual({ region: "us" });
 		} finally {
 			read.restore();
 			save.restore();

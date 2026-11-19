@@ -8,9 +8,16 @@ import {
 	getToneMappingMethod,
 	initializeFfmpegCapabilities,
 } from "@/integrations/ffmpeg/ffmpeg.capabilities";
+import { clearFFProbeCache } from "@/integrations/ffprobe/ffprobe.builder";
 import { createLogger } from "@/utils/logger.utils";
 
 const HARDWARE_ENCODER_PATTERN = /_(nvenc|vaapi|qsv|amf|videotoolbox)$/;
+
+/** Re-runs the FFmpeg probe and drops the cached FFprobe results, so a changed binary or setting takes effect. */
+export async function refreshFfmpegCapabilities(): Promise<void> {
+	await initializeFfmpegCapabilities();
+	clearFFProbeCache();
+}
 
 /**
  * Read-only view over the FFmpeg capability probe for the admin panel: what the
@@ -29,7 +36,7 @@ class AdminFfmpegCapabilitiesService {
 
 	/** Re-runs the full probe (encoders/hwaccels/test encode) and additionally runs a one-off decode test. */
 	async refreshCapabilities(): Promise<AdminFfmpegCapabilities> {
-		await initializeFfmpegCapabilities();
+		await refreshFfmpegCapabilities();
 
 		const effective = getEffectiveHwaccel();
 		const decodeTest = await runHwaccelDecodeTest(effective);

@@ -1,10 +1,10 @@
 import type { AdminLiveStreamItem, StreamingSession } from "@reelvault/sdk/common";
 import { serverConfig } from "@/config/server/server.config";
 import type { DetectedHwaccel } from "@/integrations/ffmpeg/capabilities/hwaccel.utils";
+import { selectTargetAudioStream } from "@/modules/streaming/diagnostics/audio-selection.utils";
 import { computeProgressPercent } from "@/modules/streaming/utils/playback-position.utils";
 import { extractYear } from "@/utils/media-match/normalize.utils";
 import { serializeDate } from "@/utils/time.utils";
-import { isNullish } from "@/utils/type.utils";
 import type { SessionMaps } from "./session-maps.utils";
 import { parseUserAgent } from "./user-agent.parser";
 
@@ -54,16 +54,6 @@ function audioStreamProps(
 	};
 }
 
-function resolveTargetAudioStream<T extends { index: number; isDefault: boolean }>(
-	audioStreams: T[],
-	audioStreamIndex: number | null | undefined,
-): T | undefined {
-	const fallback = audioStreams[0];
-	if (!isNullish(audioStreamIndex)) return audioStreams.find((a) => a.index === audioStreamIndex) ?? fallback;
-
-	return audioStreams.find((a) => a.isDefault) ?? fallback;
-}
-
 function resolveVideoEncoder(videoTranscode: boolean, hwType: string, h264Encoder: string): string {
 	if (!videoTranscode) return "copy";
 
@@ -99,7 +89,7 @@ export function buildActiveStreamItem(
 	const videoStreams = maps.videoStreamsByMedia.get(session.mediaFileId) ?? [];
 	const audioStreams = maps.audioStreamsByMedia.get(session.mediaFileId) ?? [];
 	const targetVideoStream = videoStreams.find((v) => v.isDefault) ?? videoStreams[0];
-	const targetAudioStream = resolveTargetAudioStream(audioStreams, session.decision.audioStreamIndex);
+	const targetAudioStream = selectTargetAudioStream(audioStreams, session.decision.audioStreamIndex);
 
 	const videoEncoder = resolveVideoEncoder(session.decision.videoTranscode, effectiveHw.type, effectiveHw.h264Encoder);
 	const audioEncoder = session.decision.audioTranscode ? "aac" : "copy";

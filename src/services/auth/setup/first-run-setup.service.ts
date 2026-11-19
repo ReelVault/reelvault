@@ -1,10 +1,10 @@
-import { timingSafeEqual } from "node:crypto";
 import type { SetupStatus } from "@reelvault/sdk/common";
 import { env, generatedSecrets } from "@/config/env.config";
 import { systemSettingsStore } from "@/config/system-settings.store";
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { toAuthFailure } from "@/integrations/better-auth/better-auth.failures";
 import { usersRepository } from "@/repositories/users.repository";
+import { constantTimeEquals } from "@/utils/crypto.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
@@ -65,14 +65,8 @@ class FirstRunSetupService {
 	async createAdmin(input: CreateAdminInput): Promise<Response> {
 		// Opt-in hardening for exposed instances (SETUP_TOKEN_ENABLED=true). A
 		// default home install completes setup straight from the wizard.
-		if (this.tokenRequired) {
-			// Constant-time comparison — equalizes the response time for wrong tokens.
-			const provided = Buffer.from(input.token ?? "");
-			const expected = Buffer.from(env.SETUP_TOKEN ?? "");
-			const tokensMatch = provided.length === expected.length && timingSafeEqual(provided, expected);
-			if (!tokensMatch) {
-				throw new DomainError("forbidden", "Invalid first-run setup token", { code: "auth.setup_token_invalid" });
-			}
+		if (this.tokenRequired && !constantTimeEquals(input.token ?? "", env.SETUP_TOKEN ?? "")) {
+			throw new DomainError("forbidden", "Invalid first-run setup token", { code: "auth.setup_token_invalid" });
 		}
 
 		return await this.withExclusiveOperation(async () => {

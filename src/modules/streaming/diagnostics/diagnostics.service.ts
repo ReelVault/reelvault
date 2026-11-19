@@ -8,7 +8,7 @@ import { selectDefaultOrFirstStream } from "@/modules/streaming/utils/stream-sel
 import { mediaRepository } from "@/repositories/media-files.repository";
 import { assertFound } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
-import { isNullish } from "@/utils/type.utils";
+import { selectTargetAudioStream } from "./audio-selection.utils";
 
 export interface DiagnosticsMediaFile {
 	id: string;
@@ -102,7 +102,7 @@ type SessionDiagnostics = ReturnType<ServiceDependencies["getSessionDiagnostics"
 
 function sourceDiagnostics(file: DiagnosticsMediaFile, selectedAudioIndex: number | null | undefined) {
 	const defaultVideoStream = selectDefaultOrFirstStream(file.videoStreams ?? []);
-	const targetAudioStream = selectTargetAudioStream(file, selectedAudioIndex);
+	const targetAudioStream = selectTargetAudioStream(file.audioStreams ?? [], selectedAudioIndex);
 
 	return {
 		container: file.formatName ?? file.fileName?.split(".").pop() ?? null,
@@ -112,18 +112,6 @@ function sourceDiagnostics(file: DiagnosticsMediaFile, selectedAudioIndex: numbe
 		...videoSourceFields(defaultVideoStream),
 		...audioSourceFields(targetAudioStream),
 	};
-}
-
-/** The audio stream the session selected, or the default one. */
-function selectTargetAudioStream(
-	file: DiagnosticsMediaFile,
-	selectedAudioIndex: number | null | undefined,
-): ReturnType<typeof selectDefaultOrFirstStream> {
-	const audioStreams = file.audioStreams ?? [];
-	const defaultAudioStream = selectDefaultOrFirstStream(audioStreams);
-	if (isNullish(selectedAudioIndex)) return defaultAudioStream;
-
-	return audioStreams.find((s) => s.index === selectedAudioIndex) ?? defaultAudioStream;
 }
 
 /** The video fields of the source diagnostics. */

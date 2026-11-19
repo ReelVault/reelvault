@@ -97,8 +97,20 @@ describe("systemSettingsService default pruning", () => {
 	});
 });
 
+describe("systemSettingsService reset", () => {
+	test("refuses a reset that names an unknown key and resets none of the listed settings", async () => {
+		await systemSettingsService.updateSettings({ "stream.maxSessions": 8 });
+
+		await expect(systemSettingsService.resetSettings(["stream.maxSessions", "stream.typo"])).rejects.toMatchObject({
+			category: "validation",
+			code: "admin.settings.unknown_key",
+		});
+		expect(systemSettingsStore.getWithMeta("stream.maxSessions")).toMatchObject({ value: 8, isCustom: true });
+	});
+});
+
 describe("systemSettingsService watcher side effects", () => {
-	test("re-syncs watchers when the fallback interval changes", async () => {
+	test("calls the library watcher sync once when the fallback interval changes", async () => {
 		const syncWatchers = stubMethod(libraryWatcherService, "syncWatchers", () => Promise.resolve());
 		stubs.push(syncWatchers);
 

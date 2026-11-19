@@ -1,7 +1,7 @@
 import { betterAuthApi } from "@/integrations/better-auth/better-auth.api";
 import { credentialsRepository } from "@/repositories/credentials.repository";
-import { sessionsRepository } from "@/repositories/sessions.repository";
 import { usersRepository } from "@/repositories/users.repository";
+import { revokeUserSessions } from "@/services/auth/session-revocation.service";
 import { assertFound, DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
@@ -41,7 +41,7 @@ export const passwordRecoveryService = {
 			if (input.disableTwoFactor) await credentialsRepository.clearTwoFactor(user.id);
 
 			// A leaked session token must not survive the reset.
-			await sessionsRepository.deleteAllForUser(user.id);
+			await revokeUserSessions([user.id]);
 
 			return { userId: user.id, email: user.email };
 		});

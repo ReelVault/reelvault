@@ -5,7 +5,10 @@ import { sessionLifecycleService } from "@/modules/streaming/sessions/session-li
 import { adminStatsRepository } from "@/repositories/admin-stats.repository";
 import { resourceAllocator } from "@/system/resource-allocator.service";
 import { measureDirectory } from "@/system/server-data.utils";
+import { createLogger } from "@/utils/logger.utils";
 import { workerService } from "@/workers/worker.service";
+
+const statsLogger = createLogger("AdminStats");
 
 function sumWorkerCounters(queues: Array<{ active: number; waiting: number; completed: number; failed: number }>) {
 	const total = { active: 0, waiting: 0, completed: 0, failed: 0 };
@@ -23,7 +26,11 @@ function sumWorkerCounters(queues: Array<{ active: number; waiting: number; comp
 export async function computeStats(): Promise<AdminStats> {
 	const activeSessions = sessionLifecycleService.getActiveSessions();
 	const [workerQueues, mediaRow, metadataRow, markersRow] = await Promise.all([
-		workerService.getStats().catch(() => []),
+		workerService.getStats().catch((error: unknown) => {
+			statsLogger.warn("Could not read worker statistics for the dashboard", { error });
+
+			return [];
+		}),
 		adminStatsRepository.getMediaStats(),
 		adminStatsRepository.getMetadataStats(),
 		adminStatsRepository.getMarkerStats(),

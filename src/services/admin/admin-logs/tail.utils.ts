@@ -1,6 +1,6 @@
 import { file as bunFile } from "bun";
 import { DomainError, isMissingFile } from "@/utils/domain.errors";
-import { readFile } from "@/utils/file.utils";
+import { readFile, statWithTimeout } from "@/utils/file.utils";
 import { safeParseJson } from "@/utils/json.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { isNonEmptyString, isRecord, normalizeLower } from "@/utils/type.utils";
@@ -27,7 +27,7 @@ const logTailCache = new MemoryCache<LogTailEntry>({ ttlMs: 30_000, maxSize: 4, 
 export async function readLogTailLines(fileId?: string): Promise<LogTailEntry> {
 	const { filePath } = resolveLogFilePath(fileId);
 	try {
-		const stats = await bunFile(filePath).stat();
+		const stats = await statWithTimeout(filePath);
 		const cached = logTailCache.get(filePath);
 
 		if (cached && stats.size >= cached.readOffset && cached.lines.length < LOG_TAIL_LINE_CAP) {
@@ -65,7 +65,7 @@ export async function readLogTailLines(fileId?: string): Promise<LogTailEntry> {
 async function readLogTail(fileId?: string): Promise<{ content: string; truncated: boolean }> {
 	const { filePath } = resolveLogFilePath(fileId);
 	try {
-		const fileSize = (await bunFile(filePath).stat()).size;
+		const fileSize = (await statWithTimeout(filePath)).size;
 		if (fileSize <= LOG_TAIL_BYTES) {
 			const content = await readFile(filePath, "utf-8");
 
@@ -95,7 +95,7 @@ async function readLogTailWindow(fileId?: string): Promise<LogTailEntry> {
 		lowerLines: [],
 		// The window ends at the CURRENT size — otherwise the next read would
 		// treat the whole pre-window file as "appended" and re-read it.
-		readOffset: (await bunFile(filePath).stat()).size,
+		readOffset: (await statWithTimeout(filePath)).size,
 		carry: "",
 	};
 	appendTailLines(entry, lines.join("\n"));

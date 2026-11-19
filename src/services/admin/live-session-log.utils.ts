@@ -4,16 +4,12 @@ import { join } from "node:path";
 import { file as bunFile } from "bun";
 import { serverConfig } from "@/config/server/server.config";
 import { operationLogSegment } from "@/integrations/ffmpeg/ffmpeg.operation-log";
-import { MIB } from "@/utils/bytes.utils";
 import { isMissingFile } from "@/utils/domain.errors";
-
-/** Logs read for one archive stop at this total size; the timeline records when they were cut. */
-export const SESSION_LOG_MAX_BYTES = 64 * MIB;
+import { archiveTimestamp, LOG_ARCHIVE_MAX_BYTES } from "./admin-files.utils";
 
 /** `FfmpegOperationLog` file names end with the operation id, after the date and time it started. */
 const OPERATION_LOG_NAME_REGEX = /^FFmpeg\.(?:Transcode|DirectStream)-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_(.+)\.log$/;
 const OPERATION_LOG_FIELD_REGEX = /^(mode|startedAt|processId|finishedAt|durationMs|exitCode|signalCode|error): (.*)$/;
-const TIMESTAMP_SEPARATORS_REGEX = /[:.]/g;
 
 export interface FfmpegRunSummary {
 	file: string;
@@ -99,7 +95,7 @@ export async function readSessionLogFiles(segments: readonly string[]): Promise<
 
 			const path = join(dayPath, entry.name);
 			const { size } = await bunFile(path).stat();
-			if (total + size > SESSION_LOG_MAX_BYTES) {
+			if (total + size > LOG_ARCHIVE_MAX_BYTES) {
 				truncated = true;
 				continue;
 			}
@@ -131,7 +127,7 @@ export async function buildSessionLogArchive(sessionId: string, files: readonly 
 
 /** Archive file name for a session's logs; the session id keeps only the characters a log name keeps. */
 export function sessionLogArchiveName(sessionId: string, now: Date): string {
-	return `reelvault-session-${operationLogSegment(sessionId)}-${now.toISOString().replaceAll(TIMESTAMP_SEPARATORS_REGEX, "-")}.zip`;
+	return `reelvault-session-${operationLogSegment(sessionId)}-${archiveTimestamp(now)}.zip`;
 }
 
 /** The name segments a session's logs can carry: its own id, and its operation id once one is attached. */
