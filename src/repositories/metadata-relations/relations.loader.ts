@@ -6,6 +6,10 @@ import { preparedDetailRelations, preparedDetailRow } from "./json.reader";
 import { applyDetailRelations, emptyRelationData } from "./payload.mapper";
 import type { DetailRelationsRow, MetadataRelationData, RelationClient, RelationItem } from "./relations.types";
 
+function sortCastByOrder(data: MetadataRelationData): void {
+	data.cast.sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
 /** Default detail projection: one prepared statement returns every relation as JSON. */
 export function loadMergedDetailRelations(
 	relationsByMetadataId: Map<string, MetadataRelationData>,
@@ -22,9 +26,7 @@ export function loadMergedDetailRelations(
 		if (data) applyDetailRelations(data, row);
 	}
 
-	for (const data of relationsByMetadataId.values()) {
-		data.cast.sort((a, b) => a.sortOrder - b.sortOrder);
-	}
+	for (const data of relationsByMetadataId.values()) sortCastByOrder(data);
 }
 
 /**
@@ -41,7 +43,7 @@ export function loadMergedDetailRow(
 
 	const relationData = emptyRelationData();
 	applyDetailRelations(relationData, row);
-	relationData.cast.sort((a, b) => a.sortOrder - b.sortOrder);
+	sortCastByOrder(relationData);
 
 	return { metadata: row.metadata, relationData };
 }
@@ -148,7 +150,5 @@ export async function loadExplicitRelations<F extends string>(
 
 	for (const row of lockedFields) relationsByMetadataId.get(row.metadataId)?.lockedFields.push(row.field);
 
-	for (const data of relationsByMetadataId.values()) {
-		data.cast.sort((a, b) => a.sortOrder - b.sortOrder);
-	}
+	for (const data of relationsByMetadataId.values()) sortCastByOrder(data);
 }

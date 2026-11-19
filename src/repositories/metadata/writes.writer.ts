@@ -113,6 +113,11 @@ export async function updateAndRead<F extends string>(
 	return await findById({ primaryId: metadataId, fields });
 }
 
+/** The title, type and release date that identify a metadata row (the unique index columns). */
+function identityWhere({ title, type, releaseDate }: Pick<CreateMetadata, "title" | "type" | "releaseDate">): SQL | undefined {
+	return and(eq(schema.metadata.title, title), eq(schema.metadata.type, type), eq(schema.metadata.releaseDate, releaseDate));
+}
+
 export async function findOrCreateByIdentity({
 	title,
 	type,
@@ -128,7 +133,7 @@ export async function findOrCreateByIdentity({
 }) {
 	const stableKey = createLocalMetadataStableKey({ title, type, releaseDate });
 	const created = await metadataTable.findOrCreate({
-		where: and(eq(schema.metadata.title, title), eq(schema.metadata.type, type), eq(schema.metadata.releaseDate, releaseDate)),
+		where: identityWhere({ title, type, releaseDate }),
 		values: { ...values, stableKey },
 		tx,
 	});
@@ -200,11 +205,7 @@ export async function findOrCreateMetadata({
 
 	const stableKey = createProviderStableKey({ providerName, entityType: type, externalId: results.externalId });
 
-	const metadataWhere = and(
-		eq(schema.metadata.title, results.title),
-		eq(schema.metadata.type, type),
-		eq(schema.metadata.releaseDate, results.releaseDate),
-	);
+	const metadataWhere = identityWhere({ title: results.title, type, releaseDate: results.releaseDate });
 	const existingByStableKey = await metadataTable.selectFirst({ where: eq(schema.metadata.stableKey, stableKey), tx });
 	const candidateByIdentity = await metadataTable.selectFirst({ where: metadataWhere, tx });
 	if (existingByStableKey && candidateByIdentity && candidateByIdentity.id !== existingByStableKey.id && mergeConflict) {

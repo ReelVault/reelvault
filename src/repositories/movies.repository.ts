@@ -11,7 +11,7 @@ import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/
 import type { ProjectedSelectParams } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { upsertByStableKeyIdentity } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
 import { findManyWithMediaFiles } from "@/integrations/drizzle-orm/utils/media-file-projection.builder";
-import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
+import { createChildStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 
 const movies = defineTableAccess("movies", {
 	primaryKeyColumn: "id",
@@ -42,9 +42,11 @@ const overrides = {
 		metadataStableKey?: string | null | undefined;
 		tx?: DatabaseTransaction | undefined;
 	}) {
-		const stableKey = createLocalStableKey({
+		const stableKey = createChildStableKey({
 			namespace: "movie",
-			value: metadataStableKey ?? createLocalStableKey({ namespace: "metadata", value: metadataId }),
+			parentNamespace: "metadata",
+			parentId: metadataId,
+			parentStableKey: metadataStableKey,
 		});
 
 		return await upsertByStableKeyIdentity(movies, {

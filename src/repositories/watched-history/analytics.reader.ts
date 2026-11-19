@@ -79,6 +79,55 @@ function selectTopMedia<T extends TopTitleTotals>(totals: T) {
 		.orderBy(desc(totals.totalDurationWatched));
 }
 
+/** Finished-title plays from watched history, narrowed to one profile and time window. */
+function watchedPlays({ profileId, since, until }: { profileId?: string | undefined; since?: Date | undefined; until?: Date | undefined }) {
+	const conditions: SQL[] = [];
+	if (profileId) conditions.push(eq(schema.watchedHistory.profileId, profileId));
+	if (since) conditions.push(gte(schema.watchedHistory.watchedAt, since));
+	if (until) conditions.push(lt(schema.watchedHistory.watchedAt, until));
+
+	return databaseFactory
+		.getClient()
+		.select({
+			id: schema.watchedHistory.id,
+			profileId: schema.watchedHistory.profileId,
+			mediaFileId: schema.watchedHistory.mediaFileId,
+			durationWatched: schema.watchedHistory.durationWatched,
+			isFullWatch: schema.watchedHistory.isFullWatch,
+			watchedAt: schema.watchedHistory.watchedAt,
+		})
+		.from(schema.watchedHistory)
+		.where(conditions.length > 0 ? and(...conditions) : undefined)
+		.as("plays");
+}
+
+/**
+ * Sums `plays` per title and keeps the `limit` titles with the most time played. Aggregating first and joining the
+ * metadata/poster graphs afterwards ({@link selectTopMedia}) keeps the join work to the top rows. A media type filter
+ * joins metadata before the limit so it shrinks the grouped set.
+ */
+function aggregateTitleTotals(plays: AnalyticsPlays, limit: number, mediaType?: "movie" | "tv_show") {
+	let totalsQuery = databaseFactory
+		.getClient()
+		.select({
+			metadataId: schema.mediaFiles.metadataId,
+			totalDurationWatched: sql<number>`sum(coalesce(${plays.durationWatched}, 0))`.as("total_duration"),
+			watchCount: sql<number>`count(${plays.id})`.as("watch_count"),
+			isCompleted: sql<boolean>`max(coalesce(${plays.isFullWatch}, 0)) > 0`.as("is_completed"),
+		})
+		.from(plays)
+		.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, plays.mediaFileId))
+		.$dynamic();
+	if (mediaType) totalsQuery = totalsQuery.innerJoin(schema.metadata, metadataOn(schema.mediaFiles.metadataId));
+
+	return totalsQuery
+		.where(mediaType ? eq(schema.metadata.type, mediaType) : undefined)
+		.groupBy(schema.mediaFiles.metadataId)
+		.orderBy(desc(sql`sum(coalesce(${plays.durationWatched}, 0))`))
+		.limit(limit)
+		.as("top");
+}
+
 export async function findTopWatchedMedia(options: {
 	profileId?: string | undefined;
 	since?: Date | undefined;
@@ -86,52 +135,7 @@ export async function findTopWatchedMedia(options: {
 	limit?: number | undefined;
 	mediaType?: "movie" | "tv_show" | undefined;
 }): Promise<TopWatchedRow[]> {
-	const client = databaseFactory.getClient();
-	const conditions: SQL[] = [];
-	if (options.profileId) {
-		conditions.push(eq(schema.watchedHistory.profileId, options.profileId));
-	}
-
-	if (options.since) {
-		conditions.push(gte(schema.watchedHistory.watchedAt, options.since));
-	}
-
-	if (options.until) {
-		conditions.push(lt(schema.watchedHistory.watchedAt, options.until));
-	}
-
-	if (options.mediaType) {
-		conditions.push(eq(schema.metadata.type, options.mediaType));
-	}
-
-	const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-	// Aggregate first, join the metadata/poster graphs afterwards: grouping the
-	// five-way joined rows re-read metadata and poster rows once per play
-	// (≈226 ms per call on a 100k-row history), while the CTE touches only
-	// watched_history + media_files and the joins apply to the top rows alone.
-	let totalsQuery = client
-		.select({
-			metadataId: schema.mediaFiles.metadataId,
-			totalDurationWatched: sql<number>`sum(coalesce(${schema.watchedHistory.durationWatched}, 0))`.as("total_duration"),
-			watchCount: sql<number>`count(${schema.watchedHistory.id})`.as("watch_count"),
-			isCompleted: sql<boolean>`max(coalesce(${schema.watchedHistory.isFullWatch}, 0)) > 0`.as("is_completed"),
-		})
-		.from(schema.watchedHistory)
-		.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.watchedHistory.mediaFileId))
-		.$dynamic();
-	// The type filter must shrink the grouped set before the limit, so the
-	// metadata join is pulled inside only when a mediaType is requested.
-	if (options.mediaType) {
-		totalsQuery = totalsQuery.innerJoin(schema.metadata, metadataOn(schema.mediaFiles.metadataId));
-	}
-
-	const totals = totalsQuery
-		.where(whereClause)
-		.groupBy(schema.mediaFiles.metadataId)
-		.orderBy(desc(sql`sum(coalesce(${schema.watchedHistory.durationWatched}, 0))`))
-		.limit(options.limit ?? 10)
-		.as("top");
+	const totals = aggregateTitleTotals(watchedPlays(options), options.limit ?? 10, options.mediaType);
 
 	return await selectTopMedia(totals);
 }
@@ -146,23 +150,7 @@ export async function findTopPlayedMedia({
 	minInterruptedSeconds: number;
 	limit?: number;
 }): Promise<TopWatchedRow[]> {
-	const client = databaseFactory.getClient();
-	const plays = analyticsPlays(since, minInterruptedSeconds);
-
-	// Aggregate first, join the metadata/poster graphs afterwards (same shape as findTopWatchedMedia).
-	const totals = client
-		.select({
-			metadataId: schema.mediaFiles.metadataId,
-			totalDurationWatched: sql<number>`sum(coalesce(${plays.durationWatched}, 0))`.as("total_duration"),
-			watchCount: sql<number>`count(${plays.id})`.as("watch_count"),
-			isCompleted: sql<boolean>`max(coalesce(${plays.isFullWatch}, 0)) > 0`.as("is_completed"),
-		})
-		.from(plays)
-		.innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, plays.mediaFileId))
-		.groupBy(schema.mediaFiles.metadataId)
-		.orderBy(desc(sql`sum(coalesce(${plays.durationWatched}, 0))`))
-		.limit(limit)
-		.as("top");
+	const totals = aggregateTitleTotals(analyticsPlays(since, minInterruptedSeconds), limit);
 
 	return await selectTopMedia(totals);
 }

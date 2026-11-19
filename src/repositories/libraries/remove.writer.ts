@@ -1,11 +1,13 @@
 import { sleep } from "bun";
-import { and, asc, eq, gt, inArray, notExists, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { serverConfig } from "@/config/server/server.config";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
 import { findCleanupDataForMediaFileIds, type MediaCleanupData } from "@/integrations/drizzle-orm/utils/media-cleanup.reader";
 import { hasCatalogMediaStats, rebuildCatalogFromLibraries } from "@/repositories/media-stats.repository";
+import { deleteOrphansByIds } from "@/repositories/metadata/cleanup.writer";
 import { refreshLatestMediaCreatedAt } from "@/repositories/metadata/media-presence.writer";
 import { clearStatsCaches, type LibraryStatsCaches } from "./shared.types";
 
@@ -18,23 +20,6 @@ function mergeCleanup(target: MediaCleanupData, page: MediaCleanupData): void {
 	target.artifactStorageKeys.push(...page.artifactStorageKeys);
 	target.subtitleFilePaths.push(...page.subtitleFilePaths);
 	target.subtitleIds.push(...page.subtitleIds);
-}
-
-/** Deletes title rows that no longer own any media file. */
-async function deleteOrphanMetadata(metadataIds: readonly string[], tx: Parameters<typeof refreshLatestMediaCreatedAt>[1]): Promise<void> {
-	if (metadataIds.length === 0) return;
-
-	const client = databaseFactory.getClient({ tx });
-	await forEachChunked(metadataIds, async (chunkIds) => {
-		await client
-			.delete(schema.metadata)
-			.where(
-				and(
-					inArray(schema.metadata.id, chunkIds),
-					notExists(client.select({ one: sql`1` }).from(schema.mediaFiles).where(eq(schema.mediaFiles.metadataId, schema.metadata.id))),
-				),
-			);
-	});
 }
 
 /**
@@ -53,36 +38,34 @@ export async function deleteWithDependents(
 ): Promise<MediaCleanupData> {
 	const cleanup = emptyCleanup();
 	const candidateMetadataIds = new Set<string>();
-	let cursor: string | undefined;
 
-	for (;;) {
-		const page = await databaseFactory
-			.getClient()
-			.select({ id: schema.mediaFiles.id, metadataId: schema.mediaFiles.metadataId })
-			.from(schema.mediaFiles)
-			.where(and(eq(schema.mediaFiles.libraryId, libraryId), cursor ? gt(schema.mediaFiles.id, cursor) : undefined))
-			.orderBy(asc(schema.mediaFiles.id))
-			.limit(pageSize);
+	// awaits: sequential — the title stamp is refreshed from the media rows that remain, so it follows every page delete
+	await collectKeysetPages({
+		pageSize,
+		fetchPage: async (cursor) =>
+			await databaseFactory
+				.getClient()
+				.select({ id: schema.mediaFiles.id, metadataId: schema.mediaFiles.metadataId })
+				.from(schema.mediaFiles)
+				.where(and(eq(schema.mediaFiles.libraryId, libraryId), cursor ? gt(schema.mediaFiles.id, cursor) : undefined))
+				.orderBy(asc(schema.mediaFiles.id))
+				.limit(pageSize),
+		onPage: async (page) => {
+			const ids = page.map((row) => row.id);
+			for (const row of page) candidateMetadataIds.add(row.metadataId);
+			mergeCleanup(cleanup, await findCleanupDataForMediaFileIds(ids));
 
-		if (page.length === 0) break;
-
-		const ids = page.map((row) => row.id);
-		for (const row of page) candidateMetadataIds.add(row.metadataId);
-		mergeCleanup(cleanup, await findCleanupDataForMediaFileIds(ids));
-
-		await databaseFactory.transaction(async (tx) => {
-			await databaseFactory.getClient({ tx }).delete(schema.mediaFiles).where(inArray(schema.mediaFiles.id, ids));
-		});
-
-		cursor = ids.at(-1);
-		await sleep(0);
-	}
+			await databaseFactory.transaction(async (tx) => {
+				await databaseFactory.getClient({ tx }).delete(schema.mediaFiles).where(inArray(schema.mediaFiles.id, ids));
+			});
+		},
+		betweenPages: async () => await sleep(0),
+	});
 
 	// Titles shared with another library stay; titles whose only files were here are removed.
-	// awaits: sequential — the latest-media stamp is refreshed before rows are deleted
 	await refreshLatestMediaCreatedAt([...candidateMetadataIds]);
 	await forEachChunked([...candidateMetadataIds], async (metadataIds) => {
-		await databaseFactory.transaction(async (tx) => await deleteOrphanMetadata(metadataIds, tx));
+		await deleteOrphansByIds(metadataIds);
 	});
 
 	await databaseFactory.transaction(async (tx) => {

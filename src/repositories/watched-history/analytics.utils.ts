@@ -1,11 +1,15 @@
 import type { HourlyHeatmapPoint } from "@reelvault/sdk/common";
-import { DAY } from "@/config/server/server.constants";
 
 /** Daily buckets both insights views render — older activity is dropped. */
 const MAX_DAILY_BUCKETS = 30;
 
-/** `en-CA` renders ISO-like YYYY-MM-DD keys. */
-const DAY_KEY_FORMATTER = new Intl.DateTimeFormat("en-CA");
+/** Local calendar day as YYYY-MM-DD. Built from date parts: an Intl formatter fixes its zone when created. */
+function localDayKey(date: Date): string {
+	const month = String(date.getMonth() + 1).padStart(2, "0");
+	const day = String(date.getDate()).padStart(2, "0");
+
+	return `${date.getFullYear()}-${month}-${day}`;
+}
 
 /** 7×24 grid of watched minutes from per-(day, hour) rows. */
 export function buildHourlyHeatmap(rows: ReadonlyArray<{ dayOfWeek: number; hour: number; minutes: number }>): HourlyHeatmapPoint[] {
@@ -30,5 +34,10 @@ export function buildHourlyHeatmap(rows: ReadonlyArray<{ dayOfWeek: number; hour
 export function recentDayKeys(days: number, now: Date): string[] {
 	const count = Math.min(days, MAX_DAILY_BUCKETS);
 
-	return Array.from({ length: count }, (_, index) => DAY_KEY_FORMATTER.format(new Date(now.getTime() - (count - 1 - index) * DAY)));
+	// Steps by calendar day: a 24 h step across a DST change lands on the wrong local date and skips one.
+	return Array.from({ length: count }, (_, index) => {
+		const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (count - 1 - index));
+
+		return localDayKey(day);
+	});
 }

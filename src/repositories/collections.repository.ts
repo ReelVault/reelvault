@@ -36,16 +36,11 @@ import { runInTransaction } from "@/integrations/drizzle-orm/query/transaction.u
 import { loadNamedRelation } from "@/integrations/drizzle-orm/utils/named-relation.reader";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { groupBy, toMap, unique } from "@/utils/array.utils";
-import {
-	countQualifyingCollections,
-	findQualifyingCollectionIds,
-	findQualifyingCollectionRows,
-	type QualifyingPage,
-	type QualifyingScope,
-} from "./collections/listing.reader";
+import { countQualifyingCollections, findQualifyingCollectionRows } from "./collections/listing.reader";
 import { loadMetadataPreviews } from "./collections/previews.reader";
 import { defineFindByIdForRead, type ReadByIdParams } from "./find-by-id-for-read.utils";
 import { metadataRepository } from "./metadata.repository";
+import { findOrCreateByNameKey } from "./named-entity-repository.factory";
 import { processNamedEntities, upsertNamedEntities } from "./provider-entity-sync.writer";
 
 const collections = defineTableAccess("collections", {
@@ -178,21 +173,6 @@ const overrides = {
 		return hydrateRelations(data, fields, tx);
 	},
 
-	/** Total collections meeting the `minItems` threshold. */
-	async countWithMinimumMetadata(scope: QualifyingScope): Promise<number> {
-		return await countQualifyingCollections(scope);
-	},
-
-	/** Ordered page of qualifying collection ids. */
-	async findPageIdsWithMinimumMetadata(page: QualifyingPage): Promise<string[]> {
-		return await findQualifyingCollectionIds(page);
-	},
-
-	/** Ordered page of qualifying collection rows. */
-	async findPageRowsWithMinimumMetadata(page: QualifyingPage) {
-		return await findQualifyingCollectionRows(page);
-	},
-
 	/**
 	 * Get a single collection by ID
 	 */
@@ -214,8 +194,9 @@ const overrides = {
 	},
 
 	async findOrCreateByName({ name, values, tx }: { name: string; values: CreateCollection; tx?: DatabaseTransaction }) {
-		return await collections.findOrCreate({
-			where: eq(collections.table.name, name),
+		return await findOrCreateByNameKey(collections, {
+			nameColumn: collections.table.name,
+			name,
 			values: { ...values, stableKey: createLocalStableKey({ namespace: "collection", value: name }) },
 			tx,
 		});

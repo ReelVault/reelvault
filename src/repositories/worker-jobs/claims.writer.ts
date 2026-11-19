@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, type SQL, sql } from "drizzle-orm";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { MINUTE } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
@@ -37,12 +37,9 @@ export async function claimNextBatch(input: ClaimNextInput, max: number): Promis
 		.limit(1);
 	if (!pending) return [];
 
-	return await databaseFactory.transaction(
-		async (tx) => await claimRunnableItems(tx, input, max),
-		// The claim reads candidates before it writes; a deferred BEGIN fails with
-		// SQLITE_BUSY_SNAPSHOT when the main connection commits in that window.
-		{ immediate: true },
-	);
+	const [batch] = await claimNextBatchMany([{ input, max }]);
+
+	return batch ?? [];
 }
 
 /**
@@ -68,6 +65,8 @@ export async function claimNextBatchMany(entries: ReadonlyArray<{ input: ClaimNe
 
 			return batches;
 		},
+		// The claim reads candidates before it writes; a deferred BEGIN fails with
+		// SQLITE_BUSY_SNAPSHOT when the main connection commits in that window.
 		{ immediate: true },
 	);
 }
@@ -295,7 +294,6 @@ export async function recoverOrphanedRunning(options?: {
 	foreignGraceMs?: number;
 }): Promise<number> {
 	const now = new Date();
-	const client = databaseFactory.getClient();
 	const fiveMinutesAgo = new Date(now.getTime() - 5 * MINUTE);
 
 	const orphanConditions = [lt(items.leaseUntil, now), and(isNull(items.leaseUntil), lte(items.startedAt, fiveMinutesAgo))];
@@ -315,21 +313,22 @@ export async function recoverOrphanedRunning(options?: {
 		conditions.push(notInArray(items.id, options.excludeActiveIds));
 	}
 
-	const expiredRows = await client
-		.select({
-			id: items.id,
-			operationId: items.operationId,
-			attempts: items.attempts,
-			maxAttempts: items.maxAttempts,
-		})
-		.from(items)
-		.where(and(...conditions));
+	const expiredRows = await selectRecoverableRows(conditions);
 
 	if (expiredRows.length === 0) return 0;
 
 	return await databaseFactory.transaction(async (tx) => {
 		return await recoverExpiredRows(tx, expiredRows, now);
 	});
+}
+
+/** The orphan rows matching `conditions`, read with the columns a recovery pass needs; `tx` keeps the read in a claim transaction. */
+async function selectRecoverableRows(conditions: ReadonlyArray<SQL | undefined>, tx?: DatabaseTransaction) {
+	return await databaseFactory
+		.getClient({ tx })
+		.select({ id: items.id, operationId: items.operationId, attempts: items.attempts, maxAttempts: items.maxAttempts })
+		.from(items)
+		.where(and(...conditions));
 }
 
 /** Requeues orphan rows with attempts left and fails the exhausted ones; returns how many rows were transitioned. */
@@ -390,12 +389,6 @@ async function recoverExhaustedRows(
 	return updated.size;
 }
 
-/**
- * Shared guarded terminal transition for one running job. The caller owns the
- * status-specific values and after-hook (operation counters / dependent
- * cascade); the `updatedJob ? … : false` result contract lives here.
- */
-
 /** Guarded UPDATE per id chunk (`status = 'running'`), returning the ids actually transitioned. */
 async function updateRunningRowsChunked(
 	tx: DatabaseTransaction,
@@ -424,10 +417,7 @@ async function recoverExpired(workerId: string, now: Date, tx: DatabaseTransacti
 		conditions.push(notInArray(items.id, excludeActiveIds));
 	}
 
-	const expiredRows = await tx
-		.select({ id: items.id, operationId: items.operationId, attempts: items.attempts, maxAttempts: items.maxAttempts })
-		.from(items)
-		.where(and(...conditions));
+	const expiredRows = await selectRecoverableRows(conditions, tx);
 
 	if (expiredRows.length === 0) return;
 

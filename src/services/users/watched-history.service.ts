@@ -11,10 +11,10 @@ import type {
 } from "@reelvault/sdk/common";
 import { DAY } from "@/config/server/server.constants";
 import { mediaRepository } from "@/repositories/media-files.repository";
-import { playbackRepository } from "@/repositories/playback.repository";
 import { buildHourlyHeatmap, recentDayKeys } from "@/repositories/watched-history/analytics.utils";
-import { toTopWatchedMedia } from "@/repositories/watched-history/top-media.mapper";
 import { watchedHistoryRepository } from "@/repositories/watched-history.repository";
+import { playbackProgressService } from "@/services/playback/playback-progress.service";
+import { toTopWatchedMedia } from "@/services/users/top-media.mapper";
 import { maxBy } from "@/utils/array.utils";
 import { assertFound, assertProfileId } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
@@ -22,6 +22,14 @@ import { runSafely } from "@/utils/safe-execute.utils";
 import { clearProfileInsights, invalidateProfileCaches, profileInsightsCache, wrappedInsightsCache } from "./cache-invalidation.cache";
 
 const RANGE_DAYS: Record<InsightsRange, number> = { "7d": 7, "30d": 30, "90d": 90, "1y": 365, all: 365 };
+
+/** Titles listed in the wrapped view. */
+const WRAPPED_TOP_LIMIT = 5;
+/**
+ * Passed as the repository's limit so the year's watch counts come from every
+ * title, not only the ones the list shows.
+ */
+const ALL_TITLES_LIMIT = Number.MAX_SAFE_INTEGER;
 
 export const watchedHistoryService = {
 	serviceName: "WatchedHistoryService",
@@ -55,22 +63,12 @@ export const watchedHistoryService = {
 			const mediaFile = await mediaRepository.findByIdForRead(body.mediaFileId, { fields: "id,duration" });
 			assertFound(mediaFile, "MediaFile", body.mediaFileId);
 
-			// Marking an episode watched must advance Continue Watching: the row
-			// builder only offers the next episode when the current one is completed.
+			// A finished file takes the playback path: progress and history are written in one
+			// transaction (a second mark adds no history row), the title leaves the watchlist when
+			// the profile asked for that, and the profile caches are dropped.
 			if (body.isFullWatch === true) {
-				await playbackRepository.upsertProgress({
-					profileId,
-					fileId: body.mediaFileId,
-					position: mediaFile.duration ?? 0,
-					duration: mediaFile.duration ?? 0,
-					completed: true,
-				});
-			}
+				await playbackProgressService.setWatchStateBulk({ mediaFileIds: [body.mediaFileId], watched: true }, profileId);
 
-			// Marking an already-finished file again must not add another row: watch
-			// counts and insights derive from these rows, and the playback completion
-			// path also inserts at most once per file.
-			if (body.isFullWatch === true && (await watchedHistoryRepository.hasFullWatch(profileId, body.mediaFileId))) {
 				return { success: true };
 			}
 
@@ -149,10 +147,10 @@ export const watchedHistoryService = {
 			const since = new Date(year, 0, 1, 0, 0, 0);
 			const until = new Date(year + 1, 0, 1, 0, 0, 0);
 
-			const [rows, topMoviesRaw, topShowsRaw] = await Promise.all([
+			const [rows, moviesRaw, showsRaw] = await Promise.all([
 				watchedHistoryRepository.findInsightAggregates(profileId, since, until),
-				watchedHistoryRepository.findTopWatchedMedia({ profileId, since, until, limit: 5, mediaType: "movie" }),
-				watchedHistoryRepository.findTopWatchedMedia({ profileId, since, until, limit: 5, mediaType: "tv_show" }),
+				watchedHistoryRepository.findTopWatchedMedia({ profileId, since, until, limit: ALL_TITLES_LIMIT, mediaType: "movie" }),
+				watchedHistoryRepository.findTopWatchedMedia({ profileId, since, until, limit: ALL_TITLES_LIMIT, mediaType: "tv_show" }),
 			]);
 
 			const totalMinutes = sumMinutes(rows);
@@ -162,9 +160,6 @@ export const watchedHistoryService = {
 			const monthTotals = new Map<number, number>();
 			const weekdayTotals = new Map<number, number>();
 			const dayTotals = new Map<string, number>();
-
-			let moviesCount = 0;
-			let episodesCount = 0;
 
 			for (const row of rows) {
 				const durationMinutes = toWatchedMinutes(row.durationSum);
@@ -198,17 +193,8 @@ export const watchedHistoryService = {
 
 			const longestMarathonMinutes = maxBy([...dayTotals.values()], (minutes) => minutes) ?? 0;
 
-			const topMovies: TopWatchedMedia[] = topMoviesRaw.map((m) => {
-				moviesCount += m.watchCount;
-
-				return toTopWatchedMedia(m);
-			});
-
-			const topShows: TopWatchedMedia[] = topShowsRaw.map((s) => {
-				episodesCount += s.watchCount;
-
-				return toTopWatchedMedia(s);
-			});
+			const topMovies: TopWatchedMedia[] = moviesRaw.slice(0, WRAPPED_TOP_LIMIT).map((m) => toTopWatchedMedia(m));
+			const topShows: TopWatchedMedia[] = showsRaw.slice(0, WRAPPED_TOP_LIMIT).map((s) => toTopWatchedMedia(s));
 
 			const personality = getViewerPersonality(topGenres, totalMinutes, longestMarathonMinutes);
 
@@ -217,8 +203,8 @@ export const watchedHistoryService = {
 				totalMinutes,
 				totalDays,
 				titlesWatched: metadataMinutes.size,
-				moviesWatchedCount: moviesCount,
-				episodesWatchedCount: episodesCount,
+				moviesWatchedCount: sumWatchCounts(moviesRaw),
+				episodesWatchedCount: sumWatchCounts(showsRaw),
 				topMovie: topMovies[0] ?? null,
 				topShow: topShows[0] ?? null,
 				topMovies,
@@ -256,6 +242,10 @@ export const watchedHistoryService = {
 /** Watched seconds as whole minutes. */
 function toWatchedMinutes(durationSum: number): number {
 	return Math.round(durationSum / 60);
+}
+
+function sumWatchCounts(rows: Array<{ watchCount: number }>): number {
+	return rows.reduce((total, row) => total + row.watchCount, 0);
 }
 
 function sumMinutes(rows: Array<{ durationSum: number }>) {

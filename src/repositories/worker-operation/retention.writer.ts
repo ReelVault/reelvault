@@ -1,10 +1,10 @@
 // awaits: sequential-file — statements in one transaction run in order: SQLite is synchronous and a later statement may depend on the earlier one
-import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, type SQL } from "drizzle-orm";
+import { and, asc, gt, inArray, isNotNull, isNull, lt, type SQL } from "drizzle-orm";
 import { DAY, serverConstants } from "@/config/server/server.constants";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { collectKeysetPages } from "@/integrations/drizzle-orm/query/keyset/keyset-pages.utils";
 import { forEachChunked } from "@/integrations/drizzle-orm/query/table-access/chunking.utils";
-import type { TerminalRowsPurgeOptions } from "@/repositories/worker-jobs/shared.types";
+import { type TerminalRowsPurgeOptions, terminalStatusWhere } from "@/repositories/worker-jobs/shared.types";
 import { jobs, operations, TERMINAL_STATUSES } from "./shared.types";
 
 /** Stamps terminal operations that have no retention deadline yet. Returns how many were stamped. */
@@ -114,12 +114,7 @@ export async function countTerminalOperations(
 }
 
 function terminalOperationsWhere(options: TerminalRowsPurgeOptions): SQL | undefined {
-	const statusFilter =
-		options.status === "all_terminal" || !options.status
-			? inArray(operations.status, TERMINAL_STATUSES)
-			: eq(operations.status, options.status);
-
-	const conditions = [statusFilter];
+	const conditions = [terminalStatusWhere(operations.status, options)];
 	if (options.cutoffDate) {
 		conditions.push(lt(operations.createdAt, options.cutoffDate));
 	}

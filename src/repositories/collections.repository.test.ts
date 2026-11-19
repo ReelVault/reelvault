@@ -43,31 +43,6 @@ describe("collectionRepository minimum metadata threshold", () => {
 		}
 	}
 
-	test("counts only collections with at least minItems titles", async () => {
-		await seedCollection("single", 1);
-		await seedCollection("pair", 2);
-		await seedCollection("triple", 3);
-
-		expect(await collectionRepository.countWithMinimumMetadata({ minItems: 1 })).toBe(3);
-		expect(await collectionRepository.countWithMinimumMetadata({ minItems: 2 })).toBe(2);
-		expect(await collectionRepository.countWithMinimumMetadata({ minItems: 3 })).toBe(1);
-	});
-
-	test("pages only collections with at least minItems titles", async () => {
-		await seedCollection("single", 1);
-		await seedCollection("pair", 2);
-		await seedCollection("triple", 3);
-
-		const ids = await collectionRepository.findPageIdsWithMinimumMetadata({
-			minItems: 2,
-			orderBy: undefined,
-			limit: 10,
-			offset: 0,
-		});
-
-		expect(ids.toSorted()).toEqual(["pair", "triple"]);
-	});
-
 	// The name filter matches by substring, so the second collection falls inside the first query.
 	test("keeps the first grouped count inside its 10 s window, then recounts once the window has passed", async () => {
 		setSystemTime(new Date("2026-01-01T00:00:00.000Z"));

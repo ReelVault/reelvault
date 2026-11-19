@@ -25,7 +25,7 @@ import {
 	hasNameConflict,
 } from "./libraries/reads.reader";
 import { deleteWithDependents } from "./libraries/remove.writer";
-import { clearStatsCaches, createLibraryStatsCaches, libraries, libraryPaths } from "./libraries/shared.types";
+import { clearStatsCaches, createLibraryStatsCaches, libraries } from "./libraries/shared.types";
 import {
 	create,
 	createAndRead,
@@ -38,8 +38,6 @@ import {
 const caches = createLibraryStatsCaches();
 
 const overrides = {
-	deletePaths: libraryPaths.delete,
-
 	clearStatsCache(): void {
 		clearStatsCaches(caches);
 	},

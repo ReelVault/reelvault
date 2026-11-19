@@ -59,8 +59,3 @@ export async function findQualifyingCollectionRows({ orderBy, limit, offset, ...
 
 	return await ordered.limit(limit).offset(offset);
 }
-
-/** Ordered page of qualifying collection ids. */
-export async function findQualifyingCollectionIds(page: QualifyingPage): Promise<string[]> {
-	return (await findQualifyingCollectionRows(page)).map((row) => row.id);
-}

@@ -1,4 +1,4 @@
-import type { ExternalIdentifiers, ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResult } from "@reelvault/sdk/plugin";
+import type { ProviderEpisodeResult, ProviderMetadataResult, ProviderSeasonResult } from "@reelvault/sdk/plugin";
 import { and, eq, ne, or } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -196,10 +196,6 @@ class MetadataPersistenceRepository {
 		});
 	}
 
-	async replaceExternalIds(metadataId: string, identifiers: ExternalIdentifiers) {
-		await metadataExternalIdsRepository.replace(metadataId, identifiers);
-	}
-
 	/** Links an additional provider to an existing metadata entry without replacing the current primary provider. */
 	async linkProvider(metadataId: string, type: "movie" | "tv_show", providerName: string, externalId: string): Promise<void> {
 		await metadataRepository.linkProviders(metadataId, type, [{ name: providerName, externalId }]);
@@ -243,7 +239,7 @@ class MetadataPersistenceRepository {
 			let episodeCreated = false;
 			if (episodeInfo) {
 				// A second file for an already-imported episode must not re-notify viewers.
-				const existingEpisode = await episodesRepository.findBySeasonAndNumber(season.id, Number(episodeInfo.episodeNumber));
+				const existingEpisode = await episodesRepository.findBySeasonAndNumber(season.id, Number(episodeInfo.episodeNumber), "regular");
 				episode = await episodesRepository.findOrCreateByIdentity({
 					seasonId: season.id,
 					episodeNumber: Number(episodeInfo.episodeNumber),

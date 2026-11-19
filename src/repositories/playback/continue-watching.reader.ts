@@ -50,6 +50,7 @@ const metadataColumns = {
 	id: schema.metadata.id,
 	title: schema.metadata.title,
 	type: schema.metadata.type,
+	numberingMode: schema.metadata.numberingMode,
 };
 
 const fileColumns = {
@@ -68,7 +69,7 @@ const backdropColumns = {
 	imageUpdatedAt: schema.images.updatedAt,
 };
 
-export type ContinueWatchingMetadata = Pick<typeof schema.metadata.$inferSelect, "id" | "title" | "type">;
+export type ContinueWatchingMetadata = Pick<typeof schema.metadata.$inferSelect, "id" | "title" | "type" | "numberingMode">;
 export type ContinueWatchingFile = Pick<
 	typeof schema.mediaFiles.$inferSelect,
 	"id" | "metadataId" | "movieId" | "episodeId" | "duration" | "isDefault" | "updatedAt"

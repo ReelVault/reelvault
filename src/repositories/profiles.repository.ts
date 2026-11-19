@@ -158,9 +158,10 @@ const overrides = {
 		query?: FieldsQuery<F>,
 	): Promise<SelectFields<Profile, F> | undefined> {
 		const { fields } = parseStandardQuery(query);
+		const updated = await profiles.updateAndReturn({ primaryId: profileId, values, fields });
 		profileCache.delete(profileId);
 
-		return await profiles.updateAndReturn({ primaryId: profileId, values, fields });
+		return updated;
 	},
 
 	async deleteOwned({ profileId, userId, tx }: { profileId: string; userId: string; tx?: DatabaseTransaction }): Promise<void> {

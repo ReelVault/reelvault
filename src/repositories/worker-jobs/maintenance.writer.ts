@@ -24,19 +24,7 @@ export async function getStats(cache: MemoryCache<WorkerItemStats[]>): Promise<W
 }
 
 export async function trim(workerId: string, status: WorkerItemStatus, keepCount: number): Promise<number> {
-	const result = await databaseFactory
-		.getClient()
-		.delete(items)
-		.where(
-			sql`${items.id} IN (
-			SELECT id FROM ${items}
-			WHERE worker_id = ${workerId} AND status = ${status} AND operation_id IS NULL
-			ORDER BY completed_at DESC, created_at DESC
-			LIMIT -1 OFFSET ${keepCount}
-		)`,
-		);
-
-	return result.changes;
+	return await trimMany(status, new Map([[workerId, keepCount]]));
 }
 
 /**

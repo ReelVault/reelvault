@@ -9,11 +9,11 @@ import type {
 	SubtitleType,
 	UpdateSubtitleRequest,
 } from "@reelvault/sdk/common";
-import { and, eq, isNull, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, isNull, type SQL, sql } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { anyOf, filterEquals, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import type { QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { createPreparedQuery } from "@/integrations/drizzle-orm/query/prepared-queries.utils";
 import { type FindFirstReadParams, type PrimaryIdReadParams, selectByPrimaryId } from "@/integrations/drizzle-orm/query/primary-id.reader";
@@ -40,11 +40,11 @@ const subtitleQueryMap: QueryMap<SubtitleFilters, SubtitleSorting> = {
 	filters: {
 		// Text search: one term matched against the label, the language and the media file id.
 		q: (value: string) =>
-			or(
+			anyOf(
 				filterLike(schema.subtitles.label, value),
 				filterLike(schema.subtitles.language, value),
 				filterLike(schema.subtitles.mediaFileId, value),
-			) ?? sql`1 = 0`,
+			),
 		mediaFileId: (value: string) => filterEquals(schema.subtitles.mediaFileId, value),
 		language: (value: string) => filterLike(schema.subtitles.language, value),
 		label: (value: string) => filterLike(schema.subtitles.label, value),

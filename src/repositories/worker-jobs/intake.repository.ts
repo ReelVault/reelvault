@@ -9,6 +9,7 @@ import { workerOperationRepository } from "@/repositories/worker-operation.repos
 import { toMap, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import {
+	ACTIVE_JOB_STATUSES,
 	type ActiveWorkerItem,
 	applyOperationCounts,
 	type EnqueueWorkerItemInput,
@@ -112,7 +113,7 @@ export async function findActiveByWorkerAndDedupeKeys(workerId: string, dedupeKe
 			.getClient()
 			.select({ id: items.id, operationId: items.operationId })
 			.from(items)
-			.where(and(eq(items.workerId, workerId), inArray(items.dedupeKey, chunkKeys), inArray(items.status, ["pending", "running"]))),
+			.where(and(eq(items.workerId, workerId), inArray(items.dedupeKey, chunkKeys), inArray(items.status, ACTIVE_JOB_STATUSES))),
 	);
 }
 
@@ -266,7 +267,7 @@ async function fetchDedupedExisting(inputs: EnqueueWorkerItemInput[], insertedIt
 			.from(items)
 			.where(
 				and(
-					inArray(items.status, ["pending", "running"]),
+					inArray(items.status, ACTIVE_JOB_STATUSES),
 					or(...chunkPairs.map((pair) => and(eq(items.workerId, pair.workerId), eq(items.dedupeKey, pair.dedupeKey)))),
 				),
 			),

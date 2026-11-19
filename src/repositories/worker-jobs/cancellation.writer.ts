@@ -7,7 +7,15 @@ import { workerOperationRepository } from "@/repositories/worker-operation.repos
 import { toMap, unique } from "@/utils/array.utils";
 import { DomainError } from "@/utils/domain.errors";
 import { isNullish } from "@/utils/type.utils";
-import { applyOperationCounts, items, RELEASE_CLAIM, runningJobWhere, toOperationCounts, type WorkerItem } from "./shared.types";
+import {
+	ACTIVE_JOB_STATUSES,
+	applyOperationCounts,
+	items,
+	RELEASE_CLAIM,
+	runningJobWhere,
+	toOperationCounts,
+	type WorkerItem,
+} from "./shared.types";
 
 export async function cancelPending(id: string, tx?: DatabaseTransaction): Promise<boolean> {
 	// Without a caller's transaction, the item, its operation counter and its dependents change together or not at all.
@@ -180,7 +188,7 @@ export async function findActiveOperations(operationIds: readonly string[], tx?:
 			.getClient({ tx })
 			.selectDistinct({ operationId: items.operationId })
 			.from(items)
-			.where(and(inArray(items.operationId, chunkIds), inArray(items.status, ["pending", "running"]))),
+			.where(and(inArray(items.operationId, chunkIds), inArray(items.status, ACTIVE_JOB_STATUSES))),
 	);
 
 	return new Set(rows.map((row) => row.operationId).filter((operationId): operationId is string => operationId !== null));

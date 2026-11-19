@@ -30,8 +30,9 @@ import {
 	parseEpisodeWithMediaFiles,
 	preparedEpisodeWithMediaFiles,
 } from "@/integrations/drizzle-orm/utils/media-file-projection.builder";
-import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
+import { createChildStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { unique } from "@/utils/array.utils";
+import { isNotNullish } from "@/utils/type.utils";
 import { defineFindByIdForRead, type ReadByIdParams } from "./find-by-id-for-read.utils";
 
 const episodes = defineTableAccess("episodes", {
@@ -132,9 +133,13 @@ const overrides = {
 	},
 
 	/** An episode by its season and number. */
-	async findBySeasonAndNumber(seasonId: string, episodeNumber: number) {
+	async findBySeasonAndNumber(seasonId: string, episodeNumber: number, episodeType?: "regular" | "special") {
 		return await getEpisodesRepository().findFirst({
-			where: and(eq(episodes.table.seasonId, seasonId), eq(episodes.table.episodeNumber, episodeNumber)),
+			where: and(
+				eq(episodes.table.seasonId, seasonId),
+				eq(episodes.table.episodeNumber, episodeNumber),
+				isNotNullish(episodeType) ? eq(episodes.table.episodeType, episodeType) : undefined,
+			),
 		});
 	},
 
@@ -167,9 +172,12 @@ const overrides = {
 		tx?: DatabaseTransaction | undefined;
 	}) {
 		const episodeType = values.episodeType ?? "regular";
-		const stableKey = createLocalStableKey({
+		const stableKey = createChildStableKey({
 			namespace: "episode",
-			value: `${seasonStableKey ?? createLocalStableKey({ namespace: "season", value: seasonId })}:${episodeType}:${episodeNumber}`,
+			parentNamespace: "season",
+			parentId: seasonId,
+			parentStableKey: seasonStableKey,
+			suffix: `:${episodeType}:${episodeNumber}`,
 		});
 
 		return await upsertByStableKeyIdentity(episodes, {
@@ -180,12 +188,11 @@ const overrides = {
 				eq(episodes.table.episodeType, episodeType),
 				eq(episodes.table.episodeNumber, episodeNumber),
 			),
-			setWhere:
-				or(
-					sql`${episodes.table.seasonId} <> excluded.season_id`,
-					sql`${episodes.table.episodeType} <> excluded.type`,
-					sql`${episodes.table.episodeNumber} <> excluded.episode_number`,
-				) ?? sql`1 = 1`,
+			setWhere: or(
+				sql`${episodes.table.seasonId} <> excluded.season_id`,
+				sql`${episodes.table.episodeType} <> excluded.type`,
+				sql`${episodes.table.episodeNumber} <> excluded.episode_number`,
+			),
 			reconcileValues: { ...values, episodeType, stableKey },
 			tx,
 		});

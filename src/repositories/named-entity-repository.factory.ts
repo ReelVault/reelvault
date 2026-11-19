@@ -7,7 +7,12 @@ import { applyFields } from "@/integrations/drizzle-orm/query/parsing/fields.par
 import { parseStandardQuery, type QueryMap } from "@/integrations/drizzle-orm/query/parsing/query.parser";
 import { findPageWithQueryMap } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
-import type { SchemaTable, TableAccess, TableSelect } from "@/integrations/drizzle-orm/query/table-access/table-access.types";
+import type {
+	SchemaTable,
+	TableAccess,
+	TableInsertValue,
+	TableSelect,
+} from "@/integrations/drizzle-orm/query/table-access/table-access.types";
 import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { unique } from "@/utils/array.utils";
 import { defineFindByIdForRead } from "./find-by-id-for-read.utils";
@@ -28,11 +33,7 @@ export interface NamedEntityRepositoryConfig<
 	entity: TableAccess<TTableName>;
 	/** Table access for the provider junction table — only its `insert` is exposed. */
 	providerEntity: TableAccess<TProviderTableName>;
-	/** The entity's `name` column — the generic table name cannot name it. */
-	nameColumn: SQLiteColumn;
-	/** Local stable-key namespace for the entity name. */
-	namespace: string;
-	/** Provider-sync discriminator and log label. */
+	/** Provider-sync discriminator; also the local stable-key namespace for the entity name. */
 	entityType: ProviderEntityType;
 	entityLabel: string;
 	/** Provider junction insert — the FK column (genreId/keywordId/companyId) is entity-specific. */
@@ -40,6 +41,24 @@ export interface NamedEntityRepositoryConfig<
 	/** metadata ↔ entity link insert — the FK column is entity-specific. */
 	insertMetadataLinks: (params: { metadataId: string; entityIds: string[]; tx?: DatabaseTransaction | undefined }) => Promise<void>;
 	queryMap: QueryMap<TFilters, TSorting>;
+}
+
+/** Find-or-create keyed by a unique name column; the one path every name-keyed entity uses. */
+export async function findOrCreateByNameKey<TTable extends DatabaseTables>(
+	access: TableAccess<TTable>,
+	{
+		nameColumn,
+		name,
+		values,
+		tx,
+	}: {
+		nameColumn: SQLiteColumn;
+		name: string;
+		values: TableInsertValue<TTable>;
+		tx?: DatabaseTransaction | undefined;
+	},
+): Promise<TableSelect<TTable> | undefined> {
+	return await access.findOrCreate({ where: eq(nameColumn, name), values, tx });
 }
 
 /**
@@ -55,7 +74,8 @@ export function defineNamedEntityRepository<
 	TFilters extends object,
 	TSorting extends SortQuery,
 >(config: NamedEntityRepositoryConfig<TTableName, TProviderTableName, TFilters, TSorting>) {
-	const { entity, providerEntity, nameColumn } = config;
+	const { entity, providerEntity, entityType } = config;
+	const nameColumn = config.table.name;
 	type EntityRow = TableSelect<TTableName>;
 
 	const findOrCreateByName = async ({
@@ -70,7 +90,7 @@ export function defineNamedEntityRepository<
 		const client = databaseFactory.getClient({ tx });
 		const [created] = await client
 			.insert(config.table)
-			.values({ ...values, stableKey: createLocalStableKey({ namespace: config.namespace, value: name }) })
+			.values({ ...values, stableKey: createLocalStableKey({ namespace: entityType, value: name }) })
 			.onConflictDoNothing()
 			.returning();
 		if (created) return created;

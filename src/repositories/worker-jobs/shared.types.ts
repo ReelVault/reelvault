@@ -1,5 +1,6 @@
 import type { WorkerBackoffType } from "@reelvault/sdk/common";
 import { and, eq, inArray, isNull, lt, type SQL } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 
 export type WorkerItem = typeof schema.workerJobs.$inferSelect;
@@ -84,14 +85,20 @@ export async function applyOperationCounts(
 	}
 }
 
+/** Statuses a job still holds a run slot or waits for one in. */
+export const ACTIVE_JOB_STATUSES = ["pending", "running"] as const;
+
+/** Statuses a job never leaves. */
+export const TERMINAL_JOB_STATUSES = ["completed", "failed", "cancelled"] as const;
+
+/** Status condition of a purge: every terminal status, or the one `options` names. */
+export function terminalStatusWhere(column: SQLiteColumn, options: TerminalRowsPurgeOptions): SQL {
+	return options.status === "all_terminal" || !options.status ? inArray(column, TERMINAL_JOB_STATUSES) : eq(column, options.status);
+}
+
 /** Operation-less jobs in a terminal state, optionally older than the cutoff. */
 export function terminalStandaloneJobsWhere(options: TerminalRowsPurgeOptions): SQL | undefined {
-	const statusFilter =
-		options.status === "all_terminal" || !options.status
-			? inArray(items.status, ["completed", "failed", "cancelled"])
-			: eq(items.status, options.status);
-
-	const conditions = [statusFilter, isNull(items.operationId)];
+	const conditions = [terminalStatusWhere(items.status, options), isNull(items.operationId)];
 	if (options.cutoffDate) {
 		conditions.push(lt(items.createdAt, options.cutoffDate));
 	}

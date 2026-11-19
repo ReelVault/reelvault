@@ -102,10 +102,8 @@ export async function findWatchedPage(
 	const cursorMode = sortBy === "watchedAt" && sortOrder === "desc";
 	const cursor = decodeCursorFor(query.cursor, cursorMode, "Pagination cursor requires descending watchedAt sorting");
 
-	// The per-profile total only changes on history writes; caching it keeps the
-	// COUNT scan out of every page request (the write paths clear this cache's
-	// 10 s TTL via clearEtagBodyCache-driven invalidation of the HTTP body cache,
-	// which the pagination total shares its staleness contract with).
+	// The per-profile total is cached for the count cache's 10 s TTL and is not
+	// invalidated on history writes, so a page may report a total up to 10 s stale.
 	const countFilters = { profileId };
 	const [total, rows] = await Promise.all([
 		cachedCount("watchedHistory", filterSignature(countFilters, countFilters), () => countForProfile(profileId)),

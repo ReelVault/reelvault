@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
+import { insertEpisodes, insertMetadata } from "../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../tests/helpers/test-database.helper";
 import { metadataPersistenceRepository } from "./metadata-persistence.repository";
 
@@ -70,4 +71,25 @@ test("without locks a rematch overwrites the title", async () => {
 		.where(eq(schema.metadata.id, metadataId));
 
 	expect(stored).toEqual({ title: "Replaced title" });
+});
+
+test("a regular episode that shares a number with a special is reported as newly created", async () => {
+	const [show] = await insertMetadata(db.client(), [
+		{ stableKey: "show:special-clash", title: "Show", type: "tv_show", releaseDate: "2001-01-01" },
+	]);
+	if (!show) throw new Error("metadata insert returned no row");
+	const seasonInfo = { externalId: "s1", seasonNumber: 1, name: "Season 1" };
+	const created = await metadataPersistenceRepository.createSeasonAndEpisode({ metadataId: show.id, seasonInfo });
+	if (!created?.season) throw new Error("season was not created");
+	await insertEpisodes(db.client(), [
+		{ seasonId: created.season.id, episodeNumber: 1, episodeType: "special", title: "Special 1", stableKey: "episode:special-1" },
+	]);
+
+	const result = await metadataPersistenceRepository.createSeasonAndEpisode({
+		metadataId: show.id,
+		seasonInfo,
+		episodeInfo: { externalId: "e1", seasonNumber: 1, episodeNumber: 1, name: "Regular 1" },
+	});
+
+	expect(result?.episodeCreated).toBe(true);
 });

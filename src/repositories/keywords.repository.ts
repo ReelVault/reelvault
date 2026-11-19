@@ -19,8 +19,6 @@ const repository = defineNamedEntityRepository({
 	table: schema.keywords,
 	entity: keywords,
 	providerEntity: keywordProviders,
-	nameColumn: schema.keywords.name,
-	namespace: "keyword",
 	entityType: "keyword",
 	entityLabel: "keywords",
 	queryMap: keywordQueryMap,

@@ -1,8 +1,8 @@
-import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, max, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, lt, lte, max, type SQL, sql } from "drizzle-orm";
 import { type DatabaseFactory, databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
-import { filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
+import { anyOf, filterLike } from "@/integrations/drizzle-orm/query/parsing/filtering.parser";
 import { findOffsetPage } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 
 const sensitiveKeyRegex = /(password|pin|token|secret|refresh.?token|access.?token|id.?token)/i;
@@ -90,7 +90,7 @@ export class AdminAuditRepository {
 		if (requestId) where.push(eq(this.table.requestId, requestId));
 
 		if (q) {
-			where.push(or(filterLike(this.table.resourceId, q), filterLike(this.table.summary, q)) ?? sql`1 = 0`);
+			where.push(anyOf(filterLike(this.table.resourceId, q), filterLike(this.table.summary, q)));
 		}
 
 		if (from) where.push(gte(this.table.createdAt, new Date(from)));
@@ -187,13 +187,13 @@ export class AdminAuditRepository {
 	}
 }
 
-export function serializeAuditValue(value: unknown): string | null {
+function serializeAuditValue(value: unknown): string | null {
 	if (value === undefined) return null;
 
 	return JSON.stringify(redactAuditValue(value));
 }
 
-export function redactAuditValue(value: unknown, key?: string): unknown {
+function redactAuditValue(value: unknown, key?: string): unknown {
 	if (key && isSensitiveKey(key)) return "[REDACTED]";
 
 	if (Array.isArray(value)) return value.map((item) => redactAuditValue(item));

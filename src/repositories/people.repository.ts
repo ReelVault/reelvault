@@ -31,6 +31,7 @@ import { metadataRepository } from "@/repositories/metadata.repository";
 import { toMap } from "@/utils/array.utils";
 import { isNonEmptyString } from "@/utils/type.utils";
 import { defineFindByIdForRead, type ReadByIdParams } from "./find-by-id-for-read.utils";
+import { findOrCreateByNameKey } from "./named-entity-repository.factory";
 import { providersRepository } from "./providers.repository";
 
 const people = defineTableAccess("people", {
@@ -133,8 +134,9 @@ const overrides = {
 	},
 
 	async findOrCreateByName({ name, values, tx }: { name: string; values: CreatePerson; tx?: DatabaseTransaction }) {
-		return await people.findOrCreate({
-			where: eq(people.table.name, name),
+		return await findOrCreateByNameKey(people, {
+			nameColumn: people.table.name,
+			name,
 			values: { ...values, stableKey: createLocalStableKey({ namespace: "person", value: name }) },
 			tx,
 		});

@@ -84,34 +84,6 @@ describe("metadata orphan cleanup and similar titles", () => {
 			removeTreeSync(tempDir);
 		}
 	});
-
-	test("getMoreLikeThis executes valid SQL without parameterizing table names", async () => {
-		const tempDir = mkdtempSync(join(tmpdir(), "reelvault-similar-test-"));
-		const factory = new DatabaseFactory(join(tempDir, "test.sqlite"));
-		try {
-			factory.migrate();
-
-			const result = await metadataRepository.getMoreLikeThis({
-				metadataId: "01a08314-8c09-7075-a96b-9242e1bc758a",
-				source: {
-					type: "tv_show",
-					collections: [{ id: "01a08314-88e2-74d2-8bfc-9d26d5e60348" }],
-					genres: [{ id: "01a08314-88e2-74d2-8bfc-9d26d5e60348" }],
-					keywords: [{ id: "01a08314-88ca-723e-b44d-b74f5370ca95" }],
-					crew: [{ job: "Director", data: { id: "00235c46-6d7d-5219-b7d5-783eab30b222" } }],
-					cast: [{ role: "Actor", data: { id: "01a08314-8a78-7162-996e-142706a67fb8" }, sortOrder: 0 }],
-				},
-				limit: 20,
-				offset: 0,
-				tx: factory.db,
-			});
-
-			expect(result).toEqual({ total: 0, data: [] });
-		} finally {
-			factory.shutdown();
-			removeTreeSync(tempDir);
-		}
-	});
 });
 
 describe("metadata similar titles from the stored source", () => {

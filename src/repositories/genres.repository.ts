@@ -19,8 +19,6 @@ const repository = defineNamedEntityRepository({
 	table: schema.genres,
 	entity: genres,
 	providerEntity: genreProviders,
-	nameColumn: schema.genres.name,
-	namespace: "genre",
 	entityType: "genre",
 	entityLabel: "genres",
 	queryMap: genreQueryMap,

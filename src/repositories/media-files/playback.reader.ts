@@ -226,6 +226,7 @@ export async function scanAuditRowIds(onPage: (ids: string[]) => Promise<void> |
 		pageSize: AUDIT_ROW_PAGE_SIZE,
 		fetchPage: (cursor) =>
 			auditRows({ id: schema.mediaFiles.id })
+				.innerJoin(schema.libraries, eq(schema.mediaFiles.libraryId, schema.libraries.id))
 				.where(cursor ? gt(schema.mediaFiles.id, cursor) : undefined)
 				.orderBy(asc(schema.mediaFiles.id))
 				.limit(AUDIT_ROW_PAGE_SIZE),

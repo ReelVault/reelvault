@@ -52,17 +52,6 @@ export async function recordPlays(inputs: Array<CreateWatchedHistory & { profile
 	});
 }
 
-/** True when this profile already has a full-watch row for the file — manual "mark watched" is idempotent. */
-export async function hasFullWatch(profileId: string, mediaFileId: string): Promise<boolean> {
-	return await watchedHistory.isExists({
-		where: and(
-			eq(schema.watchedHistory.profileId, profileId),
-			eq(schema.watchedHistory.mediaFileId, mediaFileId),
-			eq(schema.watchedHistory.isFullWatch, true),
-		),
-	});
-}
-
 export async function clearForProfile(profileId: string, tx?: DatabaseTransaction): Promise<void> {
 	await watchedHistory.delete({ where: eq(schema.watchedHistory.profileId, profileId), tx });
 }

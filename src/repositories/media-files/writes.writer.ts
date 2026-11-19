@@ -30,7 +30,6 @@ import {
 export async function updateAndRead<F extends string>(mediaFileId: string, body: UpdateMediaFile, query?: FieldsQuery<F>) {
 	const { fields } = parseStandardQuery(query);
 	const { isDefault, ...values } = body;
-	streamingDurationCache.delete(mediaFileId);
 	await databaseFactory.transaction(async (tx) => {
 		if (isDefault !== undefined) await setDefault(mediaFileId, isDefault, tx);
 
@@ -55,24 +54,52 @@ export async function updateAndRead<F extends string>(mediaFileId: string, body:
 		if (hasValues) await mediaFiles.update({ primaryId: mediaFileId, values, tx });
 		if (qualityChange) await applyMediaFileQualityDelta(qualityChange.libraryId, qualityChange.delta, tx);
 	});
+	forgetStreamingDurations([mediaFileId]);
 
 	return await findByPrimaryId({ primaryId: mediaFileId, fields });
 }
 
+/** Deletes the media file rows matching `where`, subtracts them from the library and catalog stats, and returns them. */
+export async function removeMediaFileRows(
+	where: SQL | undefined,
+	tx: DatabaseTransaction,
+): Promise<Array<MediaFileStatsRow & { id: string; metadataId: string }>> {
+	// An undefined condition would select and delete the whole table.
+	if (!where)
+		throw new DomainError("internal", "Media file removal requires a condition", { code: "media_files.remove_condition_missing" });
+
+	const rows = await tx
+		.select({
+			id: schema.mediaFiles.id,
+			metadataId: schema.mediaFiles.metadataId,
+			...mediaFileStatsColumns,
+		})
+		.from(schema.mediaFiles)
+		.where(where);
+	await tx.delete(schema.mediaFiles).where(where);
+	await applyMediaFileStats(rows, -1, tx);
+
+	return rows;
+}
+
+function forgetStreamingDurations(ids: readonly string[]): void {
+	for (const id of ids) streamingDurationCache.delete(id);
+}
+
 export async function deleteAndGetCleanup(mediaFileId: string) {
-	streamingDurationCache.delete(mediaFileId);
+	const cleanup = await databaseFactory.transaction(async (tx) => {
+		const result = await findCleanupData(mediaFileId, tx);
+		const removed = await removeMediaFileRows(eq(mediaFiles.primaryKeyColumn, mediaFileId), tx);
+		await refreshLatestMediaCreatedAt(
+			removed.map((row) => row.metadataId),
+			tx,
+		);
 
-	return await databaseFactory.transaction(async (tx) => {
-		const existing = await mediaFiles.selectFirst({ where: eq(mediaFiles.primaryKeyColumn, mediaFileId), tx });
-		const cleanup = await findCleanupData(mediaFileId, tx);
-		await mediaFiles.delete({ primaryId: mediaFileId, tx });
-		if (existing) {
-			await refreshLatestMediaCreatedAt([existing.metadataId], tx);
-			await applyMediaFileStats([existing], -1, tx);
-		}
-
-		return cleanup;
+		return result;
 	});
+	forgetStreamingDurations([mediaFileId]);
+
+	return cleanup;
 }
 
 /**
@@ -91,7 +118,6 @@ export async function reassign({
 	movieId: string | null;
 	episodeId: string | null;
 }): Promise<void> {
-	streamingDurationCache.delete(mediaFileId);
 	await databaseFactory.transaction(async (tx) => {
 		const existingFile = await mediaFiles.selectFirst({ where: eq(mediaFiles.primaryKeyColumn, mediaFileId), tx });
 		let defaultWhere: SQL | undefined;
@@ -128,6 +154,7 @@ export async function reassign({
 			);
 		}
 	});
+	forgetStreamingDurations([mediaFileId]);
 }
 
 export async function replaceTechnicalData({
@@ -141,7 +168,6 @@ export async function replaceTechnicalData({
 	size: number;
 	sourceMtimeMs: number;
 }) {
-	streamingDurationCache.delete(mediaFileId);
 	await databaseFactory.transaction(async (tx) => {
 		const client = databaseFactory.getClient({ tx });
 		const existing = await client
@@ -176,24 +202,26 @@ export async function replaceTechnicalData({
 			await applyMediaFileQualityDelta(existing.libraryId, Number(Boolean(data.qualityTag)) - Number(Boolean(existing.qualityTag)), tx);
 		}
 	});
+	forgetStreamingDurations([mediaFileId]);
 }
 
 export async function deleteByLibraryAndPathsAndGetCleanup(libraryId: string, filePaths: string[]) {
-	streamingDurationCache.clear();
-
-	return await databaseFactory.transaction(async (tx) => {
-		const matchingMediaFiles = await findByLibraryAndPaths({ libraryId, filePaths, tx });
-		const cleanup = await findCleanupDataByMediaFileIds(
-			matchingMediaFiles.map((mediaFile) => mediaFile.id),
+	const { cleanup, matchingMediaFiles } = await databaseFactory.transaction(async (tx) => {
+		const matches = await findByLibraryAndPaths({ libraryId, filePaths, tx });
+		const found = await findCleanupDataByMediaFileIds(
+			matches.map((mediaFile) => mediaFile.id),
 			tx,
 		);
 		await deleteByLibraryAndPaths({ libraryId, filePaths, tx });
 
-		return {
-			...cleanup,
-			removedMediaFiles: matchingMediaFiles.map((mediaFile) => ({ id: mediaFile.id, filePath: mediaFile.filePath })),
-		};
+		return { cleanup: found, matchingMediaFiles: matches };
 	});
+	forgetStreamingDurations(matchingMediaFiles.map((mediaFile) => mediaFile.id));
+
+	return {
+		...cleanup,
+		removedMediaFiles: matchingMediaFiles.map((mediaFile) => ({ id: mediaFile.id, filePath: mediaFile.filePath })),
+	};
 }
 
 /**
@@ -325,27 +353,24 @@ export async function deleteByLibraryAndPaths({
 }): Promise<void> {
 	if (filePaths.length === 0) return;
 
-	await runInTransaction(tx, async (runTx) => {
-		const client = databaseFactory.getClient({ tx: runTx });
+	const removedIds = await runInTransaction(tx, async (runTx) => {
 		const affectedMetadataIds = new Set<string>();
-		const deletedRows: MediaFileStatsRow[] = [];
+		const ids: string[] = [];
 		await forEachChunked(filePaths, async (pathChunk) => {
-			const where = and(eq(schema.mediaFiles.libraryId, libraryId), inArray(schema.mediaFiles.filePath, pathChunk));
-			const rows = await client
-				.select({
-					metadataId: schema.mediaFiles.metadataId,
-					...mediaFileStatsColumns,
-				})
-				.from(schema.mediaFiles)
-				.where(where);
-			for (const row of rows) affectedMetadataIds.add(row.metadataId);
-			deletedRows.push(...rows);
-
-			await mediaFiles.delete({ where, tx: runTx });
+			const removed = await removeMediaFileRows(
+				and(eq(schema.mediaFiles.libraryId, libraryId), inArray(schema.mediaFiles.filePath, pathChunk)),
+				runTx,
+			);
+			for (const row of removed) {
+				affectedMetadataIds.add(row.metadataId);
+				ids.push(row.id);
+			}
 		});
 		await refreshLatestMediaCreatedAt([...affectedMetadataIds], runTx);
-		await applyMediaFileStats(deletedRows, -1, runTx);
+
+		return ids;
 	});
+	forgetStreamingDurations(removedIds);
 }
 
 /**
@@ -355,28 +380,19 @@ export async function deleteByLibraryAndPaths({
 export async function deleteByIds(ids: string[], tx?: DatabaseTransaction): Promise<number> {
 	if (ids.length === 0) return 0;
 
-	return await runInTransaction(tx, async (runTx) => {
-		let deleted = 0;
-		const client = databaseFactory.getClient({ tx: runTx });
+	const deleted = await runInTransaction(tx, async (runTx) => {
+		let count = 0;
 		const affectedMetadataIds = new Set<string>();
-		const deletedRows: MediaFileStatsRow[] = [];
 		await forEachChunked(ids, async (idChunk) => {
-			const rows = await client
-				.select({
-					metadataId: schema.mediaFiles.metadataId,
-					...mediaFileStatsColumns,
-				})
-				.from(schema.mediaFiles)
-				.where(inArray(schema.mediaFiles.id, idChunk));
-			for (const row of rows) affectedMetadataIds.add(row.metadataId);
-			deletedRows.push(...rows);
-
-			const result = await client.delete(schema.mediaFiles).where(inArray(schema.mediaFiles.id, idChunk));
-			deleted += result.changes;
+			const removed = await removeMediaFileRows(inArray(schema.mediaFiles.id, idChunk), runTx);
+			for (const row of removed) affectedMetadataIds.add(row.metadataId);
+			count += removed.length;
 		});
 		await refreshLatestMediaCreatedAt([...affectedMetadataIds], runTx);
-		await applyMediaFileStats(deletedRows, -1, runTx);
 
-		return deleted;
+		return count;
 	});
+	forgetStreamingDurations(ids);
+
+	return deleted;
 }

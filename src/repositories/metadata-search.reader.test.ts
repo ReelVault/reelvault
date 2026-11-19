@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { insertGenres } from "../../tests/helpers/rows.fixture";
+import { insertGenres, insertMetadata } from "../../tests/helpers/rows.fixture";
 import { useTestDatabase } from "../../tests/helpers/test-database.helper";
 import { searchGlobal } from "./metadata-search.reader";
 
@@ -26,5 +26,20 @@ describe("global search over genres", () => {
 		const result = await searchGlobal({ term, limit: 10 });
 
 		expect(result.genres).toEqual([]);
+	});
+});
+
+describe("global search over titles", () => {
+	test("returns no more titles than the limit when typo matches fill the gap after exact matches", async () => {
+		await insertMetadata(db.client(), [
+			{ stableKey: "movie:matrix", title: "Matrix", type: "movie", popularity: 5, releaseDate: "2001-01-01" },
+			{ stableKey: "movie:matriz", title: "Matriz", type: "movie", popularity: 4, releaseDate: "2001-01-01" },
+			{ stableKey: "movie:matrax", title: "Matrax", type: "movie", popularity: 3, releaseDate: "2001-01-01" },
+			{ stableKey: "movie:matrice", title: "Matrice", type: "movie", popularity: 2, releaseDate: "2001-01-01" },
+		]);
+
+		const result = await searchGlobal({ term: "matrix", limit: 3 });
+
+		expect(result.titles.map((title) => title.title)).toEqual(["Matrix", "Matriz", "Matrax"]);
 	});
 });

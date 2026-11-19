@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import { useTestDatabase } from "../../tests/helpers/test-database.helper";
-import { AdminAuditRepository, redactAuditValue, serializeAuditValue } from "./admin-audit.repository";
+import { AdminAuditRepository } from "./admin-audit.repository";
 
 useTestDatabase();
 
@@ -17,29 +17,41 @@ async function seedAdministrators(): Promise<void> {
 		]);
 }
 
-describe("admin audit redaction", () => {
-	test("redacts credentials recursively before serialization", () => {
-		const value = {
-			name: "Admin",
-			pin: "1234",
-			nested: { accessToken: "secret-token" },
-			items: [{ password: "secret-password" }],
-		};
+describe("admin audit snapshots", () => {
+	test("stores credentials redacted at every depth of the before snapshot", async () => {
+		const repository = new AdminAuditRepository();
+		await repository.insert({
+			action: "update",
+			resourceType: "profile",
+			before: {
+				name: "Admin",
+				pin: "1234",
+				nested: { accessToken: "secret-token" },
+				items: [{ password: "secret-password" }],
+			},
+		});
 
-		expect(redactAuditValue(value)).toEqual({
+		const { data } = await repository.findMany({ page: 1, limit: 10 });
+
+		expect(JSON.parse(data[0]?.beforeJson ?? "null")).toEqual({
 			name: "Admin",
 			pin: "[REDACTED]",
 			nested: { accessToken: "[REDACTED]" },
 			items: [{ password: "[REDACTED]" }],
 		});
-		expect(JSON.parse(serializeAuditValue(value) ?? "null")).toMatchObject({ pin: "[REDACTED]" });
 	});
 
-	test("serializes dates as ISO strings", () => {
-		const createdAt = new Date("2026-01-02T03:04:05.000Z");
-		const serialized = JSON.parse(serializeAuditValue({ createdAt }) ?? "null");
+	test("stores dates in the after snapshot as ISO strings", async () => {
+		const repository = new AdminAuditRepository();
+		await repository.insert({
+			action: "update",
+			resourceType: "profile",
+			after: { createdAt: new Date("2026-01-02T03:04:05.000Z") },
+		});
 
-		expect(serialized.createdAt).toBe("2026-01-02T03:04:05.000Z");
+		const { data } = await repository.findMany({ page: 1, limit: 10 });
+
+		expect(JSON.parse(data[0]?.afterJson ?? "null")).toEqual({ createdAt: "2026-01-02T03:04:05.000Z" });
 	});
 });
 

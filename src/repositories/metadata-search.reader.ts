@@ -10,6 +10,10 @@ import { isNullish } from "@/utils/type.utils";
 import { titleMatchFilter } from "./metadata-filters.utils";
 
 const WHITESPACE_RE = /\s+/;
+/** Candidates past this count switch from the id-list probe to the LIKE scan. */
+const FUZZY_CANDIDATE_CAP = 400;
+/** One more than the cap, so a probe over the cap is detected without counting every match. */
+const FUZZY_PROBE_LIMIT = FUZZY_CANDIDATE_CAP + 1;
 
 /**
  * FTS5 MATCH query from user input: every whitespace token becomes a
@@ -198,13 +202,13 @@ async function fuzzyTitleSearch(
 	const slice = token.slice(0, 3);
 	const matchTerm = `"${slice.replaceAll('"', '""')}"`;
 	const probe = client.all<{ rowid: number }>(
-		sql`SELECT rowid FROM metadata_title_trigram WHERE metadata_title_trigram MATCH ${matchTerm} LIMIT 401`,
+		sql`SELECT rowid FROM metadata_title_trigram WHERE metadata_title_trigram MATCH ${matchTerm} LIMIT ${FUZZY_PROBE_LIMIT}`,
 	);
 	if (probe.length === 0) return [];
 
 	const projection = { id: schema.metadata.id, title: schema.metadata.title, type: schema.metadata.type };
 	let candidates: Array<{ id: string; title: string; type: "movie" | "tv_show" }>;
-	if (probe.length <= 400) {
+	if (probe.length <= FUZZY_CANDIDATE_CAP) {
 		candidates = await client
 			.select(projection)
 			.from(schema.metadata)
@@ -215,14 +219,14 @@ async function fuzzyTitleSearch(
 				),
 			)
 			.orderBy(desc(schema.metadata.popularity))
-			.limit(400);
+			.limit(FUZZY_CANDIDATE_CAP);
 	} else {
 		candidates = await client
 			.select(projection)
 			.from(schema.metadata)
 			.where(titleMatchFilter(slice, "contains"))
 			.orderBy(desc(schema.metadata.popularity))
-			.limit(400);
+			.limit(FUZZY_CANDIDATE_CAP);
 	}
 
 	const maxDistance = Math.max(2, Math.floor(token.length / 4));
@@ -237,5 +241,5 @@ async function fuzzyTitleSearch(
 
 	scored.sort((left, right) => left.distance - right.distance);
 
-	return scored.slice(0, limit).map(({ id, title, type }) => ({ id, title, type }));
+	return scored.slice(0, limit - exactMatches.length).map(({ id, title, type }) => ({ id, title, type }));
 }

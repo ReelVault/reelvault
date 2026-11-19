@@ -23,6 +23,7 @@ import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
 import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.types";
 import {
+	anyOf,
 	filterEquals,
 	filterGte,
 	filterInArray,
@@ -48,14 +49,14 @@ export function titleMatchFilter(term: string, mode: "contains" | "exact" | "con
 	const title = schema.metadata.title;
 	const originalTitle = schema.metadata.originalTitle;
 
-	if (mode === "exact") return or(eq(title, term), eq(originalTitle, term)) ?? sql`1 = 0`;
+	if (mode === "exact") return anyOf(eq(title, term), eq(originalTitle, term));
 
 	// Shared LIKE escaping: `%`/`_` in a search term match literally.
 	if (mode === "contains-or-id") {
-		return or(filterLike(title, term), filterLike(originalTitle, term), filterLike(schema.metadata.id, term)) ?? sql`1 = 0`;
+		return anyOf(filterLike(title, term), filterLike(originalTitle, term), filterLike(schema.metadata.id, term));
 	}
 
-	return or(filterLike(title, term), filterLike(originalTitle, term)) ?? sql`1 = 0`;
+	return anyOf(filterLike(title, term), filterLike(originalTitle, term));
 }
 
 function buildTitleSearchFilter(term: string): SQL {

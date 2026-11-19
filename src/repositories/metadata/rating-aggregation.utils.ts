@@ -25,23 +25,12 @@ export function calculateAverageScore(
 		return undefined;
 	}
 
-	if (strategy === "simple") {
-		let totalScore = 0;
-		for (const rating of validRatings) {
-			const value = rating.value ?? 0;
-			const maxValue = rating.maxValue ?? 10;
-			totalScore += (value / maxValue) * 10;
-		}
-
-		return Math.round((totalScore / validRatings.length) * 100) / 100;
-	}
-
 	let weightedScore = 0;
 	let totalWeight = 0;
 	for (const rating of validRatings) {
 		const value = rating.value ?? 0;
 		const maxValue = rating.maxValue ?? 10;
-		const weight = ratingSourceWeight(rating.votes);
+		const weight = strategy === "simple" ? RATING_DEFAULT_SOURCE_WEIGHT : ratingSourceWeight(rating.votes);
 		weightedScore += (value / maxValue) * 10 * weight;
 		totalWeight += weight;
 	}

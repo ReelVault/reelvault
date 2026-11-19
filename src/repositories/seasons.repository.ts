@@ -9,7 +9,7 @@ import { selectFirstWithFields } from "@/integrations/drizzle-orm/query/table-ac
 import { definePagedFind } from "@/integrations/drizzle-orm/query/table-access/reads.reader";
 import { defineRepository, defineTableAccess } from "@/integrations/drizzle-orm/query/table-access/table-access.factory";
 import { upsertByStableKeyIdentity } from "@/integrations/drizzle-orm/query/upsert-by-identity.writer";
-import { createLocalStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
+import { createChildStableKey } from "@/integrations/drizzle-orm/utils/stable-key.utils";
 import { defineFindByIdForRead, type ReadByIdParams } from "./find-by-id-for-read.utils";
 
 const seasons = defineTableAccess("seasons", {
@@ -76,18 +76,19 @@ const overrides = {
 		values: Omit<typeof schema.seasons.$inferInsert, "stableKey"> & { stableKey?: string };
 		tx?: DatabaseTransaction | undefined;
 	}) {
-		const stableKey = createLocalStableKey({
+		const stableKey = createChildStableKey({
 			namespace: "season",
-			value: `${metadataStableKey ?? createLocalStableKey({ namespace: "metadata", value: metadataId })}:${seasonNumber}`,
+			parentNamespace: "metadata",
+			parentId: metadataId,
+			parentStableKey: metadataStableKey,
+			suffix: `:${seasonNumber}`,
 		});
 
 		return await upsertByStableKeyIdentity(seasons, {
 			stableKey,
 			values: { ...values, stableKey },
 			identityWhere: and(eq(seasons.table.metadataId, metadataId), eq(seasons.table.seasonNumber, seasonNumber)),
-			setWhere:
-				or(ne(seasons.table.metadataId, sql`excluded.metadata_id`), ne(seasons.table.seasonNumber, sql`excluded.season_number`)) ??
-				sql`1 = 1`,
+			setWhere: or(ne(seasons.table.metadataId, sql`excluded.metadata_id`), ne(seasons.table.seasonNumber, sql`excluded.season_number`)),
 			reconcileValues: { ...values, stableKey },
 			tx,
 		});
