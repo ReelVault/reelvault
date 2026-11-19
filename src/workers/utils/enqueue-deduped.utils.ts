@@ -1,4 +1,5 @@
 import { DomainError } from "@/utils/domain.errors";
+import { attachedToOperation, enqueueWithOperation } from "@/workers/core/worker-operation.service";
 
 /** Result shared by every scan/refresh trigger endpoint. */
 export interface DedupedEnqueue {
@@ -54,21 +55,21 @@ export async function enqueueDeduped(options: {
 	if (activeTarget) return activeTarget;
 
 	try {
-		const { result: operationId } = await workerService.enqueueUnderOperation(
+		const { result } = await enqueueWithOperation(
 			{ type: options.type, reference: options.reference },
 			async (enqueuedOperationId) => {
 				const enqueued = await options.enqueue(enqueuedOperationId);
 				if (!enqueued.operationId)
 					throw new DomainError("internal", `${options.label} operation was not attached to its task`, { code: "worker.enqueue_failed" });
 
-				return enqueued.operationId;
+				return { operationId: enqueued.operationId };
 			},
 			// A dedupe hit attaches to the winning operation; the fresh operation
 			// this helper created owns no jobs and must not linger `pending`.
-			{ isAttached: (enqueuedOperationId, attachedOperationId) => enqueuedOperationId === attachedOperationId },
+			{ isAttached: attachedToOperation },
 		);
 
-		return { success: true, operationId, status: "pending" };
+		return { success: true, operationId: result.operationId, status: "pending" };
 	} catch (error) {
 		// The pre-check above races the insert: two concurrent triggers can both
 		// pass it and one loses at the DB level. Any active equivalent task —

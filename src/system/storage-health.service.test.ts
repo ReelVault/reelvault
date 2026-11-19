@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { MINUTE } from "@/config/server/server.constants";
 import { StorageHealthService } from "./storage-health.service";
 
 const FILE_BLOCK_MS = 86_400_000;
@@ -170,14 +169,15 @@ describe("storage health: mount resolution", () => {
 		expect(snapshot.degradedRoots).toEqual([]);
 	});
 
-	test("an old failure does not leak into a later window after minutes", () => {
+	test("a failure older than the failure window does not count toward a block", () => {
 		const { service, advance } = createService();
 		const file = "/library/bad/one.mkv";
 
 		service.recordFailure(file, "frame_error");
-		advance(MINUTE);
-		service.recordSuccess(file);
+		advance(FAILURE_WINDOW_MS + 1);
+		service.recordFailure(file, "frame_error");
 
+		expect(service.isFileBlocked(file)).toBe(false);
 		expect(service.getSnapshot()).toEqual({ degradedRoots: [], blockedFiles: [] });
 	});
 });

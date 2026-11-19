@@ -205,12 +205,14 @@ export class ResourceAllocator {
 
 	private createAlert(draft: AlertDraft): void {
 		const now = Date.now();
-		const lastForType = this.alertCooldowns.get(draft.type);
-		if (lastForType !== undefined && now - lastForType < ALERT_COOLDOWN_MS) return;
+		// Cooldown per type and severity: a warning must not hold back the critical alert that follows it.
+		const cooldownKey = `${draft.type}:${draft.severity}`;
+		const lastForKey = this.alertCooldowns.get(cooldownKey);
+		if (lastForKey !== undefined && now - lastForKey < ALERT_COOLDOWN_MS) return;
 
 		const alert: ResourceAlert = { timestamp: now, ...draft };
 		this.recentAlerts.push(alert);
-		this.alertCooldowns.set(draft.type, now);
+		this.alertCooldowns.set(cooldownKey, now);
 
 		if (this.recentAlerts.length > MAX_RECENT_ALERTS) {
 			const keep = Math.floor(MAX_RECENT_ALERTS / 2);

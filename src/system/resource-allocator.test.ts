@@ -223,5 +223,43 @@ describe("ResourceAllocator active providers", () => {
 	});
 });
 
+describe("ResourceAllocator alerts", () => {
+	useAllocatorFixture();
+
+	/** An allocator whose successive host readings are the given list, one per snapshot. */
+	function allocatorReadingInOrder(readings: Array<ReturnType<typeof metricsAt>>): ResourceAllocator {
+		const queue = [...readings];
+		const allocator = new ResourceAllocator(() => {
+			const next = queue.shift();
+
+			return next ? Promise.resolve(next) : Promise.reject(new Error("No host reading left for this snapshot"));
+		});
+		allocators.push(allocator);
+
+		return allocator;
+	}
+
+	test("raises the critical memory alert even while a warning for memory is cooling down", async () => {
+		const allocator = allocatorReadingInOrder([metricsAt(50, 86, 50), metricsAt(50, 96, 50)]);
+		await takeSnapshot(allocator);
+		await allocator.initialize();
+
+		expect(allocator.getRecentAlerts().map(({ severity, code }) => ({ severity, code }))).toEqual([
+			{ severity: "warning", code: "system.memory_high" },
+			{ severity: "critical", code: "system.memory_critical" },
+		]);
+	});
+
+	test("does not repeat an alert of the same severity inside its cooldown", async () => {
+		const allocator = allocatorReadingInOrder([metricsAt(50, 96, 50), metricsAt(50, 97, 50)]);
+		await takeSnapshot(allocator);
+		await allocator.initialize();
+
+		expect(allocator.getRecentAlerts().map(({ severity, code }) => ({ severity, code }))).toEqual([
+			{ severity: "critical", code: "system.memory_critical" },
+		]);
+	});
+});
+
 // The settings store is process-global — never leak overrides into other test files.
 afterEach(() => systemSettingsStore.clearRuntimeValues());

@@ -250,6 +250,47 @@ describe("worker execution pool: aborts and timeouts", () => {
 			await shortGracePool.drain();
 		}
 	});
+});
+
+describe("worker execution pool: timeouts", () => {
+	// Own worker id: admin failure notices are deduplicated process-wide by worker and message.
+	test("records the failed run and notifies administrators when a timed-out handler ignores its abort", async () => {
+		const abandonedWorkerId = "abandoned-worker";
+		await seedAdmin();
+		await insertPendingJob(1, abandonedWorkerId);
+		const shortGracePool = new WorkerExecutionPoolService(30);
+		shortGracePool.setRunnerId(RUNNER_ID);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		try {
+			shortGracePool.start(
+				makeDefinition(
+					async () => {
+						await gate; // deliberately ignores the abort signal
+						return { ok: true };
+					},
+					5,
+					abandonedWorkerId,
+				),
+				await claimJob(abandonedWorkerId),
+			);
+			await waitFor(() => shortGracePool.totalRunningCount === 0);
+
+			expect(await jobRow()).toMatchObject({ status: "failed", error: "Execution timed out and did not stop after the grace period" });
+			const [schedule] = await db
+				.client()
+				.select()
+				.from(schema.workerSchedules)
+				.where(eq(schema.workerSchedules.workerId, abandonedWorkerId));
+			expect(schedule).toMatchObject({ lastStatus: "failed" });
+			expect(await waitForNotifications()).toMatchObject([{ data: { workerId: abandonedWorkerId } }]);
+		} finally {
+			release();
+			await shortGracePool.drain();
+		}
+	});
 
 	test("fails a timed-out job permanently once attempts are exhausted, and notifies administrators", async () => {
 		await seedAdmin();

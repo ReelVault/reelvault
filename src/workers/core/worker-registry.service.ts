@@ -6,6 +6,20 @@ import { serverRescueService } from "@/system/server-rescue.service";
 import { DomainError } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 
+/**
+ * The retry defaults of a definition: its own values, else the server's. The registry is the one place
+ * that applies them; the queue reads the registered definition, which already carries them.
+ */
+export function resolveRetryDefaults(definition: Pick<WorkerDefinition, "attempts" | "backoff">): {
+	attempts: number;
+	backoff: NonNullable<WorkerDefinition["backoff"]>;
+} {
+	return {
+		attempts: Math.max(1, definition.attempts ?? serverConfig.workers.scheduling.defaultAttempts),
+		backoff: definition.backoff ?? serverConfig.workers.scheduling.defaultBackoff,
+	};
+}
+
 export class WorkerRegistryService {
 	readonly serviceName = "WorkerRegistryService";
 	readonly logger = createLogger("WorkerRegistryService");
@@ -69,10 +83,10 @@ export class WorkerRegistryService {
 				);
 			},
 			get attempts() {
-				return Math.max(1, definition.attempts ?? serverConfig.workers.scheduling.defaultAttempts);
+				return resolveRetryDefaults(definition).attempts;
 			},
 			get backoff() {
-				return definition.backoff ?? serverConfig.workers.scheduling.defaultBackoff;
+				return resolveRetryDefaults(definition).backoff;
 			},
 		};
 	}

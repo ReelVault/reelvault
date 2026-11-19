@@ -96,6 +96,23 @@ function countFailure(
 	};
 }
 
+/** Drops the entries whose value matches; `Map` iteration tolerates the deletes. */
+function deleteWhere<K, V>(map: Map<K, V>, matches: (value: V) => boolean): void {
+	for (const [key, value] of map) {
+		if (matches(value)) map.delete(key);
+	}
+}
+
+/** Evicts the oldest-inserted entries until the map fits its cap. */
+function evictOldest<K, V>(map: Map<K, V>, cap: number): void {
+	while (map.size > cap) {
+		const oldest = map.keys().next().value;
+		if (oldest === undefined) break;
+
+		map.delete(oldest);
+	}
+}
+
 let cachedMounts: { readAt: number; points: string[] } | undefined;
 
 function decodeMountPoint(value: string): string {
@@ -306,31 +323,13 @@ export class StorageHealthService {
 	}
 
 	private sweepExpired(now: number): void {
-		for (const [path, health] of this.files) {
-			const expired = health.blockedUntil <= now && now - health.lastFailureAt > FAILURE_WINDOW_MS;
-			if (expired) this.files.delete(path);
-		}
-
-		for (const [root, health] of this.roots) {
-			const expired = health.degradedUntil <= now && now - health.lastFailureAt > FAILURE_WINDOW_MS;
-			if (expired) this.roots.delete(root);
-		}
+		deleteWhere(this.files, (health) => health.blockedUntil <= now && now - health.lastFailureAt > FAILURE_WINDOW_MS);
+		deleteWhere(this.roots, (health) => health.degradedUntil <= now && now - health.lastFailureAt > FAILURE_WINDOW_MS);
 	}
 
 	private enforceCaps(): void {
-		while (this.files.size > MAX_TRACKED_FILES) {
-			const oldest = this.files.keys().next().value;
-			if (oldest === undefined) break;
-
-			this.files.delete(oldest);
-		}
-
-		while (this.roots.size > MAX_TRACKED_ROOTS) {
-			const oldest = this.roots.keys().next().value;
-			if (oldest === undefined) break;
-
-			this.roots.delete(oldest);
-		}
+		evictOldest(this.files, MAX_TRACKED_FILES);
+		evictOldest(this.roots, MAX_TRACKED_ROOTS);
 	}
 }
 

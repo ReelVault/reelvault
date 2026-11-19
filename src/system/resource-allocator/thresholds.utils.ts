@@ -36,7 +36,8 @@ export function thresholdAlerts(snapshot: ResourceSnapshot): AlertDraft[] {
 	}
 
 	if (snapshot.disk.percent >= diskThresholdPercent) {
-		alerts.push({ severity: "warning", type: "disk", code: "system.disk_low", params: { percent: snapshot.disk.percent } });
+		const severity = snapshot.disk.percent >= memoryCriticalPercent ? "critical" : "warning";
+		alerts.push({ severity, type: "disk", code: "system.disk_low", params: { percent: snapshot.disk.percent } });
 	}
 
 	return alerts;

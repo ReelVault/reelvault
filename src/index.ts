@@ -86,105 +86,133 @@ async function buildMediaStatsIfMissing(): Promise<void> {
 	await rebuildMediaStats();
 }
 
+/** Creates the data directories, applies migrations and seeds the state the first request reads. */
+async function prepareStorageAndDatabase(): Promise<void> {
+	logger.info("Checking directories and files...");
+	// awaits: sequential — the data directories exist before startup cleanup runs
+	await ensureDataDirectories();
+	await cleanupStartupDirectories({ includeTempDirectories: true });
+	updateInstallService.cleanupStaleArtifacts();
+
+	// Apply pending schema migrations before any repository touches the DB.
+	logger.info("Applying database migrations...");
+	const { applied } = databaseFactory.migrate();
+	logger.info("Database migrations applied", { appliedMigrations: applied });
+
+	// Fill the media-presence stamp for databases that predate the column, so
+	// catalog lists and the recently-added rank never miss a title.
+	// awaits: sequential — the backfill runs before the media stats are built
+	await backfillLatestMediaCreatedAt();
+	await buildMediaStatsIfMissing();
+
+	// Better Auth's own user writes create the first profile; registered before any user can be created.
+	registerAuthListeners();
+
+	// Runs left open by the previous process: a server run that restarted into its target version succeeded.
+	await updateHistoryService.settleRunsAfterStart(SERVER_VERSION);
+}
+
+async function loadRuntimeSettings(): Promise<void> {
+	logger.info("Loading system settings...");
+	await systemSettingsService.init();
+	// A stored override replaces the LOG_LEVEL this boot started with; the debug file still requires restart.
+	setLogLevel(serverConfig.logs.level);
+
+	// A typo in an allowed-origin entry would otherwise fail silently at CORS time.
+	const unusableOrigins = serverConfig.network.allowedOrigins.filter((origin) => !isUsableOriginEntry(origin));
+	if (unusableOrigins.length > 0) logger.warn("Ignoring unusable allowed-origin entries", { entries: unusableOrigins });
+}
+
+async function checkDependencies(): Promise<void> {
+	logger.info("Checking FFmpeg and FFprobe dependencies...");
+	const ffMpegAvailable = assertFFMpegAvailable();
+	const ffMpegCapabilities = await initializeFfmpegCapabilities();
+	const ffProbeAvailable = assertFFProbeAvailable();
+	logger.info("FFmpeg dependencies available", {
+		ffMpeg: ffMpegAvailable,
+		ffProbe: ffProbeAvailable,
+		ffMpegVersion: ffMpegCapabilities.version,
+		missingAudioFilters: missingAudioFilters(),
+	});
+
+	const ffMpegMajor = parseMajorVersion(ffMpegCapabilities.version);
+	if (ffMpegMajor !== null && ffMpegMajor < RECOMMENDED_FFMPEG_MAJOR) {
+		logger.warn(
+			`FFmpeg ${ffMpegCapabilities.version} is older than the recommended ${RECOMMENDED_FFMPEG_MAJOR}.x — HDR tone mapping and newer encoders may be unavailable`,
+		);
+	}
+
+	const setupStatus = await firstRunSetupService.getStatus();
+	if (setupStatus.required && !setupStatus.tokenRequired && isPublicBindHost(serverConfig.network.host)) {
+		logger.warn(
+			`First-run setup is still pending and the server is bound to ${serverConfig.network.host} without a setup token — anyone who can reach it can create the first administrator. Set SETUP_TOKEN_ENABLED=true before exposing it.`,
+		);
+	}
+}
+
+/**
+ * Hands every supervisor and worker the callbacks it reports through. Runs before plugins and workers start,
+ * so the first worker poll already sees the streams, the rescue state and the running counts.
+ */
+function registerRuntimeProviders(): void {
+	// Streaming lifecycle callbacks must be configured before any session can start.
+	registerStreamingLifecycle();
+
+	logger.info("Initializing resource allocator...");
+	resourceAllocator.registerActiveStreamsProvider(() => streamingManager.getActiveSessions());
+	resourceAllocator.registerActiveWorkersProvider(() => workerService.pool.getRunningCounts());
+	// Resource alerts and rescue state are admin-panel material — keep them off non-admin sockets.
+	resourceAllocator.registerAlertListener(async (alert) => {
+		adminFailureNotificationService.notifyResourceAlert(alert.code, alert.params ?? {});
+		await realtimeService.sendToAdmins("system.resource_alert", alert);
+	});
+
+	// Server rescue escalation requeues the running background tasks; playback workers are protected.
+	serverRescueService.registerActions({ cancelBackgroundTasks: () => workerService.requeueBackgroundTasks() });
+	serverRescueService.registerPressureProvider(() => resourceAllocator.getCurrentSnapshot()?.pressure ?? "low");
+	serverRescueService.registerSpeedFactorProvider(() => systemResourcesService.getSpeedFactor());
+	serverRescueService.registerStateListener(async (state) => await realtimeService.sendToAdmins("system.rescue_state", state));
+}
+
+/** Starts plugins, the supervisors, workers, download sweeps and the library watchers. Workers start after every provider. */
+async function startServices(): Promise<void> {
+	logger.info("Loading plugins...");
+	// A plugin channel that stops delivering tells the administrators once, with its error.
+	onNotificationChannelFailure((failure) => detach(reportChannelFailureToAdministrators(failure)));
+	// awaits: sequential — plugins load before the supervisors start, the order boot has always used
+	await pluginManager.loadPlugins();
+	await resourceAllocator.initialize();
+	// Arm the server rescue monitor (event-loop lag + system pressure watchdog)
+	serverRescueService.init();
+
+	logger.info("Loading queue service...");
+	const builtInWorkers = await loadBuiltInWorkers();
+	await workerService.initialize(builtInWorkers);
+
+	downloadsService.start();
+	// Downloads interrupted by a crash would otherwise pin their profile's only
+	// active-download slot forever; re-check and re-enqueue them.
+	try {
+		const requeuedDownloads = await downloadsService.reconcileOnStartup();
+		if (requeuedDownloads > 0) logger.info("Reconciled interrupted downloads", { requeued: requeuedDownloads });
+	} catch (error) {
+		logger.warn("Download reconciliation failed", { error });
+	}
+
+	registerLibraryWatchers();
+
+	// Fire-and-forget: a slow or unreachable GitHub must never delay boot.
+	scheduleStartupUpdateCheck();
+}
+
 async function setupServer(): Promise<void> {
 	try {
-		logger.info("Checking directories and files...");
-		// awaits: sequential — the data directories exist before startup cleanup runs
-		await ensureDataDirectories();
-		await cleanupStartupDirectories({ includeTempDirectories: true });
-		updateInstallService.cleanupStaleArtifacts();
-
-		// Apply pending schema migrations before any repository touches the DB.
-		logger.info("Applying database migrations...");
-		const { applied } = databaseFactory.migrate();
-		logger.info("Database migrations applied", { appliedMigrations: applied });
-
-		// Fill the media-presence stamp for databases that predate the column, so
-		// catalog lists and the recently-added rank never miss a title.
-		// awaits: sequential — the backfill runs before the media stats are built
-		await backfillLatestMediaCreatedAt();
-		await buildMediaStatsIfMissing();
-
-		// Better Auth's own user writes create the first profile; registered before any user can be created.
-		registerAuthListeners();
-
-		// Runs left open by the previous process: a server run that restarted into its target version succeeded.
-		await updateHistoryService.settleRunsAfterStart(SERVER_VERSION);
-
-		logger.info("Loading system settings...");
-		await systemSettingsService.init();
-		// A stored override replaces the LOG_LEVEL this boot started with; the debug file still requires restart.
-		setLogLevel(serverConfig.logs.level);
-
-		// A typo in an allowed-origin entry would otherwise fail silently at CORS time.
-		const unusableOrigins = serverConfig.network.allowedOrigins.filter((origin) => !isUsableOriginEntry(origin));
-		if (unusableOrigins.length > 0) logger.warn("Ignoring unusable allowed-origin entries", { entries: unusableOrigins });
-
-		logger.info("Checking FFmpeg and FFprobe dependencies...");
-		const ffMpegAvailable = assertFFMpegAvailable();
-		const ffMpegCapabilities = await initializeFfmpegCapabilities();
-		const ffProbeAvailable = assertFFProbeAvailable();
-		logger.info("FFmpeg dependencies available", {
-			ffMpeg: ffMpegAvailable,
-			ffProbe: ffProbeAvailable,
-			ffMpegVersion: ffMpegCapabilities.version,
-			missingAudioFilters: missingAudioFilters(),
-		});
-
-		const ffMpegMajor = parseMajorVersion(ffMpegCapabilities.version);
-		if (ffMpegMajor !== null && ffMpegMajor < RECOMMENDED_FFMPEG_MAJOR) {
-			logger.warn(
-				`FFmpeg ${ffMpegCapabilities.version} is older than the recommended ${RECOMMENDED_FFMPEG_MAJOR}.x — HDR tone mapping and newer encoders may be unavailable`,
-			);
-		}
-
-		const setupStatus = await firstRunSetupService.getStatus();
-		if (setupStatus.required && !setupStatus.tokenRequired && isPublicBindHost(serverConfig.network.host)) {
-			logger.warn(
-				`First-run setup is still pending and the server is bound to ${serverConfig.network.host} without a setup token — anyone who can reach it can create the first administrator. Set SETUP_TOKEN_ENABLED=true before exposing it.`,
-			);
-		}
-
-		logger.info("Loading plugins...");
-		// A plugin channel that stops delivering tells the administrators once, with its error.
-		onNotificationChannelFailure((failure) => detach(reportChannelFailureToAdministrators(failure)));
-		await pluginManager.loadPlugins();
-
-		logger.info("Loading queue service...");
-		const builtInWorkers = await loadBuiltInWorkers();
-		await workerService.initialize(builtInWorkers);
-
-		// Downloads interrupted by a crash would otherwise pin their profile's only
-		// active-download slot forever; re-check and re-enqueue them.
-		try {
-			const requeuedDownloads = await downloadsService.reconcileOnStartup();
-			if (requeuedDownloads > 0) logger.info("Reconciled interrupted downloads", { requeued: requeuedDownloads });
-		} catch (error) {
-			logger.warn("Download reconciliation failed", { error });
-		}
-
-		// Streaming lifecycle callbacks must be configured before any session can start.
-		registerStreamingLifecycle();
-
-		logger.info("Initializing resource allocator...");
-		resourceAllocator.registerActiveStreamsProvider(() => streamingManager.getActiveSessions());
-		// Resource alerts and rescue state are admin-panel material — keep them off non-admin sockets.
-		resourceAllocator.registerAlertListener(async (alert) => {
-			adminFailureNotificationService.notifyResourceAlert(alert.code, alert.params ?? {});
-			await realtimeService.sendToAdmins("system.resource_alert", alert);
-		});
-		await resourceAllocator.initialize();
-
-		// Arm the server rescue monitor (event-loop lag + system pressure watchdog)
-		serverRescueService.registerPressureProvider(() => resourceAllocator.getCurrentSnapshot()?.pressure ?? "low");
-		serverRescueService.registerSpeedFactorProvider(() => systemResourcesService.getSpeedFactor());
-		serverRescueService.registerStateListener(async (state) => await realtimeService.sendToAdmins("system.rescue_state", state));
-		serverRescueService.init();
-
-		registerLibraryWatchers();
-
-		// Fire-and-forget: a slow or unreachable GitHub must never delay boot.
-		scheduleStartupUpdateCheck();
+		// awaits: sequential — each step needs the state the one before it sets up
+		await prepareStorageAndDatabase();
+		await loadRuntimeSettings();
+		await checkDependencies();
+		registerRuntimeProviders();
+		await startServices();
 	} catch (error) {
 		logger.error("Failed to start server", error);
 		await flushLogsBounded();

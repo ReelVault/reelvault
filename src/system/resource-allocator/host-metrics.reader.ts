@@ -123,6 +123,13 @@ const CGROUP_RETRY_MS = 60_000;
 let cgroupCpuSource: CgroupCpuSource | undefined;
 let cgroupProbeFailedAt = 0;
 
+/** Forgets the cgroup source, probe failure and CPU baseline, so a test starts from the same state as a fresh process. */
+export function resetCgroupCpuState(): void {
+	cgroupBaseline = undefined;
+	cgroupCpuSource = undefined;
+	cgroupProbeFailedAt = 0;
+}
+
 /** The file reader and clock are injectable so a transient cgroup failure can be reproduced in a test. */
 export async function readCgroupCpuUsageMicros(
 	readText: (path: string) => Promise<string> = (path) => bunFile(path).text(),

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { assertCronExpression, computeNextRunAt, getRetryDelay, matchesCron } from "@/workers/utils/worker-policy.utils";
+import { assertCronExpression, computeNextRunAt, getRetryDelay } from "@/workers/utils/worker-policy.utils";
 
-// Cron and wall-clock dates are built with local constructors on purpose: the matcher
+// Cron and wall-clock dates are built with local constructors on purpose: the scheduler
 // reads local fields, so the expectations hold in every time zone.
 
 describe("getRetryDelay", () => {
@@ -21,41 +21,6 @@ describe("getRetryDelay", () => {
 	});
 });
 
-describe("matchesCron", () => {
-	test.each([
-		{ label: "matches a weekday at a fixed time", date: new Date(2026, 6, 24, 3, 0), expr: "0 3 * * 5", expected: true },
-		{ label: "rejects a minute the expression does not list", date: new Date(2026, 6, 24, 3, 7), expr: "0 3 * * 5", expected: false },
-		{ label: "matches a quarter-hour step on a quarter hour", date: new Date(2026, 6, 24, 3, 15), expr: "*/15 * * * *", expected: true },
-		{ label: "matches a minute step on its multiples", date: new Date(2026, 0, 1, 0, 5), expr: "*/5 * * * *", expected: true },
-		{ label: "rejects a minute between minute steps", date: new Date(2026, 0, 1, 0, 3), expr: "*/5 * * * *", expected: false },
-		{ label: "matches the start of a stepped range", date: new Date(2026, 0, 1, 0, 1), expr: "1-10/2 * * * *", expected: true },
-		{ label: "matches a stepped range inside the range", date: new Date(2026, 0, 1, 0, 3), expr: "1-10/2 * * * *", expected: true },
-		{ label: "rejects a stepped range's off-step minute", date: new Date(2026, 0, 1, 0, 4), expr: "1-10/2 * * * *", expected: false },
-		{ label: "rejects a stepped range's minute past its end", date: new Date(2026, 0, 1, 0, 11), expr: "1-10/2 * * * *", expected: false },
-		{ label: "matches a comma-separated value", date: new Date(2026, 0, 1, 0, 3), expr: "1,3,5 * * * *", expected: true },
-		{
-			label: "rejects a minute absent from a comma-separated list",
-			date: new Date(2026, 0, 1, 0, 2),
-			expr: "1,3,5 * * * *",
-			expected: false,
-		},
-		{ label: "treats 0 as Sunday", date: new Date(2026, 6, 26, 0, 0), expr: "* * * * 0", expected: true },
-		{ label: "treats 6 as Saturday", date: new Date(2026, 6, 25, 0, 0), expr: "* * * * 6", expected: true },
-		{ label: "treats 5 as Friday", date: new Date(2026, 6, 24, 0, 0), expr: "* * * * 5", expected: true },
-		// "0 0 1 * 1" = the 1st of the month OR Mondays when both day fields are restricted.
-		{
-			label: "ORs day-of-month with day-of-week for a first-of-month date",
-			date: new Date(2026, 8, 1, 0, 0),
-			expr: "0 0 1 * 1",
-			expected: true,
-		},
-		{ label: "ORs day-of-month with day-of-week for a Monday", date: new Date(2026, 8, 7, 0, 0), expr: "0 0 1 * 1", expected: true },
-		{ label: "rejects a date matching neither day field", date: new Date(2026, 8, 2, 0, 0), expr: "0 0 1 * 1", expected: false },
-	])("$label", ({ date, expr, expected }) => {
-		expect(matchesCron(date, expr)).toBe(expected);
-	});
-});
-
 describe("assertCronExpression", () => {
 	test.each([
 		{ label: "hour 24 is out of range", expr: "0 24 * * *" },
@@ -70,19 +35,6 @@ describe("assertCronExpression", () => {
 		{ label: "a zero step", expr: "*/0 * * * *" },
 	])("rejects an expression with $label", ({ expr }) => {
 		expect(() => assertCronExpression(expr)).toThrow(expect.objectContaining({ category: "validation", code: "worker.cron_invalid" }));
-	});
-
-	test("matchesCron reports the same validation error for a malformed expression", () => {
-		expect(() => matchesCron(new Date(), "0 3 * *")).toThrow(
-			expect.objectContaining({ category: "validation", code: "worker.cron_invalid" }),
-		);
-	});
-
-	test("matches the boundary values of every field", () => {
-		expect(matchesCron(new Date(2026, 11, 31, 23, 59), "59 23 31 12 *")).toBe(true);
-		expect(matchesCron(new Date(2026, 11, 26, 23, 59), "59 23 * 12 6")).toBe(true);
-		expect(matchesCron(new Date(2026, 11, 26, 23, 59), "59 23 * 12 0")).toBe(false);
-		expect(matchesCron(new Date(2026, 0, 4, 0, 0), "0 0 * 1 0")).toBe(true);
 	});
 });
 
@@ -139,5 +91,52 @@ describe("computeNextRunAt", () => {
 	test("returns null when no schedulable trigger exists", () => {
 		expect(computeNextRunAt(triggers("startup", {}), undefined, new Date())).toBeNull();
 		expect(computeNextRunAt([], undefined, new Date())).toBeNull();
+	});
+
+	// Cron fields: a listed or stepped minute is the next fire time; the step's end and off-step minutes are skipped.
+	test.each([
+		{ label: "a weekday at a fixed time", from: new Date(2026, 6, 23, 12, 0), expr: "0 3 * * 5", next: new Date(2026, 6, 24, 3, 0) },
+		{ label: "a quarter-hour step", from: new Date(2026, 6, 24, 3, 7), expr: "*/15 * * * *", next: new Date(2026, 6, 24, 3, 15) },
+		{
+			label: "the next minute of a stepped range",
+			from: new Date(2026, 0, 1, 0, 4),
+			expr: "1-10/2 * * * *",
+			next: new Date(2026, 0, 1, 0, 5),
+		},
+		{
+			label: "the next hour when a stepped range has passed its end",
+			from: new Date(2026, 0, 1, 0, 9),
+			expr: "1-10/2 * * * *",
+			next: new Date(2026, 0, 1, 1, 1),
+		},
+		{
+			label: "the last minute of the year",
+			from: new Date(2026, 11, 30, 0, 0),
+			expr: "59 23 31 12 *",
+			next: new Date(2026, 11, 31, 23, 59),
+		},
+		// "0 0 1 * 1" = the 1st of the month OR Mondays, because both day fields are restricted.
+		{
+			label: "the Monday that comes before the 1st",
+			from: new Date(2026, 8, 2, 0, 0),
+			expr: "0 0 1 * 1",
+			next: new Date(2026, 8, 7, 0, 0),
+		},
+		{
+			label: "the 1st that comes before the next Monday",
+			from: new Date(2026, 7, 31, 0, 0),
+			expr: "0 0 1 * 1",
+			next: new Date(2026, 8, 1, 0, 0),
+		},
+		{ label: "Sunday for day-of-week 0", from: new Date(2026, 6, 25, 0, 0), expr: "0 0 * * 0", next: new Date(2026, 6, 26, 0, 0) },
+		{ label: "Saturday for day-of-week 6", from: new Date(2026, 6, 24, 0, 0), expr: "0 0 * * 6", next: new Date(2026, 6, 25, 0, 0) },
+	])("fires on $label", ({ from, expr, next }) => {
+		expect(computeNextRunAt([], expr, from)).toEqual(next);
+	});
+
+	test("rejects a malformed cron expression with the validation code", () => {
+		expect(() => computeNextRunAt([], "0 3 * *", new Date())).toThrow(
+			expect.objectContaining({ category: "validation", code: "worker.cron_invalid" }),
+		);
 	});
 });

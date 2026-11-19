@@ -69,15 +69,6 @@ function compileCron(expression: string): CompiledCron {
 	return compiled;
 }
 
-export function matchesCron(date: Date, expression: string): boolean {
-	const rawFields = expression.trim().split(cronFieldSeparator);
-	const [minute, hour, day, month, weekday] = compileCron(expression);
-	const domMatch = day(date.getDate());
-	const dowMatch = weekday(date.getDay());
-
-	return minute(date.getMinutes()) && hour(date.getHours()) && cronDayMatches(rawFields, domMatch, dowMatch) && month(date.getMonth() + 1);
-}
-
 /**
  * Standard cron day semantics: when BOTH day-of-month and day-of-week are
  * restricted (not `*`), a day matches if EITHER does; otherwise both must match.

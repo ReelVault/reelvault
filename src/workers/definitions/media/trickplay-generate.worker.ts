@@ -6,7 +6,7 @@ import { workerOperationRepository } from "@/repositories/worker-operation.repos
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { KeyedMutex } from "@/utils/concurrency.utils";
 import { withDomainError } from "@/utils/domain.errors";
-import { anyAttachedToOperation, attachedToOperation } from "@/workers/core/worker-operation.service";
+import { anyAttachedToOperation, attachedToOperation, enqueueWithOperation } from "@/workers/core/worker-operation.service";
 import { workerService } from "@/workers/worker.service";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -46,7 +46,7 @@ export const trickplayGenerateWorker = createWorkerDefinition<{ mediaFileId: str
 
 /** A real worker operation, so the admin UI can poll exactly what the route returned. */
 export async function enqueueTrickplayGeneration(mediaFileId: string, options: WorkerEnqueueOptions = {}) {
-	const { result } = await workerService.enqueueUnderOperation(
+	const { result } = await enqueueWithOperation(
 		{ type: trickplayGenerateWorker.id, reference: { type: "media-file", id: mediaFileId } },
 		(operationId) =>
 			workerService.addItem(
@@ -79,35 +79,16 @@ const libraryTrickplayLocks = new KeyedMutex();
 export async function enqueueTrickplayGenerationForLibrary(mediaFileId: string, libraryId: string): Promise<WorkerItem> {
 	return await libraryTrickplayLocks.runExclusive(libraryId, async () => {
 		const existing = await workerOperationRepository.findActiveByReference(trickplayGenerateWorker.id, "library", libraryId);
-		const operationId =
-			existing?.id ??
-			(await workerService.createOperation({ type: trickplayGenerateWorker.id, reference: { type: "library", id: libraryId } })).id;
+		// A dedupe hit returns the pre-existing job (with its own operation); the
+		// helper drops a freshly created operation that ended up with zero items.
+		const { result } = await enqueueWithOperation(
+			{ type: trickplayGenerateWorker.id, reference: { type: "library", id: libraryId } },
+			(operationId) =>
+				workerService.addItem(trickplayGenerateWorker.id, { mediaFileId }, { ...trickplayQueueOptions(mediaFileId), operationId }),
+			{ operationId: existing?.id, isAttached: attachedToOperation },
+		);
 
-		try {
-			const item = await workerService.addItem(
-				trickplayGenerateWorker.id,
-				{ mediaFileId },
-				{ ...trickplayQueueOptions(mediaFileId), operationId },
-			);
-
-			// A dedupe hit returns the pre-existing job (with its own operation) —
-			// remove a freshly created operation that ended up with zero items.
-			if (!existing && item.operationId !== operationId) {
-				await workerService.removeOperation(operationId).catch(() => {
-					// best-effort cleanup
-				});
-			}
-
-			return item;
-		} catch (error) {
-			if (!existing) {
-				await workerService.removeOperation(operationId).catch(() => {
-					// best-effort cleanup
-				});
-			}
-
-			throw error;
-		}
+		return result;
 	});
 }
 
@@ -117,7 +98,7 @@ export async function enqueueTrickplayGenerationMany(
 ): Promise<{ operationId: string | undefined; items: WorkerItem[] }> {
 	if (mediaFileIds.length === 0) return { operationId: undefined, items: [] };
 
-	const { operationId, result: items } = await workerService.enqueueUnderOperation(
+	const { operationId, result: items } = await enqueueWithOperation(
 		{ type: trickplayGenerateWorker.id, reference: { type: "media-file", id: "all" } },
 		(opId) =>
 			workerService.addItems(

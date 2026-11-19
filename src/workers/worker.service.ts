@@ -1,12 +1,10 @@
 import type { AddWorkerItemOptions, WorkerDefinition, WorkerJob as WorkerItemContract, WorkerQueueStats } from "@reelvault/sdk/common";
 import type { ActiveWorkerItem, WorkerItem } from "@/repositories/worker-jobs/shared.types";
 import type { WorkerOperationRecord, WorkerOperationStatus } from "@/repositories/worker-operation/shared.types";
-import { resourceAllocator } from "@/system/resource-allocator.service";
 import { serverRescueService } from "@/system/server-rescue.service";
 import { safeParseJson } from "@/utils/json.utils";
 import { createLogger } from "@/utils/logger.utils";
 import { setWorkerRuntime } from "./core/worker.runtime";
-import { enqueueWithOperation } from "./core/worker-operation.service";
 import { type WorkerOperationsService, workerOperationsService } from "./core/worker-operations.service";
 import { WorkerPollingService } from "./core/worker-polling.service";
 import { WorkerExecutionPoolService } from "./core/worker-pool.service";
@@ -57,23 +55,19 @@ class WorkerService {
 			onStallDetected: () => this.polling.triggerPoll(),
 			onEscalated: () => this.polling.recoverFromStall(),
 		});
+	}
 
-		// Server rescue escalation: abort running tasks of every non-protected worker
-		// and put them back into the queue with attempts preserved — the work itself
-		// was healthy, the server just needs the capacity back. Protected workers
-		// (playback) keep running; pending tasks stay queued and are picked up again
-		// once rescue releases.
-		serverRescueService.registerActions({
-			cancelBackgroundTasks: () => {
-				for (const definition of this.registry.getAll()) {
-					if (serverRescueService.isWorkerProtected(definition.id)) continue;
+	/**
+	 * Server rescue escalation: puts the running tasks of every non-protected worker back into the queue with
+	 * attempts preserved. The work itself was healthy; the server just needs the capacity back. Protected workers
+	 * (playback) keep running. Registered by index.ts.
+	 */
+	requeueBackgroundTasks(): void {
+		for (const definition of this.registry.getAll()) {
+			if (serverRescueService.isWorkerProtected(definition.id)) continue;
 
-					this.pool.requeueAllForWorker(definition.id);
-				}
-			},
-		});
-
-		resourceAllocator.registerActiveWorkersProvider(() => this.pool.getRunningCounts());
+			this.pool.requeueAllForWorker(definition.id);
+		}
 	}
 
 	async initialize(workers?: WorkerDefinition[]): Promise<void> {
@@ -234,21 +228,6 @@ class WorkerService {
 
 	createOperation(input: { type: string; reference?: { type: string; id: string }; error?: string }): Promise<WorkerOperationRecord> {
 		return this.operations.create(input);
-	}
-
-	/**
-	 * Creates an operation, runs `enqueue` (which should attach the enqueue to
-	 * the operation via `options.operationId`), and removes the operation again
-	 * when the enqueue fails — shared with the queue/scheduler/plugin enqueue
-	 * paths via {@link enqueueWithOperation}.
-	 */
-	async enqueueUnderOperation<T>(
-		input: { type: string; reference?: { type: string; id: string } },
-		enqueue: (operationId: string) => Promise<T>,
-		/** `isAttached` lets the helper drop a fresh operation whose enqueue deduped onto another one. */
-		options: { isAttached?: ((result: T, operationId: string) => boolean) | undefined } = {},
-	): Promise<{ operationId: string; result: T }> {
-		return await enqueueWithOperation(input, enqueue, options);
 	}
 
 	getOperation(id: string) {

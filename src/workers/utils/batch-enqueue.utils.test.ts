@@ -82,6 +82,30 @@ describe("enqueueInBatches", () => {
 		expect(result).toEqual({ queued: 0, cursor: 0 });
 	});
 
+	test("persists the cursor for an empty list on the batch path too", async () => {
+		const cursors: number[] = [];
+		const batchedChunks: number[] = [];
+
+		const result = await enqueueInBatches({
+			items: [],
+			batch: (chunk) => {
+				batchedChunks.push(chunk.length);
+
+				return Promise.resolve();
+			},
+			item: () => {
+				throw new Error("must not run");
+			},
+			onChunk: (cursor) => {
+				cursors.push(cursor);
+			},
+		});
+
+		expect(batchedChunks).toEqual([]);
+		expect(cursors).toEqual([0]);
+		expect(result).toEqual({ queued: 0, cursor: 0 });
+	});
+
 	test("stops before the first batch when the signal is already aborted", async () => {
 		const controller = new AbortController();
 		const reason = new Error("cancelled");

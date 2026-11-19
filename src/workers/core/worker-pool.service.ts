@@ -340,7 +340,7 @@ export class WorkerExecutionPoolService {
 			}
 
 			if (exec.abortReason === "timeout") {
-				await workerJobRepository.fail(id, this.runnerId, "Execution timed out and did not stop after the grace period", claimToken);
+				await this.failAbandonedExecution(exec, "Execution timed out and did not stop after the grace period");
 
 				return;
 			}
@@ -355,8 +355,7 @@ export class WorkerExecutionPoolService {
 						maxAttempts: exec.item.maxAttempts,
 						reason: exec.abortReason,
 					});
-					await workerJobRepository.fail(id, this.runnerId, message, claimToken);
-					adminFailureNotificationService.notifyWorkerFailed(exec.workerId, message);
+					await this.failAbandonedExecution(exec, message);
 
 					return;
 				}
@@ -370,6 +369,25 @@ export class WorkerExecutionPoolService {
 				error: errorMessage(error),
 			});
 		}
+	}
+
+	/**
+	 * Fails the row of an abandoned execution. When this call is the one that failed it, the run is recorded
+	 * and administrators are notified, as for any other permanent failure.
+	 */
+	private async failAbandonedExecution(exec: ActiveExecution, message: string): Promise<void> {
+		const completedAt = new Date();
+		const failed = await workerJobRepository.fail(exec.item.id, this.runnerId, message, exec.item.claimToken ?? undefined);
+		if (!failed) return;
+
+		await this.recordScheduleExecution(exec.workerId, {
+			status: "failed",
+			startedAt: new Date(exec.startedAt),
+			completedAt,
+			durationMs: completedAt.getTime() - exec.startedAt,
+			error: message,
+		});
+		adminFailureNotificationService.notifyWorkerFailed(exec.workerId, message);
 	}
 
 	/**

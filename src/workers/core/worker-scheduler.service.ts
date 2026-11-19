@@ -7,6 +7,7 @@ import type {
 	WorkerQueueStats,
 	WorkerSummary,
 } from "@reelvault/sdk/common";
+import { serverConfig } from "@/config/server/server.config";
 import { MINUTE } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { workerJobRepository } from "@/repositories/worker.repository";
@@ -30,7 +31,7 @@ function defaultConcurrency(def: WorkerDefinition): number {
 
 /** The timeout a worker runs with when its definition does not say. */
 function defaultTimeoutMs(def: WorkerDefinition): number {
-	return def.timeoutMs ?? MINUTE;
+	return def.timeoutMs ?? serverConfig.workers.scheduling.defaultTimeoutMs;
 }
 
 /** Zeroed queue stats for a worker that has no job rows yet. */
@@ -133,15 +134,12 @@ export class WorkerSchedulerService {
 
 			const row = scheduleRows.get(def.id);
 
-			const triggers = this.getTriggersForWorker(def.id);
-			const cron = def.schedule?.cron;
-
 			const due = row?.nextRunAt ?? null;
 			if (due === null) {
 				// First pass for this worker — arm the deadline without firing.
 				// Trigger-less workers compute null every tick; writing that null
 				// back would bump updatedAt forever for no state change.
-				const nextRunAt = computeNextRunAt(triggers, cron, now);
+				const nextRunAt = this.nextRunFor(def, now);
 				if (nextRunAt !== null) deadlineUpdates.push({ workerId: def.id, nextRunAt });
 
 				continue;
@@ -170,8 +168,7 @@ export class WorkerSchedulerService {
 			// silently skip the whole period with only a warning in the log.
 			if (!queued[index]) continue;
 
-			const triggers = this.getTriggersForWorker(entry.def.id);
-			deadlineUpdates.push({ workerId: entry.def.id, nextRunAt: computeNextRunAt(triggers, entry.def.schedule?.cron, now) });
+			deadlineUpdates.push({ workerId: entry.def.id, nextRunAt: this.nextRunFor(entry.def, now) });
 		}
 
 		await workerSchedulesRepository.setNextRunAtMany(deadlineUpdates);
@@ -199,6 +196,11 @@ export class WorkerSchedulerService {
 
 			return false;
 		}
+	}
+
+	/** The next deadline of a worker's effective triggers, counted from `from`. */
+	private nextRunFor(def: WorkerDefinition, from: Date): Date | null {
+		return computeNextRunAt(this.getTriggersForWorker(def.id), def.schedule?.cron, from);
 	}
 
 	getTriggersForWorker(workerId: string): TaskTrigger[] {
@@ -245,7 +247,7 @@ export class WorkerSchedulerService {
 		this.logger.info(enabled ? "Worker schedule resumed" : "Worker schedule paused", { workerId });
 		if (!enabled) return { workerId, enabled, nextRunAt: null };
 
-		const nextRunAt = computeNextRunAt(this.getTriggersForWorker(workerId), def.schedule?.cron, new Date());
+		const nextRunAt = this.nextRunFor(def, new Date());
 		await workerSchedulesRepository.setNextRunAt(workerId, nextRunAt);
 
 		return { workerId, enabled, nextRunAt: nextRunAt?.toISOString() ?? null };

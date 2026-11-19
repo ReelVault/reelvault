@@ -86,7 +86,8 @@ class ServerRescueService {
 	private lastReason?: string | undefined;
 	private maxLagSinceCheck = 0;
 
-	private lagSamplerTimer?: Timer | undefined;
+	private lagSampledAt = 0;
+	private readonly lagSampler = new RecurringTimer(() => this.sampleLag(), LAG_SAMPLE_INTERVAL_MS);
 	private readonly checkTimer = new RecurringTimer(() => this.runCheck(), CHECK_INTERVAL_MS);
 	private pressureProvider: () => SystemPressure = () => "low";
 	private speedFactorProvider: () => number = () => 1;
@@ -134,7 +135,8 @@ class ServerRescueService {
 			return;
 		}
 
-		this.armLagSampler();
+		this.lagSampledAt = performance.now();
+		this.lagSampler.start();
 		this.checkTimer.start();
 		this.logger.info("Server rescue monitor armed", {
 			checkIntervalMs: CHECK_INTERVAL_MS,
@@ -164,11 +166,7 @@ class ServerRescueService {
 	}
 
 	private clearTimers(): void {
-		if (this.lagSamplerTimer) {
-			clearTimeout(this.lagSamplerTimer);
-			this.lagSamplerTimer = undefined;
-		}
-
+		this.lagSampler.stop();
 		this.checkTimer.stop();
 	}
 
@@ -188,7 +186,7 @@ class ServerRescueService {
 	getRescueAllocation(workerId: string): { allocated: 0; throttled: true; reason: "server_rescue" } | undefined {
 		if (this.state !== "rescuing") return undefined;
 
-		if (PROTECTED_WORKER_IDS.has(workerId)) return undefined;
+		if (this.isWorkerProtected(workerId)) return undefined;
 
 		return { allocated: 0, throttled: true, reason: "server_rescue" };
 	}
@@ -204,21 +202,15 @@ class ServerRescueService {
 		};
 	}
 
-	/** Measures timer drift: how much later than LAG_SAMPLE_INTERVAL_MS the callback fired. */
-	private armLagSampler(): void {
-		if (!this.isInitialized) return;
-
-		// Monotonic timer drift: a wall-clock adjustment must not engage rescue.
-		const armedAt = performance.now();
-		this.lagSamplerTimer = setTimeout(() => {
-			if (!this.isInitialized) return;
-
-			const drift = Math.max(0, performance.now() - armedAt - LAG_SAMPLE_INTERVAL_MS);
-			if (drift > this.maxLagSinceCheck) this.maxLagSinceCheck = drift;
-
-			this.armLagSampler();
-		}, LAG_SAMPLE_INTERVAL_MS);
-		this.lagSamplerTimer.unref();
+	/**
+	 * Measures timer drift: how much later than LAG_SAMPLE_INTERVAL_MS the sampler fired. Monotonic
+	 * (`performance.now`), so a wall-clock adjustment must not engage rescue.
+	 */
+	private sampleLag(): void {
+		const now = performance.now();
+		const drift = Math.max(0, now - this.lagSampledAt - LAG_SAMPLE_INTERVAL_MS);
+		this.lagSampledAt = now;
+		if (drift > this.maxLagSinceCheck) this.maxLagSinceCheck = drift;
 	}
 
 	/** Drains the worst lag the sampler saw since the last check. */

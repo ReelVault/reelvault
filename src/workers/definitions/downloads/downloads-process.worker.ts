@@ -1,6 +1,7 @@
 import { serverConfig } from "@/config/server/server.config";
 import { throwIfAborted } from "@/utils/cancellation.utils";
 import { errorCodeOf, withDomainError } from "@/utils/domain.errors";
+import { resolveRetryDefaults } from "@/workers/core/worker-registry.service";
 import { defineWorkerEnqueue } from "@/workers/utils/worker-enqueue.utils";
 import { createWorkerDefinition, type WorkerEnqueueOptions } from "@/workers/worker.types";
 
@@ -25,8 +26,7 @@ export const downloadsProcessWorker = createWorkerDefinition<{ downloadId: strin
 				// transient spawn/IO error must not kill the download early, but an
 				// exhausted retry budget must not leave the row `pending` forever
 				// (it would pin the profile's only active-download slot).
-				const maxAttempts = downloadsProcessWorker.attempts ?? 3;
-				if (attempt >= maxAttempts && !signal.aborted) {
+				if (attempt >= resolveRetryDefaults(downloadsProcessWorker).attempts && !signal.aborted) {
 					await downloadsService.markFailed(data.downloadId, errorCodeOf(error, "download.failed"));
 				}
 

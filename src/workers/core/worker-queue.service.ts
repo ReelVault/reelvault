@@ -1,5 +1,4 @@
 import type { AddWorkerItemOptions, WorkerDefinition } from "@reelvault/sdk/common";
-import { serverConfig } from "@/config/server/server.config";
 import { workerJobRepository } from "@/repositories/worker.repository";
 import type { ActiveWorkerItem, EnqueueWorkerItemInput, WorkerItem } from "@/repositories/worker-jobs/shared.types";
 import { DomainError } from "@/utils/domain.errors";
@@ -7,6 +6,7 @@ import { createLogger } from "@/utils/logger.utils";
 import { type TerminalPurgeRequest, terminalPurgeFilter } from "@/workers/utils/worker-purge.utils";
 import { getWorkerRuntime } from "./worker.runtime";
 import { anyAttachedToOperation, attachedToOperation, enqueueWithOperation } from "./worker-operation.service";
+import { resolveRetryDefaults } from "./worker-registry.service";
 
 export class WorkerQueueService {
 	readonly serviceName = "WorkerQueueService";
@@ -123,7 +123,8 @@ export class WorkerQueueService {
 		options: AddWorkerItemOptions,
 		definition: WorkerDefinition,
 	): EnqueueWorkerItemInput {
-		const backoff = options.backoff ?? definition.backoff ?? serverConfig.workers.scheduling.defaultBackoff;
+		const retry = resolveRetryDefaults(definition);
+		const backoff = options.backoff ?? retry.backoff;
 
 		return {
 			id: Bun.randomUUIDv7(),
@@ -136,7 +137,7 @@ export class WorkerQueueService {
 			referenceType: options.reference?.type,
 			referenceId: options.reference?.id,
 			priority: options.priority ?? definition.defaultPriority ?? 0,
-			maxAttempts: Math.max(1, options.attempts ?? definition.attempts ?? serverConfig.workers.scheduling.defaultAttempts),
+			maxAttempts: Math.max(1, options.attempts ?? retry.attempts),
 			backoffType: backoff.type,
 			backoffDelayMs: Math.max(0, backoff.delayMs),
 			runAt: new Date(Date.now() + Math.max(0, options.delayMs ?? 0)),

@@ -2,6 +2,7 @@ import { which } from "bun";
 import { systemdNotify } from "@/config/env.config";
 import { createLogger } from "@/utils/logger.utils";
 import { detachCatching, withTimeout } from "@/utils/promise.utils";
+import { RecurringTimer } from "@/utils/recurring-timer.utils";
 
 /** systemd sends these when the unit has `WatchdogSec=`; without them the integration is inert. */
 const NOTIFY_SOCKET = systemdNotify.socketPath;
@@ -32,7 +33,7 @@ class SystemdWatchdogService {
 	readonly logger = createLogger("SystemdWatchdogService");
 
 	private command: string | undefined;
-	private timer: ReturnType<typeof setInterval> | undefined;
+	private readonly heartbeat = new RecurringTimer(() => this.send(["--watchdog"]), watchdogIntervalMs(WATCHDOG_USEC));
 	private enabled = false;
 	private sending = false;
 
@@ -57,8 +58,7 @@ class SystemdWatchdogService {
 		this.command = command;
 		this.enabled = true;
 		detachCatching(this.send(["--ready"]));
-		this.timer = setInterval(() => detachCatching(this.send(["--watchdog"])), intervalMs);
-		this.timer.unref();
+		this.heartbeat.start();
 		this.logger.info("systemd watchdog armed", { intervalMs, watchdogUsec: WATCHDOG_USEC });
 	}
 
@@ -97,10 +97,7 @@ class SystemdWatchdogService {
 	}
 
 	private clearTimer(): void {
-		if (this.timer) {
-			clearInterval(this.timer);
-			this.timer = undefined;
-		}
+		this.heartbeat.stop();
 	}
 
 	private disable(reason: string, context: Record<string, unknown>): void {

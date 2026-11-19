@@ -7,11 +7,14 @@ import {
 	type WorkerRuntimeQueue,
 	type WorkerRuntimeRegistry,
 } from "./worker.runtime";
+import { resolveRetryDefaults } from "./worker-registry.service";
 
 /** Empty lookup result for the mock queue, which never persists items. */
 const MOCK_FIND_NOTHING: WorkerItem | undefined = undefined;
 
 export function createMockWorkerItem(overrides: Partial<WorkerItem> = {}): WorkerItem {
+	const retry = resolveRetryDefaults({});
+
 	return {
 		id: "job-1",
 		workerId: "test-worker",
@@ -25,9 +28,9 @@ export function createMockWorkerItem(overrides: Partial<WorkerItem> = {}): Worke
 		progressPercent: null,
 		priority: 0,
 		attempts: 0,
-		maxAttempts: 3,
-		backoffType: "exponential",
-		backoffDelayMs: 1000,
+		maxAttempts: retry.attempts,
+		backoffType: retry.backoff.type,
+		backoffDelayMs: retry.backoff.delayMs,
 		leaseUntil: null,
 		runnerId: null,
 		claimToken: null,

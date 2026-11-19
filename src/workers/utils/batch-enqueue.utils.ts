@@ -40,6 +40,9 @@ export async function enqueueInBatches<T>({
 			await onChunk?.(nextCursor);
 		}
 
+		// Nothing to batch: report the cursor once, as the per-item path does.
+		if (queued === 0) await onChunk?.(cursor);
+
 		return { queued, cursor: nextCursor };
 	}
 
