@@ -55,14 +55,25 @@ describe("heartbeat service", () => {
 		expect(result.generation).toBe(0);
 	});
 
-	test("writes progress only for a finite position", async () => {
+	test("writes progress only for a positive finite position", async () => {
 		const { service, calls } = createService();
 
 		await service.execute("s1", { position: 120, audioStreamIndex: 1 });
+		await service.execute("s1", { position: 0 });
 		await service.execute("s1", { position: null });
 		await service.execute("s1", { position: Number.NaN });
 
 		expect(calls.progressUpdates).toEqual([{ fileId: "file-1", progress: { position: 120, audioStreamIndex: 1 }, profileId: "profile-1" }]);
+	});
+
+	test("a zero-position heartbeat keeps the session alive without overwriting saved progress", async () => {
+		const { service, calls } = createService({ sessionState: { state: "active", generation: 2 } });
+
+		const result = await service.execute("s1", { position: 0 });
+
+		expect(result).toMatchObject({ status: "ok", sessionId: "s1", state: "active", generation: 2 });
+		expect(calls.keptAlive).toEqual(["s1"]);
+		expect(calls.progressUpdates).toEqual([]);
 	});
 
 	test("a failed progress write does not break the heartbeat", async () => {

@@ -990,3 +990,12 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 - **The resources page no longer freezes the server.** Its history query re-ran a window function for every row and returned the whole day of samples instead of the requested point budget, blocking the event loop for tens of seconds.
 - **Server updates no longer hang after a successful install.** When a systemd unit was installed but systemd did not start the running process, the restart request never reached it and the update stayed on the database backup step until the server was reset.
 - **Database maintenance no longer waits forever on a stuck child process.** A backup or integrity check now has a deadline even when the process cannot be killed.
+
+# v1.3.8
+
+### Fixes
+
+- **Episodes resume where you stopped.** Opening an episode started it from the beginning instead of the saved position.
+- **Starting the player no longer erases saved progress.** A heartbeat sent before the player reached the saved position could reset it to zero.
+- **A show stays in Continue Watching after moving to the next episode.** It disappeared until the new episode had been watched for a few minutes.
+- **Resuming from another version of a file no longer jumps to the end.** A position saved on a version of a different length is no longer applied to the file being opened.

@@ -450,3 +450,114 @@ describe("continue watching dismissal", () => {
 		expect(buildContinueWatching(data, 12)).toHaveLength(1);
 	});
 });
+
+describe("continue watching builder: low progress after a completed episode", () => {
+	function episodeProgress(
+		episodeId: string,
+		fileId: string,
+		values: { position: number; completed: boolean; updatedAt: string; dismissedAt?: string },
+	): ContinueWatchingData["progressRows"][0] {
+		return {
+			mediaFileId: fileId,
+			metadataId: "meta-1",
+			movieId: null,
+			episodeId,
+			position: values.position,
+			duration: 1200,
+			completed: values.completed,
+			audioStreamIndex: null,
+			subtitleId: null,
+			updatedAt: new Date(values.updatedAt),
+			dismissedAt: values.dismissedAt ? new Date(values.dismissedAt) : null,
+		};
+	}
+
+	function twoEpisodeShow(progressRows: ContinueWatchingData["progressRows"]): ContinueWatchingData {
+		return createData({
+			progressRows,
+			metadataList: [{ id: "meta-1", title: "Show", type: "tv_show", numberingMode: null }],
+			mediaFiles: [
+				{
+					id: "file-1",
+					metadataId: "meta-1",
+					movieId: null,
+					episodeId: "ep-1",
+					duration: 1200,
+					isDefault: true,
+					updatedAt: new Date("2026-01-01T00:00:00Z"),
+				},
+				{
+					id: "file-2",
+					metadataId: "meta-1",
+					movieId: null,
+					episodeId: "ep-2",
+					duration: 1200,
+					isDefault: true,
+					updatedAt: new Date("2026-01-01T00:00:00Z"),
+				},
+			],
+			seasons: [{ id: "season-1", metadataId: "meta-1", seasonNumber: 1 }],
+			episodes: [
+				{ id: "ep-1", seasonId: "season-1", episodeNumber: 1, absoluteNumber: null, title: "Pilot", episodeType: "regular" },
+				{ id: "ep-2", seasonId: "season-1", episodeNumber: 2, absoluteNumber: null, title: "Second", episodeType: "regular" },
+			],
+		});
+	}
+
+	test("recommends the second episode when its newer row has position zero", () => {
+		const data = twoEpisodeShow([
+			episodeProgress("ep-1", "file-1", { position: 1200, completed: true, updatedAt: "2026-01-01T00:00:00Z" }),
+			episodeProgress("ep-2", "file-2", { position: 0, completed: false, updatedAt: "2026-01-02T00:00:00Z" }),
+		]);
+
+		const items = buildContinueWatching(data, 12, 120);
+
+		expect(items).toHaveLength(1);
+		expect(items[0]).toMatchObject({
+			mediaFileId: "file-2",
+			episode: { title: "Second", episodeNumber: 2 },
+			position: 0,
+			progressPercent: 0,
+		});
+	});
+
+	test("resumes the second episode at its saved position when that position is below the threshold", () => {
+		const data = twoEpisodeShow([
+			episodeProgress("ep-1", "file-1", { position: 1200, completed: true, updatedAt: "2026-01-01T00:00:00Z" }),
+			episodeProgress("ep-2", "file-2", { position: 5, completed: false, updatedAt: "2026-01-02T00:00:00Z" }),
+		]);
+
+		const items = buildContinueWatching(data, 12, 120);
+
+		expect(items).toHaveLength(1);
+		expect(items[0]).toMatchObject({ mediaFileId: "file-2", episode: { episodeNumber: 2 }, position: 5 });
+	});
+
+	test("keeps hiding a low-progress episode with no completed predecessor", () => {
+		const data = twoEpisodeShow([episodeProgress("ep-2", "file-2", { position: 5, completed: false, updatedAt: "2026-01-02T00:00:00Z" })]);
+
+		expect(buildContinueWatching(data, 12, 120)).toEqual([]);
+	});
+
+	test("brings a dismissed show back when the low-progress row is newer than the dismissal", () => {
+		const data = twoEpisodeShow([
+			episodeProgress("ep-1", "file-1", {
+				position: 1200,
+				completed: true,
+				updatedAt: "2026-01-01T00:00:00Z",
+				dismissedAt: "2026-01-03T00:00:00Z",
+			}),
+			episodeProgress("ep-2", "file-2", {
+				position: 0,
+				completed: false,
+				updatedAt: "2026-01-04T00:00:00Z",
+				dismissedAt: "2026-01-03T00:00:00Z",
+			}),
+		]);
+
+		const items = buildContinueWatching(data, 12, 120);
+
+		expect(items).toHaveLength(1);
+		expect(items[0]).toMatchObject({ mediaFileId: "file-2", position: 0 });
+	});
+});

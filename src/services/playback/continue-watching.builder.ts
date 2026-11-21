@@ -161,6 +161,15 @@ function buildTvCandidate(
 				ctx,
 			);
 		}
+
+		return null;
+	}
+
+	// Advancing to the next episode writes a low-position row for it. Keep the
+	// show visible when the episode right before it was finished.
+	const previousEpisode = playableEpisodes[playableEpisodes.indexOf(activeEpisode) - 1];
+	if (previousEpisode && episodeProgressMap.get(previousEpisode.id)?.completed === true) {
+		return tvCandidate(meta, activeProgress, activeEpisode, activeSeason, ctx);
 	}
 
 	return null;

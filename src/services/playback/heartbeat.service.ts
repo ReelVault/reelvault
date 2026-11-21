@@ -51,7 +51,9 @@ export class HeartbeatService {
 		keepAlive(sessionId);
 		const position = progress?.position;
 		if (recordPosition && isFiniteNumber(position)) recordPosition(sessionId, position, progress?.isPaused ?? null);
-		if (isFiniteNumber(progress?.position)) {
+		// A startup heartbeat can report 0 before the client seeks to the saved
+		// position; writing it would overwrite the resume point.
+		if (isFiniteNumber(progress?.position) && progress.position > 0) {
 			await updatePlaybackProgress(access.mediaFileId, progress, access.profileId).catch((error: unknown) =>
 				this.logger.error("Heartbeat progress write failed", error, { sessionId }),
 			);

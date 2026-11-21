@@ -7,7 +7,7 @@ import { assertFound, assertProfileId } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { mediaService } from "./media-files/media-files.service";
-import { resolveEffectivePlaybackPreferences } from "./playback-view.utils";
+import { resolveEffectivePlaybackPreferences, selectCompatibleProgress } from "./playback-view.utils";
 
 export const playbackViewService = {
 	serviceName: "PlaybackViewService",
@@ -37,13 +37,24 @@ export const playbackViewService = {
 			// file, so it must not leak in as a next-episode target.
 			const nextEpisodeFileId = overview?.nextEpisodeFileId ?? null;
 
+			// The aggregate carries the most recently played version's progress.
+			// Fall back to this exact file when that version's runtime differs
+			// too much from the file being opened.
+			const progress = selectCompatibleProgress(
+				[
+					episode ? overview?.progress.episodes[episode.id]?.progress : overview?.progress.progress,
+					overview?.progress.fileProgress[mediaFileId]?.progress,
+				],
+				mediaFile.duration,
+			);
+
 			return {
 				mediaFile,
 				metadata,
 				episode: episode ?? null,
 				markers,
 				subtitles,
-				progress: overview?.progress.progress ?? null,
+				progress,
 				nextEpisode: nextEpisodeFileId ? { type: "next_episode", mediaFileId: nextEpisodeFileId } : null,
 				effectivePreferences: resolveEffectivePlaybackPreferences(preferences, serverConfig.stream.maxPerStreamBandwidthKbps),
 			};
