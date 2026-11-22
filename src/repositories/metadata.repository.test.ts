@@ -189,3 +189,54 @@ describe("metadata similar titles from the stored source", () => {
 		}
 	});
 });
+
+describe("provider-neutral similar titles", () => {
+	test("credits crew by how informative the job is and cast by billing, whatever the provider calls them", async () => {
+		// Its own source id: the ranked page cache is keyed by source id and outlives each test's database.
+		const tempDir = mkdtempSync(join(tmpdir(), "reelvault-similar-neutral-test-"));
+		const factory = new DatabaseFactory(join(tempDir, "test.sqlite"));
+		try {
+			factory.migrate();
+			const db = factory.sqlite;
+			const now = Math.floor(Date.now() / 1000);
+
+			const insertMetadata = db.prepare(
+				"INSERT INTO metadata (id, stable_key, title, original_title, overview, tagline, type, status, release_date, origin_country, popularity, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, 'movie', NULL, '2020-01-01', NULL, 0, ?, ?)",
+			);
+			for (const id of ["neutral-source", "m-director", "m-assistant", "m-actor"]) insertMetadata.run(id, id, id, id, now, now);
+			const insertPerson = db.prepare("INSERT INTO people (id, stable_key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
+			for (const person of ["director", "actor", "a-0", "a-1", "a-2", "a-3", "a-4", "a-5", "a-6", "a-7"]) {
+				insertPerson.run(person, person, person, now, now);
+			}
+
+			// A provider naming jobs in Polish: every title has one "Reżyseria" credit and a crowd of five "Asystent" credits.
+			const linkCrew = db.prepare("INSERT INTO metadata_crew (metadata_id, person_id, job, department) VALUES (?, ?, ?, 'Crew')");
+			linkCrew.run("neutral-source", "director", "Reżyseria");
+			linkCrew.run("m-director", "director", "Reżyseria");
+			// m-assistant swaps the roles: the source's assistant a-0 directs it, and the source's director assists on it.
+			linkCrew.run("m-assistant", "a-0", "Reżyseria");
+			linkCrew.run("m-actor", "a-6", "Reżyseria");
+			for (const [metadataId, people] of [
+				["neutral-source", ["a-0", "a-1", "a-2", "a-3", "a-4"]],
+				["m-director", ["a-1", "a-2", "a-3", "a-4", "a-5"]],
+				["m-assistant", ["director", "a-1", "a-2", "a-3", "a-4"]],
+				["m-actor", ["a-2", "a-3", "a-4", "a-5", "a-6"]],
+			] as const) {
+				for (const person of people) linkCrew.run(metadataId, person, "Asystent");
+			}
+			// TMDB stores the department as the cast role, so "Acting" is a real value.
+			const linkCast = db.prepare("INSERT INTO metadata_cast (metadata_id, person_id, role, sort_order) VALUES (?, ?, 'Acting', ?)");
+			linkCast.run("neutral-source", "actor", 0);
+			linkCast.run("m-actor", "actor", 0);
+
+			const result = await metadataRepository.getMoreLikeThis({ metadataId: "neutral-source", limit: 10, offset: 0, tx: factory.db });
+
+			// Shared director: 80 × 1. Shared lead actor: 15. A person shared through the crowded job (weight 0.2)
+			// on either side is no trait, so m-assistant does not appear.
+			expect(result.data.map((row) => row.id)).toEqual(["m-director", "m-actor"]);
+		} finally {
+			factory.shutdown();
+			removeTreeSync(tempDir);
+		}
+	});
+});

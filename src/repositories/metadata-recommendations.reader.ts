@@ -1,5 +1,5 @@
 import type { FieldsConfig, MetadataWithRelation, SelectFields } from "@reelvault/sdk/common";
-import { eq, inArray, like, type SQL, sql } from "drizzle-orm";
+import { eq, inArray, type SQL, sql } from "drizzle-orm";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { databaseFactory } from "@/integrations/drizzle-orm/database.factory";
 import { schema } from "@/integrations/drizzle-orm/database.schema";
@@ -7,6 +7,7 @@ import type { DatabaseTransaction } from "@/integrations/drizzle-orm/database.ty
 import { pluckValidIds, toMap } from "@/utils/array.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { isNotNullish } from "@/utils/type.utils";
+import { findCrewRoleWeights } from "./discover-recommendations.reader";
 
 /**
  * The "more like this" scoring pass (trait load + 5 correlated subqueries) is
@@ -123,13 +124,19 @@ interface SimilarityTraits {
 	collectionIds: string[];
 	genreIds: string[];
 	keywordIds: string[];
-	directors: string[];
+	/** People credited on the source in an informative crew job. */
+	creditPersonIds: string[];
+	/** Informative crew job -> weight (`findCrewRoleWeights`). */
+	roleWeights: ReadonlyMap<string, number>;
 	topCast: string[];
 }
 
+/** Bonus for a shared crew member, scaled by the job's weight: a director adds about 74, a composer about 62. */
+const CREDIT_BONUS = 80;
+
 /**
- * One row per matching trait. Collection and director rows are DISTINCT because
- * their score is an EXISTS bonus, not a count; genre, keyword and cast rows keep
+ * One row per matching trait. Collection and credit rows are one per title
+ * because their score is a bonus, not a count; genre, keyword and cast rows keep
  * one row per match because those scores multiply by the match count.
  */
 function buildTraitUnion(traits: SimilarityTraits): SQL | undefined {
@@ -150,9 +157,11 @@ function buildTraitUnion(traits: SimilarityTraits): SQL | undefined {
 			sql`SELECT ${schema.metadataKeywords.metadataId} AS metadata_id, 'keyword' AS kind, 12 AS weight FROM ${schema.metadataKeywords} WHERE ${inArray(schema.metadataKeywords.keywordId, traits.keywordIds)}`,
 		);
 	}
-	if (traits.directors.length > 0) {
+	if (traits.creditPersonIds.length > 0 && traits.roleWeights.size > 0) {
+		// Job names are provider data in any language; the weight comes from the catalog census.
+		const rolesJson = JSON.stringify(Object.fromEntries(traits.roleWeights));
 		parts.push(
-			sql`SELECT DISTINCT ${schema.metadataCrew.metadataId} AS metadata_id, 'director' AS kind, 80 AS weight FROM ${schema.metadataCrew} WHERE ${like(schema.metadataCrew.job, "%Director%")} AND ${inArray(schema.metadataCrew.personId, traits.directors)}`,
+			sql`SELECT ${schema.metadataCrew.metadataId} AS metadata_id, 'credit' AS kind, MAX(${CREDIT_BONUS} * roles.value) AS weight FROM ${schema.metadataCrew} INNER JOIN json_each(${rolesJson}) AS roles ON roles.key = ${schema.metadataCrew.job} WHERE ${inArray(schema.metadataCrew.personId, traits.creditPersonIds)} GROUP BY ${schema.metadataCrew.metadataId}`,
 		);
 	}
 	if (traits.topCast.length > 0) {
@@ -169,7 +178,7 @@ function buildScoresCte(traits: SQL): SQL {
 		SELECT metadata_id,
 			SUM(CASE kind WHEN 'genre' THEN 30 WHEN 'keyword' THEN 12 WHEN 'cast' THEN 15 ELSE 0 END)
 			+ CASE WHEN MAX(CASE WHEN kind = 'collection' THEN 1 ELSE 0 END) = 1 THEN -100 ELSE 0 END
-			+ CASE WHEN MAX(CASE WHEN kind = 'director' THEN 1 ELSE 0 END) = 1 THEN 80 ELSE 0 END AS weight
+			+ MAX(CASE WHEN kind = 'credit' THEN weight ELSE 0 END) AS weight
 		FROM traits
 		GROUP BY metadata_id
 	)`;
@@ -190,26 +199,29 @@ interface SimilarPageContext {
 	offset: number;
 }
 
-function collectSimilarityTraits(source: MoreLikeThisSource): SimilarityTraits {
-	const directors: string[] = [];
-	const topCastCandidates: Array<{ id: string; sortOrder: number }> = [];
+/**
+ * No job or role name is read: providers name crew jobs freely (TMDB "Director",
+ * a MAL role, any language) and store a department such as "Acting" as the cast
+ * role. Crew counts by the census weight of its job, cast by billing order.
+ */
+function collectSimilarityTraits(source: MoreLikeThisSource, roleWeights: ReadonlyMap<string, number>): SimilarityTraits {
+	const creditPersonIds = new Set<string>();
 	for (const crew of source.crew ?? []) {
-		if (crew.job?.toLowerCase().includes("director") && crew.data?.id) directors.push(crew.data.id);
+		if (crew.job && roleWeights.has(crew.job) && crew.data?.id) creditPersonIds.add(crew.data.id);
 	}
-	for (const cast of source.cast ?? []) {
-		if ((cast.role?.toLowerCase().includes("actor") || !cast.role) && cast.data?.id) {
-			topCastCandidates.push({ id: cast.data.id, sortOrder: cast.sortOrder ?? 0 });
-		}
-	}
-
-	topCastCandidates.sort((a, b) => a.sortOrder - b.sortOrder);
+	const topCast = (source.cast ?? [])
+		.flatMap((cast) => (cast.data?.id ? [{ id: cast.data.id, sortOrder: cast.sortOrder ?? 0 }] : []))
+		.toSorted((left, right) => left.sortOrder - right.sortOrder)
+		.slice(0, 5)
+		.map((cast) => cast.id);
 
 	return {
 		collectionIds: pluckValidIds(source.collections),
 		genreIds: pluckValidIds(source.genres),
 		keywordIds: pluckValidIds(source.keywords),
-		directors,
-		topCast: topCastCandidates.slice(0, 5).map((cast) => cast.id),
+		creditPersonIds: [...creditPersonIds],
+		roleWeights,
+		topCast,
 	};
 }
 
@@ -256,10 +268,10 @@ function rankSimilarIds(
 	client: MoreLikeThisClient,
 	metadataId: string,
 	source: MoreLikeThisSource,
-	limit: number,
-	offset: number,
+	page: { limit: number; offset: number; tx?: DatabaseTransaction | undefined },
 ): { ids: string[]; total: number } {
-	const traits = collectSimilarityTraits(source);
+	const { limit, offset } = page;
+	const traits = collectSimilarityTraits(source, findCrewRoleWeights(page.tx));
 	const context: SimilarPageContext = {
 		client,
 		metadataId,
@@ -320,7 +332,7 @@ export async function getMoreLikeThis<F extends string>(
 			}
 		}
 
-		page = rankSimilarIds(client, metadataId, source, limit, offset);
+		page = rankSimilarIds(client, metadataId, source, { limit, offset, tx });
 		if (!preFetchedSource) similarIdsCache.set(cacheKey, page);
 	}
 
