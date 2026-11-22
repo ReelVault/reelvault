@@ -5,11 +5,16 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
-  # The release workflow runs the same gate before it builds anything.
+  # The release workflow runs this as a fallback when the commit has no CI result.
   workflow_call:
 
 permissions:
   contents: read
+
+env:
+  # Pinned static FFmpeg release; bump deliberately. The suite is
+  # build-independent, so a pinned version is safe.
+  FFMPEG_VERSION: "n8.1.2-2"
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -24,10 +29,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Biome, oxlint, TypeScript, knip, jscpd, the test-quality gate, the config guard and migration
-          # drift; then the deterministic query audits (statements per operation, query plans).
-          - name: Lint and query audits
-            command: bun run lint && bun run benchmark query-count query-plan --strict
+          # Biome, oxlint, TypeScript, knip, jscpd, the test-quality gate, the config guard and
+          # migration drift — the script runs every check side by side.
+          - name: Lint
+            command: bun run lint
+          # The deterministic query audits (statements per operation, query plans), in their own
+          # job so they do not extend the lint job's wall clock.
+          - name: Query audits
+            command: bun run benchmark query-count query-plan --strict
           # The whole suite once, with the coverage floor on top.
           - name: Tests
             command: bun run coverage
@@ -51,12 +60,33 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # The suite drives the real ffmpeg and ffprobe; the runner image ships neither.
-      - name: Install FFmpeg
+      # The suite drives the real ffmpeg and ffprobe; the runner image ships neither. A pinned
+      # static build restores from cache in seconds, where apt-get update plus install costs a
+      # minute and can hang.
+      - name: Cache FFmpeg
         if: matrix.ffmpeg
+        id: ffmpeg-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/ffmpeg
+          key: ${{ runner.os }}-${{ runner.arch }}-ffmpeg-${{ env.FFMPEG_VERSION }}
+
+      - name: Install FFmpeg
+        if: matrix.ffmpeg && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        env:
+          FFMPEG_ARCH: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
+          set -euo pipefail
+          mkdir -p "$HOME/.local/ffmpeg/bin"
+          for tool in ffmpeg ffprobe; do
+            curl -fsSL "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/$FFMPEG_VERSION/$tool-linux-$FFMPEG_ARCH" \
+              -o "$HOME/.local/ffmpeg/bin/$tool"
+          done
+          chmod +x "$HOME/.local/ffmpeg/bin/ffmpeg" "$HOME/.local/ffmpeg/bin/ffprobe"
+
+      - name: Add FFmpeg to PATH
+        if: matrix.ffmpeg
+        run: echo "$HOME/.local/ffmpeg/bin" >> "$GITHUB_PATH"
 
       - name: ${{ matrix.name }}
         run: ${{ matrix.command }}

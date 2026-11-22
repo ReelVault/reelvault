@@ -2,6 +2,10 @@ name: Release server
 
 # Builds and publishes the server release artifacts. Push a tag matching
 # package.json (v1.2.3), or run manually from the Actions tab.
+#
+# The gate reuses a CI result that already exists for the commit; the full
+# checks run only when the commit has none (manual dispatch on an untested
+# SHA). A failed CI result refuses the release without rebuilding anything.
 on:
   push:
     tags: ["v*"]
@@ -17,21 +21,89 @@ concurrency:
 
 permissions:
   contents: read
+  checks: read
 
 jobs:
-  # Release gate: a tag on a broken commit must not produce artifacts.
+  # Reuses the CI result for this commit when it exists, and falls back to
+  # running the checks when it does not. A red CI result fails this job, so a
+  # tag on a broken commit never produces artifacts.
+  gate:
+    name: CI result gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      decision: ${{ steps.gate.outputs.decision }}
+    steps:
+      - name: Check CI result for this commit
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          check_name="Code quality and tests"
+          deadline=$(( $(date +%s) + 1800 ))
+          while true; do
+            runs="$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
+              --jq ".check_runs[] | select(.name == \"$check_name\") | [.status, (.conclusion // \"\")] | @tsv")"
+            if [ -z "$runs" ]; then
+              echo "No CI result for this commit — running the checks as a fallback."
+              echo "decision=missing" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if printf '%s\n' "$runs" | awk -F'\t' '$1 != "completed" { pending = 1 } END { exit !pending }'; then
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "::error::CI is still running for $GITHUB_SHA after 30 minutes; re-run the release when it finishes."
+                exit 1
+              fi
+              echo "CI is still running for this commit — waiting 30s."
+              sleep 30
+              continue
+            fi
+            failed="$(printf '%s\n' "$runs" | awk -F'\t' '$1 == "completed" && $2 != "success" && $2 != "neutral" && $2 != "skipped" { print $2 }' | sort -u | tr '\n' ' ')"
+            if [ -n "$failed" ]; then
+              echo "::error::CI failed for $GITHUB_SHA ($failed); refusing to build release artifacts."
+              exit 1
+            fi
+            echo "CI passed for $GITHUB_SHA — reusing the result."
+            echo "decision=passed" >> "$GITHUB_OUTPUT"
+            exit 0
+          done
+
   checks:
     name: Checks
+    needs: gate
+    if: needs.gate.outputs.decision == 'missing'
     uses: ./.github/workflows/ci.yml
 
   release:
     name: Build and publish
-    needs: checks
+    needs: [gate, checks]
+    # `always()` would also build after a manual cancellation; `!cancelled()`
+    # still runs when `checks` is skipped, so the gate check below decides.
+    if: ${{ !cancelled() && needs.gate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: write
     steps:
+      - name: Verify release gate
+        env:
+          GATE: ${{ needs.gate.outputs.decision }}
+          CHECKS: ${{ needs.checks.result }}
+        run: |
+          set -euo pipefail
+          if [ "$GATE" = "passed" ]; then
+            echo "CI already passed for this commit — skipping the fallback checks."
+            exit 0
+          fi
+          if [ "$GATE" = "missing" ] && [ "$CHECKS" = "success" ]; then
+            echo "The fallback checks passed."
+            exit 0
+          fi
+          echo "::error::Release gate is not satisfied (gate='$GATE', fallback checks='$CHECKS')."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v7
 
