@@ -4,7 +4,7 @@
 	"description": "ReelVault Media Server",
 	"type": "module",
 	"private": true,
-	"packageManager": "bun@1.4.4",
+	"packageManager": "bun@1.4.5",
 	"engines": {
 		"bun": ">=1.4.4"
 	},
@@ -29,12 +29,12 @@
 		"admin:two-factor-enforcement": "bun scripts/admin/two-factor-enforcement.script.ts"
 	},
 	"dependencies": {
-		"@better-auth/drizzle-adapter": "1.7.26",
+		"@better-auth/drizzle-adapter": "1.7.27",
 		"@elysiajs/cors": "^1.4.3",
 		"@elysiajs/openapi": "^1.4.17",
-		"@reelvault/sdk": "^1.3.1",
+		"@reelvault/sdk": "^1.3.2",
 		"@sinclair/typebox": "^0.34.52",
-		"better-auth": "1.7.26",
+		"better-auth": "1.7.27",
 		"drizzle-orm": "^1.0.0-rc.5-ab785fc",
 		"elysia": "^1.4.32",
 		"fast-xml-builder": "^1.3.2",
@@ -46,14 +46,14 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.6.8",
-		"@types/bun": "^1.4.4",
+		"@types/bun": "^1.4.5",
 		"drizzle-kit": "^1.0.0-rc.5-ab785fc",
 		"jscpd": "5.4.3",
-		"knip": "^6.46.1",
+		"knip": "^6.47.0",
 		"lefthook": "^2.2.2",
 		"oxc-parser": "^0.159.0",
 		"oxlint": "^1.94.0",
-		"oxlint-tsgolint": "^7.0.2007",
+		"oxlint-tsgolint": "^7.0.2008",
 		"pino-pretty": "^13.2.0",
 		"typescript": "^7.0.2"
 	}
