@@ -1,3 +1,4 @@
+import { clearRecommendationFeatureCensus } from "@/repositories/discover-recommendations.reader";
 import { clearSimilarIdsCache } from "@/repositories/metadata-recommendations.reader";
 import { invalidateResponseBodies } from "@/utils/response-body.cache";
 
@@ -5,4 +6,5 @@ import { invalidateResponseBodies } from "@/utils/response-body.cache";
 export function invalidateReadCaches(): void {
 	invalidateResponseBodies();
 	clearSimilarIdsCache();
+	clearRecommendationFeatureCensus();
 }

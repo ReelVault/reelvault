@@ -212,7 +212,6 @@ export const serverConstants = {
 		metadataImageProviderConcurrency: 4,
 		metadataImageEnqueueConcurrency: 8,
 		metadataPersonImageLimit: 25,
-		discoverCandidateLimit: 500,
 	},
 	plugins: {
 		storage: {

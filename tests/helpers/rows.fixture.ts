@@ -213,6 +213,10 @@ export async function insertPeople(client: TestClient, values: Insertable<typeof
 	await client.insert(schema.people).values(rowsOf(values));
 }
 
+export async function insertMetadataCrew(client: TestClient, values: Insertable<typeof schema.metadataCrew>): Promise<void> {
+	await client.insert(schema.metadataCrew).values(rowsOf(values));
+}
+
 export async function selectPeople(client: TestClient) {
 	return await client.select().from(schema.people);
 }

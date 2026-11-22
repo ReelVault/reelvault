@@ -1,296 +1,393 @@
-import type { MetadataWithRelation } from "@reelvault/sdk";
-import { DAY } from "@/config/server/server.constants";
-import { metadataRepository } from "@/repositories/metadata.repository";
-import { toMap, unique } from "@/utils/array.utils";
+import type { MetadataType } from "@reelvault/sdk/common";
+import { HOUR } from "@/config/server/server.constants";
+import {
+	findRecommendationCandidates,
+	findRecommendationFallbackCandidates,
+	findRecommendationFeatureRows,
+	findRecommendationFeatureStats,
+	findRecommendationQuality,
+	findRecommendationSeedRows,
+	type RecommendationCandidateRow,
+	type RecommendationSeedRow,
+} from "@/repositories/discover-recommendations.reader";
+import { groupBy } from "@/utils/array.utils";
 import { createLogger } from "@/utils/logger.utils";
+import { clamp } from "@/utils/math.utils";
+import { MemoryCache } from "@/utils/memory.cache";
+import type { RecommendationFeatureKind, RecommendationFeatureRef, RecommendationFeatureStats } from "@/utils/recommendation-feature.utils";
+import {
+	RECOMMENDATION_CANDIDATE_FEATURE_DF_MAX_SHARE,
+	RECOMMENDATION_CANDIDATE_LIMIT,
+	RECOMMENDATION_COLD_START_TYPE_SHARE,
+	RECOMMENDATION_MIN_ITEMS,
+	RECOMMENDATION_MINORITY_TYPE_SHARE,
+	RECOMMENDATION_SLATE_SEED_BUCKETS,
+	RECOMMENDATION_TOP_FEATURES,
+	RECOMMENDATION_TOP_FEATURES_PER_KIND,
+} from "./recommendations/recommendation.constants";
+import {
+	type RecommendationCandidate,
+	type RecommendationScore,
+	recommendationSimilarityScale,
+	scoreRecommendationCandidate,
+	summarizeRecommendationVector,
+} from "./recommendations/recommendation-score.utils";
+import { buildRecommendationSeeds, type RecommendationSeedSet } from "./recommendations/recommendation-seed.builder";
+import { buildRecommendationSlate } from "./recommendations/recommendation-slate.builder";
+import { buildRecommendationTasteProfile, type RecommendationTasteProfile } from "./recommendations/recommendation-taste.builder";
+import {
+	buildRecommendationItemVector,
+	type RecommendationItemVector,
+	type WeightedRecommendationFeature,
+} from "./recommendations/recommendation-vector.builder";
 
 const logger = createLogger("DiscoverRecommendations");
 
-/** Recency decay half-life in days: a seed from 130 days ago has ~50% weight. */
-export const RECENCY_HALF_LIFE_DAYS = 130;
+const METADATA_TYPES: readonly MetadataType[] = ["movie", "tv_show"];
 
-/** Trending window: how many days back to count server-wide play activity. */
-export const TRENDING_DAYS = 14;
+/** Genres are broad by nature, so they may cover more of the catalog than other candidate features. */
+const GENRE_CANDIDATE_DF_MAX_SHARE = 0.7;
 
-/** Max candidates fetched from the server for global trending. */
-export const TRENDING_CANDIDATE_LIMIT = 100;
+/** A single-type slate spends its whole budget on that type. */
+const SINGLE_TYPE_SHARE: Record<MetadataType, number> = { movie: 1, tv_show: 1 };
 
-/**
- * Maximum fraction of the result set that can share the same primary genre.
- * At limit=10 → max 3 items per genre.
- */
-export const DIVERSITY_MAX_FRACTION = 1 / 3;
+/** Vectors depend only on the feature census, so one profile's work serves every other profile. */
+const recommendationItemVectorCache = new MemoryCache<RecommendationItemVector>({
+	ttlMs: HOUR,
+	maxSize: 5000,
+	name: "recommendation.item-vectors",
+});
 
-/** Explicit rating bonuses (rating column: 2=like, 1=neutral, 0=dislike). */
-export const RATING_WEIGHTS = { like: 6, neutral: 0, dislike: -8 } as const;
-
-/** The seed weight a rating adds: 2 = like, 1 = neutral, anything else = dislike. */
-export function ratingWeight(rating: number) {
-	if (rating === 2) return RATING_WEIGHTS.like;
-	if (rating === 1) return RATING_WEIGHTS.neutral;
-
-	return RATING_WEIGHTS.dislike;
+/** Crew jobs the census found informative; every other job is left out of vectors and candidates. */
+function creditRolesOf(stats: RecommendationFeatureStats): string[] {
+	return [...(stats.roleWeights?.keys() ?? [])];
 }
 
-/** Bonus for watchlist items, before recency decay. */
-export const WATCHLIST_BASE_BONUS = 4;
+/** The census the cached vectors were weighted with; a new census drops them. */
+let vectorCacheStats: RecommendationFeatureStats | null = null;
 
-/** watch_history watchCount multiplier. */
-export const WATCH_COUNT_MULTIPLIER = 2;
-
-/**
- * Playback completion bonuses.
- * Completion ratio < 0.2 is a mild negative signal (abandoned early).
- */
-export const COMPLETION_BONUS = {
-	completed: 8,
-	high: 6, // ratio >= 0.8
-	mid: 3, // ratio >= 0.5
-	low: 0, // ratio < 0.5
-	abandoned: -3, // ratio < 0.2 — started and quit early
-} as const;
-
-/** Relative weights of genre / keyword / cast in the candidate score. */
-export const SIGNAL_WEIGHTS = { genre: 1.0, keyword: 0.5, cast: 0.7 } as const;
-
-/** Popularity contribution to score — intentionally small to avoid popularity bias. */
-export const POPULARITY_WEIGHT = 0.03;
-
-export interface ProgressSignal {
-	bestCompletionRatio: number;
-	anyCompleted: boolean;
-	lastEngagedAt: number;
-}
-
-/**
- * Exponential recency decay. Returns 1.0 for "just now", ~0.5 at half-life, 0.2 floor.
- * `timestampMs` should be milliseconds since epoch (or 0 → minimum weight).
- */
-export function recencyMultiplier(timestampMs: number): number {
-	const daysSince = (Date.now() - timestampMs) / DAY;
-
-	return Math.max(0.2, Math.exp((-daysSince * Math.LN2) / RECENCY_HALF_LIFE_DAYS));
-}
-
-/**
- * Completion bonus from playback_progress signals.
- * Returns 0 if no progress data exists for this metadata.
- */
-export function completionBonus(
-	progressMap: Map<string, ProgressSignal>,
-	metadataId: string,
-): (typeof COMPLETION_BONUS)[keyof typeof COMPLETION_BONUS] {
-	const p = progressMap.get(metadataId);
-	if (!p) return 0;
-
-	if (p.anyCompleted) return COMPLETION_BONUS.completed;
-
-	if (p.bestCompletionRatio >= 0.8) return COMPLETION_BONUS.high;
-
-	if (p.bestCompletionRatio >= 0.5) return COMPLETION_BONUS.mid;
-
-	if (p.bestCompletionRatio < 0.2 && p.bestCompletionRatio > 0) return COMPLETION_BONUS.abandoned;
-
-	return COMPLETION_BONUS.low;
-}
-
-/**
- * Returns the timestamp (ms) to use for recency decay for a given seed item.
- * Prefers playback_progress.updatedAt (last engaged), falls back to 0 (minimum weight).
- */
-export function seedTimestamp(progressMap: Map<string, ProgressSignal>, metadataId: string): number {
-	const p = progressMap.get(metadataId);
-
-	// lastEngagedAt is unix seconds from SQLite unixepoch()
-	return p ? p.lastEngagedAt * 1000 : 0;
-}
-
-/**
- * Accumulate per-relation scores from a flat metadataId→relId map, weighted by seed weights.
- * Returns a Map<relId, score>.
- */
-export function buildRelationScores(
-	byMetadata: Map<string, string[]>,
-	seedWeights: Map<string, number>,
-	weight: number,
-): Map<string, number> {
-	const scores = new Map<string, number>();
-	for (const [metadataId, w] of seedWeights) {
-		for (const relId of byMetadata.get(metadataId) ?? []) {
-			const prev = scores.get(relId) ?? 0;
-			scores.set(relId, prev + w * weight);
-		}
+/** Item vectors for `ids`, reading feature rows only for titles no profile has vectorized under this census. */
+function loadVectors(ids: readonly string[], stats: RecommendationFeatureStats): Map<string, RecommendationItemVector> {
+	if (stats !== vectorCacheStats) {
+		recommendationItemVectorCache.clear();
+		vectorCacheStats = stats;
 	}
 
-	return scores;
+	const missing = ids.filter((id) => !recommendationItemVectorCache.has(id));
+	const rowsByMetadata = groupBy(findRecommendationFeatureRows(missing, creditRolesOf(stats)), (row) => row.metadataId);
+	const vectors = new Map<string, RecommendationItemVector>();
+
+	for (const id of ids) {
+		const cached = recommendationItemVectorCache.get(id);
+		if (cached) {
+			vectors.set(id, cached);
+			continue;
+		}
+
+		const rows = rowsByMetadata.get(id) ?? [];
+		if (rows.length === 0) continue;
+
+		const vector = buildRecommendationItemVector(id, rows, stats);
+		recommendationItemVectorCache.set(id, vector);
+		vectors.set(id, vector);
+	}
+
+	return vectors;
 }
 
-/** Relation ids that belong to one candidate, grouped by signal. */
-interface CandidateRelations {
-	genreIds: string[];
-	keywordIds: string[];
-	castIds: string[];
+function selectProfileFeatures(profile: RecommendationTasteProfile, stats: RecommendationFeatureStats): RecommendationFeatureRef[] {
+	const byKind = new Map<RecommendationFeatureKind, WeightedRecommendationFeature[]>();
+	const totalTitles = Math.max(1, stats.totalTitles);
+
+	for (const feature of profile.positiveFeatures) {
+		const share = (stats.documentFrequency.get(feature.key) ?? 0) / totalTitles;
+		const maximumShare = feature.kind === "genre" ? GENRE_CANDIDATE_DF_MAX_SHARE : RECOMMENDATION_CANDIDATE_FEATURE_DF_MAX_SHARE;
+		if (share > maximumShare || feature.idf < 1) continue;
+
+		const group = byKind.get(feature.kind) ?? [];
+		group.push(feature);
+		byKind.set(feature.kind, group);
+	}
+
+	const selected: WeightedRecommendationFeature[] = [];
+	for (const group of byKind.values()) {
+		group.sort((left, right) => right.weight - left.weight);
+		selected.push(...group.slice(0, RECOMMENDATION_TOP_FEATURES_PER_KIND));
+	}
+
+	selected.sort((left, right) => right.weight - left.weight);
+	const limited = selected.slice(0, RECOMMENDATION_TOP_FEATURES);
+
+	if (!limited.some((feature) => feature.kind === "genre")) {
+		const genre = profile.positiveFeatures.find((feature) => feature.kind === "genre");
+		if (genre) limited.push(genre);
+	}
+
+	return limited.map((feature) => ({ kind: feature.kind, id: feature.id }));
 }
 
-/** Pre-built per-signal score maps, keyed by relation id. */
-interface RelationScores {
-	genre: Map<string, number>;
-	keyword: Map<string, number>;
-	cast: Map<string, number>;
+function coldStartEntry(
+	candidate: RecommendationCandidate,
+	vector: RecommendationItemVector,
+	score: number,
+	quality: number,
+	freshness: number,
+): RecommendationScore {
+	const summary = summarizeRecommendationVector(vector);
+
+	return {
+		candidate,
+		vector,
+		score,
+		qualifies: true,
+		profileSimilarity: 0,
+		seedSimilarity: 0,
+		maxSeedSimilarity: 0,
+		topSeedId: null,
+		negativeSimilarity: 0,
+		quality,
+		freshness,
+		era: 0.5,
+		typeAffinity: 1,
+		specificScore: 0,
+		themeCount: 0,
+		strongThemeCount: 0,
+		bestThemeSpecificity: 0,
+		castEvidence: 0,
+		sharedGenres: 0,
+		primaryGenreId: summary.primaryGenreId,
+		primaryGenreLabel: summary.primaryGenreLabel,
+		collectionIds: summary.collectionIds,
+		creatorIds: summary.creatorIds,
+	};
 }
 
-/**
- * Score a single candidate against pre-built relation score maps.
- * `relations` are the relations belonging to that candidate.
- */
-export function scoreCandidate(relations: CandidateRelations, popularity: number, scores: RelationScores): number {
-	const gScore = relations.genreIds.reduce((acc, id) => acc + (scores.genre.get(id) ?? 0), 0);
-	const kScore = relations.keywordIds.reduce((acc, id) => acc + (scores.keyword.get(id) ?? 0), 0);
-	const cScore = relations.castIds.reduce((acc, id) => acc + (scores.cast.get(id) ?? 0), 0);
-
-	return gScore * SIGNAL_WEIGHTS.genre + kScore * SIGNAL_WEIGHTS.keyword + cScore * SIGNAL_WEIGHTS.cast + popularity * POPULARITY_WEIGHT;
-}
-
-/**
- * Greedy diversity filter: ensures no single primary genre fills more than
- * `maxPerGenre` slots in the output.
- */
-export function applyDiversityFilter<T extends { id: string }>(
-	ranked: T[],
-	primaryGenreOf: Map<string, string | undefined>,
+/** Fallback candidates per type: the best-rated list is mostly movies in a typical library. */
+function fallbackCandidatesByType(
+	excludeIds: readonly string[],
 	limit: number,
-): T[] {
-	const maxPerGenre = Math.max(2, Math.floor(limit * DIVERSITY_MAX_FRACTION));
-	const genreCount = new Map<string, number>();
-	const result: T[] = [];
-
-	for (const item of ranked) {
-		if (result.length >= limit) break;
-
-		const genre = primaryGenreOf.get(item.id);
-		if (genre) {
-			const current = genreCount.get(genre) ?? 0;
-			if (current >= maxPerGenre) continue;
-
-			genreCount.set(genre, current + 1);
-		}
-
-		result.push(item);
-	}
-
-	// If diversity filter left us short (e.g. catalogue is dominated by one genre),
-	// fill remaining slots from ranked items not yet included.
-	if (result.length < limit) {
-		const included = new Set(unique(result, (i) => i.id));
-		for (const item of ranked) {
-			if (result.length >= limit) break;
-
-			if (!included.has(item.id)) result.push(item);
-		}
-	}
-
-	return result;
+	types: readonly MetadataType[],
+): RecommendationCandidateRow[] {
+	return types.flatMap((type) => findRecommendationFallbackCandidates({ excludeIds, limit: Math.max(100, limit * 5), type }));
 }
 
-export interface CandidateItem {
-	id: string;
-	popularity?: number | null;
-	createdAt?: Date | null;
-}
+/** Well-rated, recently added titles for a profile without usable viewing history. */
+function coldStartEntries(limit: number, excludeIds: readonly string[], stats: RecommendationFeatureStats): RecommendationScore[] {
+	const candidates = fallbackCandidatesByType(excludeIds, limit, METADATA_TYPES);
+	if (candidates.length === 0) return [];
 
-/**
- * Cold-start fallback for profiles with no watch/rating/watchlist history.
- * Returns a blend: 60% most popular + 40% most recently added, deduplicated.
- */
-export function coldStartFallback<T extends CandidateItem>(candidates: T[], limit: number): T[] {
-	const byPopularity = candidates.toSorted((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
-	const byRecency = candidates.toSorted((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
-
-	const newCount = Math.ceil(limit * 0.4);
-	const popularCount = limit - newCount;
-
-	const seen = new Set<string>();
-	const result: T[] = [];
-
-	for (const item of byPopularity.slice(0, popularCount * 2)) {
-		if (result.length >= popularCount) break;
-
-		if (item.id && !seen.has(item.id)) {
-			seen.add(item.id);
-			result.push(item);
-		}
-	}
-
-	for (const item of byRecency) {
-		if (result.length >= limit) break;
-
-		if (item.id && !seen.has(item.id)) {
-			seen.add(item.id);
-			result.push(item);
-		}
-	}
-
-	return result;
-}
-
-/**
- * Trending = items with high server-wide play activity in the last TRENDING_DAYS days,
- * scored as: playCount (normalised) × 0.6 + popularity (normalised) × 0.4.
- * Falls back to popularity-sorted recentlyAdded if server has no watch data yet.
- */
-export async function buildTrending(
-	activityRows: Array<{ metadataId: string | null; playCount: number }>,
-	recentlyAdded: MetadataWithRelation[],
-	limit: number,
-	knownMap: Map<string, MetadataWithRelation>,
-): Promise<MetadataWithRelation[]> {
-	const validActivity = activityRows.filter((r): r is { metadataId: string; playCount: number } => Boolean(r.metadataId));
-
-	if (validActivity.length === 0) {
-		// Cold start: no server-wide activity yet — popularity-sorted recentlyAdded.
-		return recentlyAdded.toSorted((a, b) => b.popularity - a.popularity).slice(0, limit);
-	}
-
-	// Gather all metadata for trending candidates (may need extra DB fetch).
-	const trendingIds = validActivity.map((r) => r.metadataId);
-	const missingIds = trendingIds.filter((id) => !knownMap.has(id));
-	if (missingIds.length > 0) {
-		const fetched = await metadataRepository.findManyByIdsWithRelations(missingIds).catch((error: unknown) => {
-			logger.warn("Failed to load trending titles missing from the catalog batch", { count: missingIds.length, err: error });
-
-			return [];
-		});
-		for (const m of fetched) knownMap.set(m.id, m);
-	}
-
-	// Max values for normalisation, once every candidate is loaded: a fetched title
-	// must not score a popularity above 1 against a maximum taken without it.
-	let maxPlayCount = 0;
-	let maxPopularity = 0;
-	for (const row of validActivity) {
-		if (row.playCount > maxPlayCount) maxPlayCount = row.playCount;
-
-		const pop = knownMap.get(row.metadataId)?.popularity ?? 0;
-		if (pop > maxPopularity) maxPopularity = pop;
-	}
-
-	const activityByMetadataId = toMap(
-		validActivity,
-		(r) => r.metadataId,
-		(r) => r.playCount,
+	const vectors = loadVectors(
+		candidates.map((candidate) => candidate.id),
+		stats,
 	);
+	const maximumPopularity = Math.max(1, ...candidates.map((candidate) => candidate.popularity));
+	const now = Date.now();
+	const entries: RecommendationScore[] = [];
 
-	const scored: Array<{ item: MetadataWithRelation; score: number }> = [];
-	for (const id of trendingIds) {
-		const item = knownMap.get(id);
-		if (!item) continue;
+	for (const candidate of candidates) {
+		const vector = vectors.get(candidate.id);
+		if (!vector) continue;
 
-		const normPlay = maxPlayCount > 0 ? (activityByMetadataId.get(id) ?? 0) / maxPlayCount : 0;
-		const normPop = maxPopularity > 0 ? item.popularity / maxPopularity : 0;
-		scored.push({ item, score: normPlay * 0.6 + normPop * 0.4 });
+		const quality = candidate.ratingValue === null ? 0.5 : clamp(candidate.ratingValue / 10, 0, 1);
+		let freshness = 0;
+		if (candidate.latestMediaCreatedAt !== null) {
+			const ageDays = Math.max(0, (now - candidate.latestMediaCreatedAt.getTime()) / 86_400_000);
+			freshness = Math.exp(-ageDays / 90);
+		}
+		const popularity = candidate.popularity / maximumPopularity;
+		entries.push(coldStartEntry(candidate, vector, quality * 0.5 + freshness * 0.3 + popularity * 0.2, quality, freshness));
 	}
 
-	scored.sort((a, b) => b.score - a.score);
+	return entries;
+}
 
-	return scored.slice(0, limit).map((entry) => entry.item);
+function scoreCandidates(
+	candidates: readonly RecommendationCandidateRow[],
+	profile: RecommendationTasteProfile,
+	stats: RecommendationFeatureStats,
+	{ withRatings, similarityScale }: { withRatings: boolean; similarityScale: number },
+): RecommendationScore[] {
+	const ids = candidates.map((candidate) => candidate.id);
+	const vectors = loadVectors(ids, stats);
+	// Fallback rows already carry their best rating; feature-matched rows do not.
+	const quality = withRatings ? new Map<string, { value: number; votes: number }>() : findRecommendationQuality(ids);
+	const now = Date.now();
+	const scored: RecommendationScore[] = [];
+
+	for (const candidate of candidates) {
+		const vector = vectors.get(candidate.id);
+		if (!vector) continue;
+
+		const rating = quality.get(candidate.id);
+		const enriched: RecommendationCandidate = {
+			...candidate,
+			ratingValue: rating?.value ?? candidate.ratingValue,
+			ratingVotes: rating?.votes ?? candidate.ratingVotes,
+		};
+		scored.push(
+			scoreRecommendationCandidate(enriched, vector, profile, { nowMs: now, meanRating: stats.globalMeanRating, similarityScale }),
+		);
+	}
+
+	return scored;
+}
+
+/** A type gets its own row only when the profile watches enough of it or a title of that type earned its place. */
+function isRowEligible(type: MetadataType, typeShare: Record<MetadataType, number>): boolean {
+	return typeShare[type] >= RECOMMENDATION_MINORITY_TYPE_SHARE;
+}
+
+export interface RecommendationPipelineResult {
+	seeds: RecommendationSeedRow[];
+	seedSet: RecommendationSeedSet | null;
+	profile: RecommendationTasteProfile | null;
+	candidateCount: number;
+	scored: RecommendationScore[];
+	qualified: RecommendationScore[];
+	/** Movies and shows ranked together, for clients that show one row. */
+	slate: RecommendationScore[];
+	/** One ranked list per type, for the separate movie and show rows. */
+	slateByType: Record<MetadataType, RecommendationScore[]>;
+}
+
+function coldStartResult(
+	seeds: RecommendationSeedRow[],
+	seedSet: RecommendationSeedSet | null,
+	entries: RecommendationScore[],
+	limit: number,
+): RecommendationPipelineResult {
+	const typeShare = seedSet?.typeShare ?? RECOMMENDATION_COLD_START_TYPE_SHARE;
+	const minimumItems = Math.min(limit, RECOMMENDATION_MIN_ITEMS);
+	const slate = buildRecommendationSlate(entries, [], limit, typeShare, { minimumItems });
+	const slateByType: Record<MetadataType, RecommendationScore[]> = { movie: [], tv_show: [] };
+	for (const type of METADATA_TYPES) {
+		if (!isRowEligible(type, typeShare)) continue;
+
+		const typed = entries.filter((entry) => entry.candidate.type === type);
+		slateByType[type] = buildRecommendationSlate(typed, [], limit, SINGLE_TYPE_SHARE, { minimumItems });
+	}
+
+	return { seeds, seedSet, profile: null, candidateCount: 0, scored: entries, qualified: entries, slate, slateByType };
+}
+
+/**
+ * Backfill for short slates: non-qualifying scored titles, plus best-rated
+ * titles of each type whose row is eligible but has fewer than the minimum.
+ * Never fills to the limit, so unrelated popular titles cannot manufacture relevance.
+ */
+function backfillScores(
+	scored: readonly RecommendationScore[],
+	qualified: readonly RecommendationScore[],
+	profile: RecommendationTasteProfile,
+	context: { seedIds: readonly string[]; stats: RecommendationFeatureStats; limit: number; similarityScale: number },
+): RecommendationScore[] {
+	const shortTypes = METADATA_TYPES.filter(
+		(type) =>
+			isRowEligible(type, profile.typeShare) &&
+			qualified.filter((entry) => entry.candidate.type === type).length < RECOMMENDATION_MIN_ITEMS,
+	);
+	if (shortTypes.length === 0) return [];
+
+	const scoredIds = new Set(scored.map((entry) => entry.candidate.id));
+	const extraCandidates = fallbackCandidatesByType(context.seedIds, context.limit, shortTypes).filter(
+		(candidate) => !scoredIds.has(candidate.id),
+	);
+	const extra = scoreCandidates(extraCandidates, profile, context.stats, { withRatings: true, similarityScale: context.similarityScale });
+
+	return [...scored.filter((entry) => !entry.qualifies), ...extra].filter((entry) => shortTypes.includes(entry.candidate.type));
+}
+
+function buildSlates(
+	qualified: readonly RecommendationScore[],
+	fallback: readonly RecommendationScore[],
+	limit: number,
+	profile: RecommendationTasteProfile,
+): Pick<RecommendationPipelineResult, "slate" | "slateByType"> {
+	const topSeedIds = profile.seedVectors.slice(0, RECOMMENDATION_SLATE_SEED_BUCKETS).map((entry) => entry.seed.metadataId);
+	const slate = buildRecommendationSlate(qualified, fallback, limit, profile.typeShare, {
+		minimumItems: RECOMMENDATION_MIN_ITEMS,
+		topSeedIds,
+	});
+	const slateByType: Record<MetadataType, RecommendationScore[]> = { movie: [], tv_show: [] };
+
+	for (const type of METADATA_TYPES) {
+		const typed = qualified.filter((entry) => entry.candidate.type === type);
+		const eligible = isRowEligible(type, profile.typeShare);
+		slateByType[type] = buildRecommendationSlate(
+			typed,
+			eligible ? fallback.filter((entry) => entry.candidate.type === type) : [],
+			limit,
+			SINGLE_TYPE_SHARE,
+			{ minimumItems: eligible ? RECOMMENDATION_MIN_ITEMS : 0, topSeedIds },
+		);
+	}
+
+	return { slate, slateByType };
+}
+
+function findProfileCandidates(
+	profile: RecommendationTasteProfile,
+	stats: RecommendationFeatureStats,
+	seedIds: readonly string[],
+	smallCatalog: boolean,
+): RecommendationCandidateRow[] {
+	// Small catalogs are cheap to score exhaustively. The fallback query is
+	// only the candidate source; the scorer decides the final order.
+	if (smallCatalog) return findRecommendationFallbackCandidates({ excludeIds: seedIds, limit: stats.totalTitles });
+
+	const features = selectProfileFeatures(profile, stats);
+	if (features.length === 0) return [];
+
+	return findRecommendationCandidates({
+		features,
+		excludeIds: seedIds,
+		limit: RECOMMENDATION_CANDIDATE_LIMIT,
+		creditRoles: creditRolesOf(stats),
+	});
+}
+
+/** Builds the profile's recommendation slates and keeps the score breakdown for tuning and tests. */
+export function buildRecommendations(profileId: string, requestedLimit: number): RecommendationPipelineResult {
+	const limit = clamp(requestedLimit, 1, 50);
+	const seeds = findRecommendationSeedRows(profileId);
+	const seedIds = seeds.map((seed) => seed.metadataId);
+	const stats = findRecommendationFeatureStats();
+
+	if (seeds.length === 0) return coldStartResult(seeds, null, coldStartEntries(limit, [], stats), limit);
+
+	const seedSet = buildRecommendationSeeds(seeds, Date.now());
+	const profile = buildRecommendationTasteProfile(seedSet, loadVectors(seedIds, stats), stats.totalTitles);
+	if (!profile) return coldStartResult(seeds, seedSet, coldStartEntries(limit, seedIds, stats), limit);
+
+	const smallCatalog = stats.totalTitles <= RECOMMENDATION_CANDIDATE_LIMIT;
+	const candidates = findProfileCandidates(profile, stats, seedIds, smallCatalog);
+	if (candidates.length === 0) return coldStartResult(seeds, seedSet, coldStartEntries(limit, seedIds, stats), limit);
+
+	// Backfill titles are judged on the same scale as the profile's own candidates.
+	const similarityScale = recommendationSimilarityScale(
+		loadVectors(
+			candidates.map((candidate) => candidate.id),
+			stats,
+		).values(),
+		profile,
+	);
+	const scored = scoreCandidates(candidates, profile, stats, { withRatings: smallCatalog, similarityScale });
+	const qualified = scored.filter((entry) => entry.qualifies).toSorted((left, right) => right.score - left.score);
+	const fallback = backfillScores(scored, qualified, profile, { seedIds, stats, limit, similarityScale });
+	const { slate, slateByType } = buildSlates(qualified, fallback, limit, profile);
+
+	logger.debug("Recommendation slate built", {
+		profileId,
+		seeds: profile.seedCount,
+		candidates: candidates.length,
+		qualified: qualified.length,
+		served: { all: slate.length, movie: slateByType.movie.length, tv_show: slateByType.tv_show.length },
+		top: slate.slice(0, 5).map((entry) => ({
+			id: entry.candidate.id,
+			score: Number(entry.score.toFixed(3)),
+			genre: entry.primaryGenreLabel,
+		})),
+	});
+
+	return { seeds, seedSet, profile, candidateCount: candidates.length, scored, qualified, slate, slateByType };
 }

@@ -3,72 +3,37 @@ import type { DiscoverResponse } from "@reelvault/sdk/common";
 import { MINUTE } from "@/config/server/server.constants";
 import { systemResourcesService } from "@/config/system-resources.service";
 import { discoverRepository } from "@/repositories/discover.repository";
+import { findDislikedMetadataIds, findMetadataTitles } from "@/repositories/discover-recommendations.reader";
 import { metadataRepository } from "@/repositories/metadata.repository";
-import { groupBy, toMap, unique } from "@/utils/array.utils";
+import { toMap } from "@/utils/array.utils";
 import { assertProfileId } from "@/utils/domain.errors";
 import { createLogger } from "@/utils/logger.utils";
 import { clamp } from "@/utils/math.utils";
 import { MemoryCache } from "@/utils/memory.cache";
 import { runSafely } from "@/utils/safe-execute.utils";
 import { isNotNullish } from "@/utils/type.utils";
-import {
-	applyDiversityFilter,
-	buildRelationScores,
-	buildTrending,
-	coldStartFallback,
-	completionBonus,
-	type ProgressSignal,
-	ratingWeight,
-	recencyMultiplier,
-	SIGNAL_WEIGHTS,
-	scoreCandidate,
-	seedTimestamp,
-	TRENDING_CANDIDATE_LIMIT,
-	TRENDING_DAYS,
-	WATCH_COUNT_MULTIPLIER,
-	WATCHLIST_BASE_BONUS,
-} from "./discover-recommendations.service";
+import { buildRecommendations, type RecommendationPipelineResult } from "./discover-recommendations.service";
+import { buildTrending, TRENDING_CANDIDATE_LIMIT, TRENDING_DAYS } from "./recommendation-trending.service";
+import { buildRecommendationReasons, reasonSeedIds } from "./recommendations/recommendation-reasons.builder";
 
-interface RecommendationInput {
-	candidates: Awaited<ReturnType<typeof discoverRepository.findRecommendationCandidates>>;
-	progressSignals: Awaited<ReturnType<typeof discoverRepository.findPlaybackCompletionSignals>>;
-	dislikedIds: ReadonlySet<string>;
-}
+/**
+ * Discover builds at most this many recommendations. The route may still ask
+ * for 50 items, but recently added and trending keep the full 50 while a
+ * longer recommendation slate only adds MMR and hydration work.
+ */
+const DISCOVER_RECOMMENDATION_LIMIT = 20;
 
-function buildSeedWeights(
-	watched: Array<{ metadataId: string | null; watchCount: number }>,
-	watchlist: Array<{ metadataId: string | null; createdAt: Date }>,
-	ratings: Array<{ metadataId: string | null; rating: number }>,
-	progressMap: Map<string, ProgressSignal>,
-): Map<string, number> {
-	const seedWeights = new Map<string, number>();
-
-	for (const item of watched) {
-		if (!item.metadataId) continue;
-
-		const ts = seedTimestamp(progressMap, item.metadataId);
-		const decay = recencyMultiplier(ts);
-		const base = (WATCH_COUNT_MULTIPLIER * item.watchCount + completionBonus(progressMap, item.metadataId)) * decay;
-		const prev = seedWeights.get(item.metadataId) ?? 0;
-		seedWeights.set(item.metadataId, prev + base);
-	}
-
-	for (const item of watchlist) {
-		if (!item.metadataId) continue;
-
-		const decay = recencyMultiplier(item.createdAt.getTime());
-		const prev = seedWeights.get(item.metadataId) ?? 0;
-		seedWeights.set(item.metadataId, prev + WATCHLIST_BASE_BONUS * decay);
-	}
-
-	for (const item of ratings) {
-		if (!item.metadataId) continue;
-
-		const prev = seedWeights.get(item.metadataId) ?? 0;
-		seedWeights.set(item.metadataId, prev + ratingWeight(item.rating));
-	}
-
-	return seedWeights;
+function emptyRecommendationResult(): RecommendationPipelineResult {
+	return {
+		seeds: [],
+		seedSet: null,
+		profile: null,
+		candidateCount: 0,
+		scored: [],
+		qualified: [],
+		slate: [],
+		slateByType: { movie: [], tv_show: [] },
+	};
 }
 
 class DiscoverService {
@@ -86,11 +51,19 @@ class DiscoverService {
 		const limit = clamp(query.limit ?? 10, 1, 50);
 
 		const full = await this.cache.getOrSet(profileId, () => this.buildDiscoverView(profileId));
+		const recommendations = full.recommendations.slice(0, limit);
+		const recommendedMovies = (full.recommendedMovies ?? []).slice(0, limit);
+		const recommendedShows = (full.recommendedShows ?? []).slice(0, limit);
+		// The three lists are sliced separately, so keep the reason of every title any of them still serves.
+		const servedIds = new Set([...recommendations, ...recommendedMovies, ...recommendedShows].map((metadata) => metadata.id));
 
 		return {
 			recentlyAddedMovies: full.recentlyAddedMovies.slice(0, limit),
 			recentlyAddedShows: full.recentlyAddedShows.slice(0, limit),
-			recommendations: full.recommendations.slice(0, limit),
+			recommendations,
+			recommendedMovies,
+			recommendedShows,
+			recommendationReasons: (full.recommendationReasons ?? []).filter((reason) => servedIds.has(reason.metadataId)),
 			trending: full.trending.slice(0, limit),
 		};
 	}
@@ -98,34 +71,29 @@ class DiscoverService {
 	private async buildDiscoverView(profileId: string): Promise<DiscoverResponse> {
 		// Cache the maximum-size view once per profile; callers slice to their limit.
 		const limit = 50;
-		const [candidates, progressSignals] = await Promise.all([
-			discoverRepository.findRecommendationCandidates(profileId),
-			discoverRepository.findPlaybackCompletionSignals(profileId),
-		]);
-		// A rating of 0 is the one "not interested" definition, shared by
-		// recommendations and trending.
-		const dislikedIds = toIdSet(
-			candidates.ratings.filter((item) => item.rating === 0),
-			(item) => item.metadataId,
-		);
-		const input: RecommendationInput = { candidates, progressSignals, dislikedIds };
-		const [recentlyAdded, recommendationIds, trendingRaw] = await Promise.all([
+		const [recentlyAdded, recommendationResult, dislikedIds, trendingRaw] = await Promise.all([
 			metadataRepository.findRecentlyAddedByTypes(["movie", "tv_show"], limit),
-			this.getRecommendations(input, limit).catch((error: unknown) => {
+			this.getRecommendations(profileId, DISCOVER_RECOMMENDATION_LIMIT).catch((error: unknown) => {
 				this.logger.warn("Failed to generate recommendations for discover view, falling back to empty list", { profileId, err: error });
+
+				return emptyRecommendationResult();
+			}),
+			findDislikedMetadataIds(profileId).catch((error: unknown) => {
+				this.logger.warn("Failed to load disliked titles for discover view, falling back to none", { profileId, err: error });
+
+				return new Set<string>();
+			}),
+			discoverRepository.findRecentlyWatchedByOthers(TRENDING_DAYS, TRENDING_CANDIDATE_LIMIT).catch((error: unknown) => {
+				this.logger.warn("Failed to load trending titles for discover view, falling back to none", { profileId, err: error });
 
 				return [];
 			}),
-			discoverRepository
-				.findRecentlyWatchedByOthers(TRENDING_DAYS, TRENDING_CANDIDATE_LIMIT)
-				.then((rows) => rows.filter((row) => !(row.metadataId && dislikedIds.has(row.metadataId))))
-				.catch((error: unknown) => {
-					this.logger.warn("Failed to load trending titles for discover view, falling back to none", { profileId, err: error });
-
-					return [];
-				}),
 		]);
 
+		const { slate, slateByType, profile } = recommendationResult;
+		const servedEntries = [...slate, ...slateByType.movie, ...slateByType.tv_show];
+		const recommendationIds = [...new Set(servedEntries.map((entry) => entry.candidate.id))];
+		const trending = trendingRaw.filter((row) => !(row.metadataId && dislikedIds.has(row.metadataId)));
 		const recentlyAddedMovies = recentlyAdded.get("movie") ?? [];
 		const recentlyAddedShows = recentlyAdded.get("tv_show") ?? [];
 		const recentlyAddedAll = [...recentlyAddedMovies, ...recentlyAddedShows];
@@ -133,29 +101,41 @@ class DiscoverService {
 		// Hydrate the recommendation and trending items that are not already in
 		// recentlyAdded — in one read, so the two lists do not fetch the same
 		// titles twice.
-		const recentlyAddedMap = toMap(recentlyAddedAll, (m) => m.id);
-		const missingRecIds = recommendationIds.filter((id) => !recentlyAddedMap.has(id));
-		const missingTrendingIds = trendingRaw
-			.map((row) => row.metadataId)
-			.filter((id): id is string => Boolean(id) && !recentlyAddedMap.has(id));
-		const missingIds = [...new Set([...missingRecIds, ...missingTrendingIds])];
+		const recentlyAddedMap = toMap(recentlyAddedAll, (metadata) => metadata.id);
+		const missingRecommendationIds = recommendationIds.filter((id) => !recentlyAddedMap.has(id));
+		const missingTrendingIds = trending.map((row) => row.metadataId).filter((id): id is string => Boolean(id) && !recentlyAddedMap.has(id));
+		const missingIds = [...new Set([...missingRecommendationIds, ...missingTrendingIds])];
 		let missingEnriched: MetadataWithRelation[] = [];
 		if (missingIds.length > 0) {
 			missingEnriched = await metadataRepository.findManyByIdsWithRelations(missingIds);
 		}
-		const enrichedMap = toMap([...recentlyAddedAll, ...missingEnriched], (m) => m.id);
-		const hydratedRecs: MetadataWithRelation[] = recommendationIds.map((id) => enrichedMap.get(id)).filter((v) => isNotNullish(v));
+		const enrichedMap = toMap([...recentlyAddedAll, ...missingEnriched], (metadata) => metadata.id);
+		const hydrate = (entries: ReadonlyArray<{ candidate: { id: string } }>): MetadataWithRelation[] =>
+			entries.map((entry) => enrichedMap.get(entry.candidate.id)).filter((metadata) => isNotNullish(metadata));
+		const reasonsById = new Map(
+			buildRecommendationReasons(servedEntries, profile, this.loadSeedTitles(servedEntries)).map((reason) => [reason.metadataId, reason]),
+		);
 
-		const trending = await buildTrending(trendingRaw, recentlyAddedAll, limit, enrichedMap);
-
-		const result: DiscoverResponse = {
+		return {
 			recentlyAddedMovies,
 			recentlyAddedShows,
-			recommendations: hydratedRecs,
-			trending,
+			recommendations: hydrate(slate),
+			recommendedMovies: hydrate(slateByType.movie),
+			recommendedShows: hydrate(slateByType.tv_show),
+			recommendationReasons: [...reasonsById.values()].filter((reason) => enrichedMap.has(reason.metadataId)),
+			trending: await buildTrending(trending, recentlyAddedAll, limit, enrichedMap),
 		};
+	}
 
-		return result;
+	/** Titles for "Because you watched" reasons; a failed read only drops those reasons to the next kind. */
+	private loadSeedTitles(entries: Parameters<typeof reasonSeedIds>[0]): Map<string, string> {
+		try {
+			return findMetadataTitles(reasonSeedIds(entries));
+		} catch (error: unknown) {
+			this.logger.warn("Failed to load seed titles for recommendation reasons", { err: error });
+
+			return new Map();
+		}
 	}
 
 	clearCache(profileId?: string): void {
@@ -167,80 +147,9 @@ class DiscoverService {
 		}
 	}
 
-	private async getRecommendations(input: RecommendationInput, limit: number): Promise<string[]> {
-		return await runSafely(this, "getRecommendations", () => {
-			const { watched, ratings, watchlist, catalog } = input.candidates;
-			const watchedIds = toIdSet(watched, (item) => item.metadataId);
-			const watchlistIds = toIdSet(watchlist, (item) => item.metadataId);
-			const progressMap = toMap(input.progressSignals, (p) => p.metadataId);
-
-			const seedWeights = buildSeedWeights(watched, watchlist, ratings, progressMap);
-
-			const unconsumedCandidates = catalog.filter(
-				(item) => item.id && !watchedIds.has(item.id) && !watchlistIds.has(item.id) && !input.dislikedIds.has(item.id),
-			);
-
-			if (unconsumedCandidates.length === 0) return [];
-
-			if (seedWeights.size === 0) {
-				const fallback = coldStartFallback(unconsumedCandidates, limit);
-
-				return fallback.map((item) => item.id);
-			}
-
-			const candidateIds = toIdSet(unconsumedCandidates, (item) => item.id);
-			const allRelevantIds = unique([...seedWeights.keys(), ...candidateIds]);
-
-			const relationRows = discoverRepository.findMetadataRelations(allRelevantIds);
-			const genresByMetadata = groupBy(
-				relationRows.filter((row) => row.kind === "genre"),
-				(r) => r.metadataId,
-				(r) => r.relId,
-			);
-			const keywordsByMetadata = groupBy(
-				relationRows.filter((row) => row.kind === "keyword"),
-				(r) => r.metadataId,
-				(r) => r.relId,
-			);
-			const castByMetadata = groupBy(
-				relationRows.filter((row) => row.kind === "cast"),
-				(r) => r.metadataId,
-				(r) => r.relId,
-			);
-
-			const genreScores = buildRelationScores(genresByMetadata, seedWeights, SIGNAL_WEIGHTS.genre);
-			const keywordScores = buildRelationScores(keywordsByMetadata, seedWeights, SIGNAL_WEIGHTS.keyword);
-			const castScores = buildRelationScores(castByMetadata, seedWeights, SIGNAL_WEIGHTS.cast);
-
-			const scored = unconsumedCandidates.map((item) => ({
-				item,
-				score: scoreCandidate(
-					{
-						genreIds: genresByMetadata.get(item.id) ?? [],
-						keywordIds: keywordsByMetadata.get(item.id) ?? [],
-						castIds: castByMetadata.get(item.id) ?? [],
-					},
-					item.popularity,
-					{ genre: genreScores, keyword: keywordScores, cast: castScores },
-				),
-			}));
-			scored.sort((a, b) => b.score - a.score || b.item.popularity - a.item.popularity);
-
-			const primaryGenreOf = toMap(
-				[...candidateIds],
-				(id) => id,
-				(id) => genresByMetadata.get(id)?.[0],
-			);
-			const scoredItems = scored.map((s) => s.item);
-			const diversified = applyDiversityFilter(scoredItems, primaryGenreOf, limit);
-
-			return diversified.map((item) => item.id);
-		});
+	private async getRecommendations(profileId: string, limit: number): Promise<RecommendationPipelineResult> {
+		return await runSafely(this, "getRecommendations", () => buildRecommendations(profileId, limit));
 	}
-}
-
-function toIdSet<T>(items: readonly T[], keyFn: (item: T) => string | null | undefined): Set<string> {
-	return new Set(unique(items, keyFn).filter((id): id is string => Boolean(id)));
 }
 
 export const discoverService = new DiscoverService();
