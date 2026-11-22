@@ -999,3 +999,26 @@ HTTP results use 10 concurrent clients unless noted. Figures come from this rele
 - **Starting the player no longer erases saved progress.** A heartbeat sent before the player reached the saved position could reset it to zero.
 - **A show stays in Continue Watching after moving to the next episode.** It disappeared until the new episode had been watched for a few minutes.
 - **Resuming from another version of a file no longer jumps to the end.** A position saved on a version of a different length is no longer applied to the file being opened.
+
+# v1.3.9
+
+### Features
+
+- **Discover recommends movies and shows separately.** Each type is ranked on its own, so a profile that mostly watches movies still gets a full show row when shows match its taste. The combined `recommendations` list stays for older clients.
+- **Every recommendation says why it was picked.** The reason is the same collection, a shared crew member (with the job name the metadata provider uses), a closely matching watched title, a shared cast member, a shared theme or the main genre. It is sent as a kind and labels, so each client builds the sentence in its own language.
+- **Recommendations follow what the profile actually watches.** They are built from the themes and credits of watched titles, weighted by how much of each title was watched, how recently, the profile's ratings and its watchlist.
+- **Recommendations work with any metadata provider.** Crew credits count whatever the provider calls the job and in any language: how much a job says about a title is measured from the library itself, so a director or composer counts and a crowd of stunt performers does not.
+
+### Fixes
+
+- **Recommendations no longer drift to unrelated popular titles.** A profile watching medical and racing shows was offered thrillers such as Shutter Island and Sherlock; a title now has to share a specific theme, credit or collection with the watched titles, or closely match one of them.
+- **Mood tags alone no longer qualify a title.** Two broad tags such as "intimate" and "compassionate", one rare tag on a title that resembles nothing watched, or a title sharing no genre with the profile (an animated family film for a teen drama profile) used to be enough.
+- **One franchise no longer fills a recommendation row.** A row shows at most one title per collection, even when few titles match.
+- **A well-rated or newly added title no longer outranks a closer match.** Rating, freshness and release year now only order titles that match about equally well.
+- **A rarely watched type no longer gets a row padded with popular titles.** It shows only titles that match.
+- **Disliked titles stay out of recommendations, and titles similar to them rank lower.**
+- **Ratings on a 100-point scale no longer skew the ranking.** Every rating is converted to a 10-point scale first.
+- **A profile with only weak matches gets a shorter list** instead of one filled with unrelated popular titles.
+- **Titles known only from playback progress keep their real watch date** instead of all counting as equally recent.
+- **Similar titles count shared actors again.** The cast was filtered by a role name that metadata providers do not send, so a shared lead actor never raised a title in the list.
+- **Similar titles no longer treat assistants and cinematographers as directors.** Any crew job containing "Director" got the full director bonus; a shared crew member now counts by how much the job says about a title, whatever the provider calls it.
